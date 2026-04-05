@@ -1,0 +1,37 @@
+[rule.blank-imports]
+  severity = "error"
+  alternative = "Use _ only for blank imports in main or tests"
+
+[rule.constant-naming]
+  severity = "error"
+  pattern = "^[A-Z][A-Za-z0-9]*$"
+  message = "Constants must be in CamelCase starting with uppercase"
+
+[rule.max-public-functions]
+  severity = "warning"
+  max-functions = 10
+  package-glob = "*.go"
+  message = "Too many public functions in a package; consider refactoring"
+
+[rule.forbid-log-fatal]
+  severity = "error"
+  forbidden-calls = ["log.Fatal", "log.Fatalf", "log.Panic", "log.Panicf"]
+  message = "Use structured logging (e.g., zap/slog) instead of log.Fatal"
+
+[rule.context-as-first-param]
+  severity = "error"
+  message = "context.Context should be the first parameter of a function"
+
+[rule.filename-format]
+  severity = "error"
+  arguments = [
+    "^[a-z][_a-z0-9]*.go$",
+    "^.*_test\\.go$"
+  ]
+  exclude = [
+    "vendor/**",
+    "**/*_generated.go"
+  ]
+
+[rule.redefines-builtin-id]
+  severity = "error"

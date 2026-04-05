@@ -1,0 +1,41 @@
+# .editorconfig
+
+# Корневой файл конфигурации (не искать выше)
+root = true
+
+# Общие настройки для всех файлов
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Настройки для Go-файлов
+[*.go]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+# Настройки для конфигурационных и текстовых файлов
+[*.{yml,yaml,json,xml,toml,ini,cfg,conf}]
+indent_style = space
+indent_size = 2
+
+# Настройки для Markdown
+[*.md]
+indent_style = space
+indent_size = 2
+
+# Настройки для shell-скриптов
+[*.sh]
+indent_style = space
+indent_size = 4
+
+# Настройки для Dockerfile
+[Dockerfile]
+indent_style = space
+indent_size = 2
+
+# Настройки для Makefile
+[Makefile]
+indent_style = tab

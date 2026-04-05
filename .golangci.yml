@@ -1,0 +1,94 @@
+# Configuration for golangci-lint v2.6.1
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false
+  allow-parallel-runners: true
+
+linters:
+  enable:
+    - asciicheck
+    - bodyclose     # Checks whether HTTP response body is closed successfully
+    - copyloopvar   # A linter detects places where loop variables are copied. [fast, auto-fix]
+    - dogsled
+    - durationcheck
+    - errcheck      # Errcheck is a program for checking for unchecked errors in Go programs
+    - errorlint
+    - fatcontext    # Detects nested contexts in loops and function literals. [auto-fix]
+    - gocritic      # Provides diagnostics that check for bugs, performance and style issues
+    - gosec         # Inspects source code for security problems
+    - govet         # Examines Go source code and reports suspicious constructs
+    - ineffassign   # Detects when assignments to existing variables are not used
+    - intrange      # Intrange is a linter to find places where for loops could make use of an integer range. [auto-fix]
+    - misspell      # Finds commonly misspelled English words in comments
+    - nakedret
+    - nilerr
+    - nolintlint    # Reports ill-formed or insufficient nolint directives
+    - perfsprint
+    - prealloc      # Finds slice declarations that could potentially be preallocated
+    - revive        # Fast, configurable, extensible, flexible, and beautiful linter for Go
+    - sqlclosecheck # Checks that sql.Rows, sql.Stmt, sqlx.NamedStmt, pgx.Query are closed.
+    - staticcheck   # Staticcheck is a go vet on steroids, applying a ton of static analysis checks
+    - testifylint
+    - unused        # Checks Go code for unused constants, variables, functions and types
+    - usestdlibvars
+    - wastedassign
+    - whitespace    # Tool for detection of leading and trailing whitespace
+  settings:
+    gosec:
+      excludes:
+        - G115
+    perfsprint:
+      int-conversion: true
+      err-error: true
+      errorf: true
+      sprintf1: true
+      strconcat: true
+    testifylint:
+      enable-all: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - structcheck
+          - unused
+        text: '`data` is unused'
+      - linters:
+          - staticcheck
+        text: 'SA1019:'
+      - linters:
+          - revive
+        text: 'var-naming:'
+      - linters:
+          - revive
+        text: 'exported:'
+      - linters:
+          - gosec
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gofmt:
+      rewrite-rules:
+        - pattern: 'interface{}'
+          replacement: 'any'
+
+severity:
+  default: error
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
