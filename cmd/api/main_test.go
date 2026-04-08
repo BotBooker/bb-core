@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/botbooker/bb-core/internal/observability/otel"
-	router "github.com/botbooker/bb-core/internal/router/api"
+	"github.com/botbooker/bb-core/internal/router"
 )
 
 // setupTestRouter creates a test router using the api router package

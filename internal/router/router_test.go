@@ -1,4 +1,4 @@
-package router_api
+package router
 
 import (
 	"net/http"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestSetupRouter(t *testing.T) {
-	router := setupEngine(RouterConfig{})
+	router := SetupRouter()
 
 	assert.NotNil(t, router)
 }
@@ -36,7 +36,7 @@ func TestRegisterRoutes(t *testing.T) {
 }
 
 func TestPingRoute(t *testing.T) {
-	router := setupEngine(RouterConfig{})
+	router := setupEngine()
 
 	req, err := http.NewRequest("GET", "/ping", nil)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestPingRoute(t *testing.T) {
 }
 
 func TestHealthRoute(t *testing.T) {
-	router := setupEngine(RouterConfig{})
+	router := setupEngine()
 
 	req, err := http.NewRequest("GET", "/healthz", nil)
 	if err != nil {
@@ -63,29 +63,4 @@ func TestHealthRoute(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "OK")
-}
-
-func TestSetupRouter_WithTrustedProxies(t *testing.T) {
-	router := setupEngine(RouterConfig{
-		TrustedProxies: []string{"127.0.0.1", "192.168.1.0/24"},
-	})
-
-	assert.NotNil(t, router)
-}
-
-func TestSetupRouter_WithTrustedPlatform(t *testing.T) {
-	router := setupEngine(RouterConfig{
-		TrustedPlatform: "X-Forwarded-For",
-	})
-
-	assert.NotNil(t, router)
-}
-
-func TestSetupRouter_WithFullConfig(t *testing.T) {
-	router := setupEngine(RouterConfig{
-		TrustedProxies:  []string{"10.0.0.0/8"},
-		TrustedPlatform: "X-Real-IP",
-	})
-
-	assert.NotNil(t, router)
 }
