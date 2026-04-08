@@ -4,12 +4,12 @@ package main
 import (
 	"log/slog"
 
-	server_api "github.com/botbooker/bb-core/internal/server/api"
+	"github.com/botbooker/bb-core/internal/server"
 )
 
 func main() {
 	// Run server with graceful shutdown
-	if err := server_api.RunServer(); err != nil {
+	if err := server.RunServer(); err != nil {
 		slog.Error("server failed", "error", err)
 	}
 }

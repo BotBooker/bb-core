@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -223,4 +225,29 @@ func TestServer_Integration(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestRunServer_WithSignal(t *testing.T) {
+	// RunServer in a goroutine, send SIGTERM to trigger shutdown
+	done := make(chan error, 1)
+	go func() {
+		done <- RunServer()
+	}()
+
+	// Give server time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Send SIGTERM signal to trigger graceful shutdown
+	p, err := os.FindProcess(os.Getpid())
+	require.NoError(t, err)
+	err = p.Signal(syscall.SIGTERM)
+	require.NoError(t, err)
+
+	// Wait for RunServer to return
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunServer did not return within timeout")
+	}
 }

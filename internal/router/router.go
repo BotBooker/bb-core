@@ -1,4 +1,4 @@
-package router_api
+package router
 
 import (
 	"github.com/go-chi/chi/v5"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/botbooker/bb-core/internal/health"
 	"github.com/botbooker/bb-core/internal/observability/otel"
-	"github.com/botbooker/bb-core/internal/server"
 )
 
 // RouterConfig содержит конфигурацию маршрутизатора.
@@ -19,15 +18,11 @@ type RouterConfig struct {
 // SetupRouter инициализирует и настраивает chi-роутер с middleware и маршрутами.
 // Вынесено в отдельную функцию для удобства тестирования.
 func SetupRouter() *chi.Mux {
-	cfg := server.GetServerConfig()
-	return setupEngine(RouterConfig{
-		TrustedProxies:  cfg.TrustedProxies,
-		TrustedPlatform: cfg.TrustedPlatform,
-	})
+	return setupEngine()
 }
 
 // setupEngine создает и настраивает базовый chi-роутер.
-func setupEngine(_ RouterConfig) *chi.Mux {
+func setupEngine() *chi.Mux {
 	router := chi.NewRouter()
 	applicationName := otel.GetApplicationName("botbooker-api")
 
