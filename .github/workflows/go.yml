@@ -94,7 +94,7 @@ jobs:
         run: go mod download
 
       - name: Setup PostgreSQL
-        uses: ikalnytskyi/action-setup-postgres@v8
+        uses: ikalnytskyi/action-setup-postgres@c4dda34aae1c821e3a771b68b73b13af3198a7ee # v8
         with:
           postgres-version: 16
 
