@@ -114,12 +114,7 @@ clean: ## Clean all cache
 
 .PHONY: run
 run: ## Run API Server
-ifeq ($(BIN_FILE_API), 0)
-run: build
-else
-run:
-endif
-	GIN_MODE=release ./build/api
+	LOG_LEVEL=INFO go run ./cmd/api
 
 .PHONY: debug
 debug: ## Run API Server (mode=debug)
@@ -128,4 +123,4 @@ debug: build-debug
 else
 debug:
 endif
-	GIN_MODE=debug ./build/api
+	LOG_LEVEL=DEBUG ./build/api

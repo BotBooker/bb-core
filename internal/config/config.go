@@ -25,7 +25,7 @@ var appConfig = &Config{
 	LogLevel:  logger.ParseLogLevel(tools.GetEnvOrDefault("LOG_LEVEL", "INFO"), slog.LevelInfo),
 	HTTPAddr: strings.Join([]string{
 		tools.GetEnvOrDefault("SERVER_HOST", "localhost"),
-		tools.GetEnvOrDefault("SERVER_PORT", "localhost"),
+		tools.GetEnvOrDefault("SERVER_PORT", "8080"),
 	}, ":"),
 }
 

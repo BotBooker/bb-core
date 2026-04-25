@@ -1,6 +1,10 @@
 package service
 
-import "log/slog"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"log/slog"
+)
 
 // AuthUserRepository — интерфейс репозитория пользователей для AuthService.
 type AuthUserRepository any
@@ -54,9 +58,15 @@ func NewAuthService(
 
 // ValidateToken проверяет токен авторизации.
 func (s *authService) ValidateToken(token string) bool {
-	slog.Debug("проверяем токен")
+	tokenHash := hashToken(token)
+	slog.Debug("validating token", "token_hash", tokenHash)
 
 	_, err := s.cache.Get(token)
 
 	return err == nil
+}
+
+func hashToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
 }
