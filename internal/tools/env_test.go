@@ -2,135 +2,191 @@ package tools
 
 import (
 	"os"
+	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
-func TestGetEnvOrDefault_WithEnvSet(t *testing.T) {
-	os.Setenv("TEST_ENV_KEY", "test_value")
-	defer os.Unsetenv("TEST_ENV_KEY")
+func TestGetEnvOrDefault(t *testing.T) {
+	// Save original env
+	original := os.Getenv("TEST_KEY")
+	defer os.Setenv("TEST_KEY", original)
 
-	result := GetEnvOrDefault("TEST_ENV_KEY", "default")
-
-	assert.Equal(t, "test_value", result)
-}
-
-func TestGetEnvOrDefault_WithEnvUnset(t *testing.T) {
-	os.Unsetenv("TEST_ENV_KEY_MISSING")
-
-	result := GetEnvOrDefault("TEST_ENV_KEY_MISSING", "default")
-
-	assert.Equal(t, "default", result)
-}
-
-func TestGetEnvOrDefault_EmptyEnvValue(t *testing.T) {
-	// Устанавливаем пустое значение
-	os.Setenv("TEST_ENV_EMPTY", "")
-	defer os.Unsetenv("TEST_ENV_EMPTY")
-
-	result := GetEnvOrDefault("TEST_ENV_EMPTY", "default")
-
-	assert.Equal(t, "default", result)
-}
-
-func TestGetEnvOrDefault_DifferentTypes(t *testing.T) {
-	testCases := []struct {
+	tests := []struct {
 		name         string
 		key          string
-		value        string
 		defaultValue string
-		expected     string
+		setup        func()
+		want         string
 	}{
 		{
-			name:         "numeric value",
-			key:          "TEST_PORT",
-			value:        "8080",
-			defaultValue: "3000",
-			expected:     "8080",
+			name:         "env var exists",
+			key:          "TEST_KEY",
+			defaultValue: "default",
+			setup: func() {
+				os.Setenv("TEST_KEY", "value")
+			},
+			want: "value",
 		},
 		{
-			name:         "host value",
-			key:          "TEST_HOST",
-			value:        "0.0.0.0",
-			defaultValue: "localhost",
-			expected:     "0.0.0.0",
+			name:         "env var does not exist",
+			key:          "NONEXISTENT",
+			defaultValue: "default",
+			setup: func() {
+				os.Unsetenv("NONEXISTENT")
+			},
+			want: "default",
 		},
 		{
-			name:         "empty value uses default",
-			key:          "TEST_EMPTY",
-			value:        "",
-			defaultValue: "fallback",
-			expected:     "fallback",
+			name:         "env var empty string",
+			key:          "TEST_KEY",
+			defaultValue: "default",
+			setup: func() {
+				os.Setenv("TEST_KEY", "")
+			},
+			want: "default",
+		},
+		{
+			name:         "env var with spaces",
+			key:          "TEST_KEY",
+			defaultValue: "default",
+			setup: func() {
+				os.Setenv("TEST_KEY", "  value with spaces  ")
+			},
+			want: "  value with spaces  ",
+		},
+		{
+			name:         "special characters in value",
+			key:          "TEST_KEY",
+			defaultValue: "default",
+			setup: func() {
+				os.Setenv("TEST_KEY", "value!@#$%^&*()")
+			},
+			want: "value!@#$%^&*()",
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.value != "" {
-				os.Setenv(tc.key, tc.value)
-				defer os.Unsetenv(tc.key)
-			} else {
-				os.Unsetenv(tc.key)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup()
+			got := GetEnvOrDefault(tt.key, tt.defaultValue)
+			if got != tt.want {
+				t.Errorf("GetEnvOrDefault() = %v, want %v", got, tt.want)
 			}
-
-			result := GetEnvOrDefault(tc.key, tc.defaultValue)
-			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
 
-func TestGetEnvList_WithEnvSet(t *testing.T) {
-	os.Setenv("TEST_LIST_KEY", "a,b,c")
-	defer os.Unsetenv("TEST_LIST_KEY")
+func TestGetEnvList(t *testing.T) {
+	// Save original env
+	original := os.Getenv("TEST_LIST")
+	defer os.Setenv("TEST_LIST", original)
 
-	result := GetEnvList("TEST_LIST_KEY", nil)
+	tests := []struct {
+		name         string
+		key          string
+		defaultValue []string
+		setup        func()
+		want         []string
+	}{
+		{
+			name:         "env var with comma-separated values",
+			key:          "TEST_LIST",
+			defaultValue: []string{"default"},
+			setup: func() {
+				os.Setenv("TEST_LIST", "a,b,c")
+			},
+			want: []string{"a", "b", "c"},
+		},
+		{
+			name:         "env var with comma-separated values with spaces",
+			key:          "TEST_LIST",
+			defaultValue: []string{"default"},
+			setup: func() {
+				os.Setenv("TEST_LIST", "a, b, c")
+			},
+			want: []string{"a", "b", "c"},
+		},
+		{
+			name:         "env var does not exist",
+			key:          "NONEXISTENT_LIST",
+			defaultValue: []string{"default1", "default2"},
+			setup: func() {
+				os.Unsetenv("NONEXISTENT_LIST")
+			},
+			want: []string{"default1", "default2"},
+		},
+		{
+			name:         "env var empty string",
+			key:          "TEST_LIST",
+			defaultValue: []string{"default"},
+			setup: func() {
+				os.Setenv("TEST_LIST", "")
+			},
+			want: []string{"default"},
+		},
+		{
+			name:         "env var with empty items",
+			key:          "TEST_LIST",
+			defaultValue: []string{"default"},
+			setup: func() {
+				os.Setenv("TEST_LIST", "a,,b,,c")
+			},
+			want: []string{"a", "b", "c"},
+		},
+		{
+			name:         "env var with only spaces",
+			key:          "TEST_LIST",
+			defaultValue: []string{"default"},
+			setup: func() {
+				os.Setenv("TEST_LIST", "  ,  ,  ")
+			},
+			want: []string{"default"},
+		},
+		{
+			name:         "single value",
+			key:          "TEST_LIST",
+			defaultValue: []string{"default"},
+			setup: func() {
+				os.Setenv("TEST_LIST", "single")
+			},
+			want: []string{"single"},
+		},
+		{
+			name:         "empty default",
+			key:          "TEST_LIST",
+			defaultValue: []string{},
+			setup: func() {
+				os.Setenv("TEST_LIST", "a,b,c")
+			},
+			want: []string{"a", "b", "c"},
+		},
+		{
+			name:         "nil default",
+			key:          "TEST_LIST",
+			defaultValue: nil,
+			setup: func() {
+				os.Setenv("TEST_LIST", "a,b,c")
+			},
+			want: []string{"a", "b", "c"},
+		},
+		{
+			name:         "special characters in values",
+			key:          "TEST_LIST",
+			defaultValue: []string{"default"},
+			setup: func() {
+				os.Setenv("TEST_LIST", "val!@#,test$%^,foo&*()")
+			},
+			want: []string{"val!@#", "test$%^", "foo&*()"},
+		},
+	}
 
-	assert.Equal(t, []string{"a", "b", "c"}, result)
-}
-
-func TestGetEnvList_WithEnvUnset(t *testing.T) {
-	os.Unsetenv("TEST_LIST_KEY_MISSING")
-	defaultValue := []string{"default"}
-
-	result := GetEnvList("TEST_LIST_KEY_MISSING", defaultValue)
-
-	assert.Equal(t, defaultValue, result)
-}
-
-func TestGetEnvList_WithSpaces(t *testing.T) {
-	os.Setenv("TEST_LIST_SPACES", " a , b , c ")
-	defer os.Unsetenv("TEST_LIST_SPACES")
-
-	result := GetEnvList("TEST_LIST_SPACES", nil)
-
-	assert.Equal(t, []string{"a", "b", "c"}, result)
-}
-
-func TestGetEnvList_WithEmptyValues(t *testing.T) {
-	os.Setenv("TEST_LIST_EMPTY", ",,a,,b,,")
-	defer os.Unsetenv("TEST_LIST_EMPTY")
-
-	result := GetEnvList("TEST_LIST_EMPTY", nil)
-
-	assert.Equal(t, []string{"a", "b"}, result)
-}
-
-func TestGetEnvList_WithSingleValue(t *testing.T) {
-	os.Setenv("TEST_LIST_SINGLE", "single")
-	defer os.Unsetenv("TEST_LIST_SINGLE")
-
-	result := GetEnvList("TEST_LIST_SINGLE", nil)
-
-	assert.Equal(t, []string{"single"}, result)
-}
-
-func TestGetEnvList_WithEmptyEnv(t *testing.T) {
-	os.Setenv("TEST_LIST_EMPTY_ENV", "")
-	defer os.Unsetenv("TEST_LIST_EMPTY_ENV")
-	defaultValue := []string{"default1", "default2"}
-
-	result := GetEnvList("TEST_LIST_EMPTY_ENV", defaultValue)
-
-	assert.Equal(t, defaultValue, result)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup()
+			got := GetEnvList(tt.key, tt.defaultValue)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetEnvList() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

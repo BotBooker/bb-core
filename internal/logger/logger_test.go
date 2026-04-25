@@ -17,6 +17,13 @@ func TestInit(t *testing.T) {
 	}
 }
 
+func TestInitJSON(t *testing.T) {
+	log := logger.InitJSON(slog.LevelInfo)
+	if log == nil {
+		t.Fatal("InitJSON должен вернуть не nil логгер")
+	}
+}
+
 func TestInitWithDifferentLevels(t *testing.T) {
 	levels := []slog.Level{
 		slog.LevelDebug,
@@ -35,23 +42,21 @@ func TestInitWithDifferentLevels(t *testing.T) {
 	}
 }
 
-func TestLoggerOutput(t *testing.T) {
-	// Создаём буфер для захвата вывода
-	var buf bytes.Buffer
-
-	// Инициализируем логгер с текстовым обработчиком, записывающим в буфер
-	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-
-	log.Info("test message", "key", "value")
-
-	output := buf.String()
-	if !strings.Contains(output, "test message") {
-		t.Errorf("Ожидалось сообщение 'test message' в выводе, получено: %s", output)
+func TestInitJSONWithDifferentLevels(t *testing.T) {
+	levels := []slog.Level{
+		slog.LevelDebug,
+		slog.LevelInfo,
+		slog.LevelWarn,
+		slog.LevelError,
 	}
-	if !strings.Contains(output, "key=value") {
-		t.Errorf("Ожидался атрибут 'key=value' в выводе, получено: %s", output)
+
+	for _, level := range levels {
+		t.Run(level.String(), func(t *testing.T) {
+			log := logger.InitJSON(level)
+			if log == nil {
+				t.Fatalf("InitJSON(%s) вернул nil", level)
+			}
+		})
 	}
 }
 
@@ -89,12 +94,39 @@ func TestInitReturnsTextHandler(t *testing.T) {
 	}
 }
 
+func TestInitJSONReturnsTextHandler(t *testing.T) {
+	log := logger.InitJSON(slog.LevelInfo)
+
+	// Проверяем, что логгер работает корректно
+	log.Info("test")
+
+	// Просто проверяем, что логгер не nil и может использоваться
+	if log == nil {
+		t.Error("Логгер должен быть не nil")
+	}
+}
+
 func TestInitAndSetDefault(t *testing.T) {
 	log := logger.InitAndSetDefault(slog.LevelInfo)
 
 	// Проверяем, что логгер не nil
 	if log == nil {
 		t.Fatal("InitAndSetDefault должен вернуть не nil логгер")
+	}
+
+	// Проверяем, что глобальный логгер установлен
+	defaultLogger := slog.Default()
+	if defaultLogger == nil {
+		t.Error("Глобальный логгер должен быть установлен")
+	}
+}
+
+func TestInitJSONAndSetDefault(t *testing.T) {
+	log := logger.InitJSONAndSetDefault(slog.LevelInfo)
+
+	// Проверяем, что логгер не nil
+	if log == nil {
+		t.Fatal("InitJSONAndSetDefault должен вернуть не nil логгер")
 	}
 
 	// Проверяем, что глобальный логгер установлен
@@ -122,6 +154,24 @@ func TestInitAndSetDefault_DifferentLevels(t *testing.T) {
 	}
 }
 
+func TestInitJSONAndSetDefault_DifferentLevels(t *testing.T) {
+	levels := []slog.Level{
+		slog.LevelDebug,
+		slog.LevelInfo,
+		slog.LevelWarn,
+		slog.LevelError,
+	}
+
+	for _, level := range levels {
+		t.Run(level.String(), func(t *testing.T) {
+			log := logger.InitJSONAndSetDefault(level)
+			if log == nil {
+				t.Fatalf("InitJSONAndSetDefault(%s) вернул nil", level)
+			}
+		})
+	}
+}
+
 func TestInitAndSetDefault_LogsCorrectly(t *testing.T) {
 	var buf bytes.Buffer
 
@@ -137,5 +187,25 @@ func TestInitAndSetDefault_LogsCorrectly(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "test message") {
 		t.Errorf("Ожидалось сообщение 'test message' в выводе, получено: %s", output)
+	}
+}
+
+func TestLoggerOutput(t *testing.T) {
+	// Создаём буфер для захвата вывода
+	var buf bytes.Buffer
+
+	// Инициализируем логгер с текстовым обработчиком, записывающим в буфер
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	log.Info("test message", "key", "value")
+
+	output := buf.String()
+	if !strings.Contains(output, "test message") {
+		t.Errorf("Ожидалось сообщение 'test message' в выводе, получено: %s", output)
+	}
+	if !strings.Contains(output, "key=value") {
+		t.Errorf("Ожидался атрибут 'key=value' в выводе, получено: %s", output)
 	}
 }
