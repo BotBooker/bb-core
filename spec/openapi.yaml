@@ -1,0 +1,1005 @@
+openapi: 3.0.3
+info:
+  title: Messenger Bot Scheduling API
+  description: Backend API for a messenger-bot-based scheduling application
+  version: 1.0.0
+  contact:
+    name: API Support
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/v1
+    description: API v1 Base Path
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for bot service authentication
+
+  schemas:
+    # Core Entities
+    WorkingHours:
+      type: object
+      properties:
+        monday:
+          type: array
+          description: Time intervals (H:mm-H:mm)
+          items:
+            type: string
+            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+            example: "10:00-20:00"
+        tuesday:
+          type: array
+          items:
+            type: string
+            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+        wednesday:
+          type: array
+          items:
+            type: string
+            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+        thursday:
+          type: array
+          items:
+            type: string
+            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+        friday:
+          type: array
+          items:
+            type: string
+            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+        saturday:
+          type: array
+          items:
+            type: string
+            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+        sunday:
+          type: array
+          items:
+            type: string
+            pattern: '^([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'
+
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique service identifier
+          example: "svc_123"
+        merchant_id:
+          type: string
+          description: Merchant this service belongs to
+          example: "mch_456"
+        name:
+          type: string
+          description: Service name
+          example: "Consultation"
+        duration_minutes:
+          type: integer
+          description: Duration in minutes
+          minimum: 5
+          example: 30
+        price:
+          type: number
+          description: Optional price
+          example: 49.99
+        working_hours:
+          $ref: '#/components/schemas/WorkingHours'
+      required:
+        - id
+        - merchant_id
+        - name
+        - duration_minutes
+
+    Staff:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique staff identifier
+          example: "stf_789"
+        merchant_id:
+          type: string
+          description: Merchant this staff belongs to
+          example: "mch_456"
+        name:
+          type: string
+          description: Staff member name
+          example: "Dr. Smith"
+        service_ids:
+          type: array
+          description: Services this staff can provide
+          items:
+            type: string
+          example: ["svc_123", "svc_124"]
+      required:
+        - id
+        - merchant_id
+        - name
+
+    Merchant:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique merchant identifier
+          example: "mch_456"
+        name:
+          type: string
+          description: Business name
+          example: "Wellness Center"
+        welcome_message:
+          type: string
+          description: Welcome message for customers
+          example: "Welcome! How can we help you today?"
+      required:
+        - id
+        - name
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique booking identifier
+          example: "bok_012"
+        user_id:
+          type: string
+          description: Messenger/Telegram user ID
+          example: "tg_123456789"
+        service_id:
+          type: string
+          example: "svc_123"
+        staff_id:
+          type: string
+          example: "stf_789"
+        start_time:
+          type: string
+          format: date-time
+          example: "2023-10-27T14:00:00Z"
+        duration_minutes:
+          type: integer
+          example: 30
+        price:
+          type: number
+          description: Price at booking time
+          example: 49.99
+        paid:
+          type: boolean
+          description: Payment status
+          default: false
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled, completed]
+          default: pending
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - user_id
+        - service_id
+        - staff_id
+        - start_time
+        - duration_minutes
+
+    # Request/Response Models
+    CreateBookingRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+          description: Messenger/Telegram user ID
+          example: "tg_123456789"
+        service_id:
+          type: string
+          example: "svc_123"
+        staff_id:
+          type: string
+          example: "stf_789"
+        start_time:
+          type: string
+          format: date-time
+          example: "2023-10-27T14:00:00Z"
+        duration_minutes:
+          type: integer
+          example: 30
+      required:
+        - user_id
+        - service_id
+        - staff_id
+        - start_time
+        - duration_minutes
+
+    AvailableDate:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2023-10-27"
+        slots_available:
+          type: integer
+          description: Number of available slots on this date
+          example: 4
+
+    AvailableSlot:
+      type: object
+      properties:
+        start_time:
+          type: string
+          format: date-time
+          example: "2023-10-27T14:00:00Z"
+        end_time:
+          type: string
+          format: date-time
+          example: "2023-10-27T14:30:00Z"
+        staff_id:
+          type: string
+          example: "stf_789"
+        staff_name:
+          type: string
+          example: "Dr. Smith"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: "SLOT_UNAVAILABLE"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "The requested time slot is already booked"
+        details:
+          type: string
+          description: Additional error details
+          example: "staff_id=stf_789, start_time=2023-10-27T14:00:00Z"
+      required:
+        - error_code
+        - message
+
+    # Admin Models
+    CreateServiceRequest:
+      type: object
+      properties:
+        merchant_id:
+          type: string
+        name:
+          type: string
+        duration_minutes:
+          type: integer
+          minimum: 5
+        price:
+          type: number
+          minimum: 0
+        working_hours:
+          $ref: '#/components/schemas/WorkingHours'
+      required:
+        - merchant_id
+        - name
+        - duration_minutes
+
+    CreateStaffRequest:
+      type: object
+      properties:
+        merchant_id:
+          type: string
+        name:
+          type: string
+        service_ids:
+          type: array
+          items:
+            type: string
+      required:
+        - merchant_id
+        - name
+
+    CreateMerchantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        welcome_message:
+          type: string
+      required:
+        - name
+
+    # Filter Schemas
+    ServiceFilter:
+      type: object
+      properties:
+        merchant_id:
+          type: string
+          description: Filter by merchant ID
+        name_contains:
+          type: string
+          description: Filter by name (partial match)
+        min_duration:
+          type: integer
+          description: Minimum duration in minutes
+        max_duration:
+          type: integer
+          description: Maximum duration in minutes
+        min_price:
+          type: number
+          description: Minimum price
+        max_price:
+          type: number
+          description: Maximum price
+        status:
+          type: string
+          enum: [active, inactive]
+          description: Service status
+
+    StaffFilter:
+      type: object
+      properties:
+        merchant_id:
+          type: string
+          description: Filter by merchant ID
+        name_contains:
+          type: string
+          description: Filter by name (partial match)
+        service_id:
+          type: string
+          description: Filter by service they can provide
+        status:
+          type: string
+          enum: [active, inactive]
+          description: Staff status
+
+    MerchantFilter:
+      type: object
+      properties:
+        name_contains:
+          type: string
+          description: Filter by business name (partial match)
+        status:
+          type: string
+          enum: [active, inactive]
+          description: Merchant status
+        created_after:
+          type: string
+          format: date-time
+          description: Filter by creation date
+        created_before:
+          type: string
+          format: date-time
+          description: Filter by creation date
+
+  parameters:
+    UserIdParam:
+      name: user_id
+      in: query
+      description: Messenger/Telegram user ID
+      required: true
+      schema:
+        type: string
+      example: "tg_123456789"
+
+    MerchantIdParam:
+      name: merchant_id
+      in: query
+      required: true
+      schema:
+        type: string
+
+    ServiceIdParam:
+      name: service_id
+      in: query
+      required: true
+      schema:
+        type: string
+
+    StaffIdParam:
+      name: staff_id
+      in: query
+      schema:
+        type: string
+
+    DateParam:
+      name: date
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+
+    BookingIdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+    StatusParam:
+      name: status
+      in: query
+      schema:
+        type: string
+        enum: [pending, confirmed, cancelled, completed]
+
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    OffsetParam:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Resource conflict (e.g., slot already booked)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  # Availability & Slots
+  /availability/dates:
+    get:
+      summary: Get available dates
+      description: Returns a list of dates with available slots within a range (e.g.,
+        next 7 days)
+      operationId: getAvailableDates
+      tags:
+        - Availability
+      parameters:
+        - $ref: '#/components/parameters/StaffIdParam'
+        - $ref: '#/components/parameters/ServiceIdParam'
+        - name: days_ahead
+          in: query
+          description: Number of days to look ahead (default 7, max 30)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+            default: 7
+      responses:
+        '200':
+          description: List of available dates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AvailableDate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /availability/slots:
+    get:
+      summary: Get available time slots
+      description: Returns specific time windows available for booking on a given date
+      operationId: getAvailableSlots
+      tags:
+        - Availability
+      parameters:
+        - $ref: '#/components/parameters/DateParam'
+        - $ref: '#/components/parameters/StaffIdParam'
+        - $ref: '#/components/parameters/ServiceIdParam'
+      responses:
+        '200':
+          description: List of available time slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AvailableSlot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Catalog Management
+  /catalog/services:
+    get:
+      summary: List services
+      description: Lists all available services for a merchant
+      operationId: listServices
+      tags:
+        - Catalog
+      parameters:
+        - $ref: '#/components/parameters/MerchantIdParam'
+      responses:
+        '200':
+          description: List of services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Service'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /catalog/staff:
+    get:
+      summary: List staff
+      description: Lists all staff members for a merchant
+      operationId: listStaff
+      tags:
+        - Catalog
+      parameters:
+        - $ref: '#/components/parameters/MerchantIdParam'
+        - name: service_id
+          in: query
+          description: Filter staff by service they can provide
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of staff members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Staff'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Booking Operations
+  /bookings:
+    post:
+      summary: Create a booking
+      description: Creates a new booking. Returns 409 if the slot is already taken.
+      operationId: createBooking
+      tags:
+        - Bookings
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          description: Idempotency key to prevent duplicate bookings
+          schema:
+            type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookingRequest'
+      responses:
+        '201':
+          description: Booking created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Slot already booked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: List bookings
+      description: Lists bookings for a specific customer or all bookings (admin)
+      operationId: listBookings
+      tags:
+        - Bookings
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+        - $ref: '#/components/parameters/StatusParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: List of bookings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  bookings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Booking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /bookings/{id}:
+    get:
+      summary: Get booking details
+      operationId: getBooking
+      tags:
+        - Bookings
+      parameters:
+        - $ref: '#/components/parameters/BookingIdParam'
+      responses:
+        '200':
+          description: Booking details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /bookings/{id}/cancel:
+    put:
+      summary: Cancel a booking
+      description: Cancels a booking. Idempotent operation.
+      operationId: cancelBooking
+      tags:
+        - Bookings
+      parameters:
+        - $ref: '#/components/parameters/BookingIdParam'
+      responses:
+        '200':
+          description: Booking cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Admin/Settings
+  /admin/services:
+    post:
+      summary: Create a service
+      operationId: createService
+      tags:
+        - Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequest'
+      responses:
+        '201':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/services/{id}:
+    delete:
+      summary: Delete a service
+      operationId: deleteService
+      tags:
+        - Admin
+      parameters:
+        - $ref: '#/components/parameters/BookingIdParam'
+      responses:
+        '204':
+          description: Service deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/services/list:
+    get:
+      summary: List services with filters
+      description: Returns a list of services filtered by the provided criteria
+      operationId: listServicesFiltered
+      tags:
+        - Admin
+      parameters:
+        - name: merchant_id
+          in: query
+          schema:
+            type: string
+          description: Filter by merchant ID
+        - name: name_contains
+          in: query
+          schema:
+            type: string
+          description: Filter by name (partial match)
+        - name: min_duration
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: Minimum duration in minutes
+        - name: max_duration
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: Maximum duration in minutes
+        - name: min_price
+          in: query
+          schema:
+            type: number
+            minimum: 0
+          description: Minimum price
+        - name: max_price
+          in: query
+          schema:
+            type: number
+            minimum: 0
+          description: Maximum price
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive]
+          description: Service status
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Filtered list of services
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/staff:
+    post:
+      summary: Create a staff member
+      operationId: createStaff
+      tags:
+        - Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStaffRequest'
+      responses:
+        '201':
+          description: Staff created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Staff'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/staff/{id}:
+    delete:
+      summary: Delete a staff member
+      operationId: deleteStaff
+      tags:
+        - Admin
+      parameters:
+        - $ref: '#/components/parameters/BookingIdParam'
+      responses:
+        '204':
+          description: Staff deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/staff/list:
+    get:
+      summary: List staff with filters
+      description: Returns a list of staff members filtered by the provided criteria
+      operationId: listStaffFiltered
+      tags:
+        - Admin
+      parameters:
+        - name: merchant_id
+          in: query
+          schema:
+            type: string
+          description: Filter by merchant ID
+        - name: name_contains
+          in: query
+          schema:
+            type: string
+          description: Filter by name (partial match)
+        - name: service_id
+          in: query
+          schema:
+            type: string
+          description: Filter by service they can provide
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive]
+          description: Staff status
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Filtered list of staff
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  staff:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Staff'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/merchant:
+    post:
+      summary: Create a merchant
+      operationId: createMerchant
+      tags:
+        - Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMerchantRequest'
+      responses:
+        '201':
+          description: Merchant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Merchant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/merchant/{id}:
+    get:
+      summary: Get merchant details
+      operationId: getMerchant
+      tags:
+        - Admin
+      parameters:
+        - $ref: '#/components/parameters/BookingIdParam'
+      responses:
+        '200':
+          description: Merchant details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Merchant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete a merchant
+      operationId: deleteMerchant
+      tags:
+        - Admin
+      parameters:
+        - $ref: '#/components/parameters/BookingIdParam'
+      responses:
+        '204':
+          description: Merchant deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/merchants/list:
+    get:
+      summary: List merchants with filters
+      description: Returns a list of merchants filtered by the provided criteria
+      operationId: listMerchantsFiltered
+      tags:
+        - Admin
+      parameters:
+        - name: name_contains
+          in: query
+          schema:
+            type: string
+          description: Filter by business name (partial match)
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive]
+          description: Merchant status
+        - name: created_after
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter by creation date (after)
+        - name: created_before
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter by creation date (before)
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Filtered list of merchants
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  merchants:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Merchant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
