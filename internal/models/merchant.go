@@ -1,6 +1,7 @@
 package models
 
 type Merchant struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	WelcomeMessage string `json:"welcome_message"`
 }

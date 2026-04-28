@@ -934,6 +934,10 @@ components:
         merchant_id:
           type: string
           description: ID of the merchant this service belongs to
+        time_granularity:
+          type: string
+          description: Time granularity by which bookings are made, from 10m to 24h in
+            steprs of 5 minutes
 
     Staff:
       type: object

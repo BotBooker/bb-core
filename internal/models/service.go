@@ -1,11 +1,22 @@
 package models
 
-// Service represents a service entity
-type Service struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	DurationMinutes int               `json:"duration_minutes"`
-	WorkingHours    map[string][]string `json:"working_hours"` // Day -> array of time slots
-	Price           float64           `json:"price,omitempty"`
-	MerchantID      string            `json:"merchant_id"`
+type WorkingHours struct {
+	Monday    []string `json:"monday,omitempty"`
+	Tuesday   []string `json:"tuesday,omitempty"`
+	Wednesday []string `json:"wednesday,omitempty"`
+	Thursday  []string `json:"thursday,omitempty"`
+	Friday    []string `json:"friday,omitempty"`
+	Saturday  []string `json:"saturday,omitempty"`
+	Sunday    []string `json:"sunday,omitempty"`
 }
+
+type Service struct {
+	ID              string       `json:"id"`
+	MerchantID      string       `json:"merchant_id"`
+	Name            string       `json:"name"`
+	DurationMinutes int          `json:"duration_minutes"`
+	TimeGranularity int          `json:"time_granularity"` // in minutes (10 minimum, max 1440, steps of 5)
+	Price           *float64     `json:"price,omitempty"`
+	WorkingHours    WorkingHours `json:"working_hours,omitempty"`
+}
+
