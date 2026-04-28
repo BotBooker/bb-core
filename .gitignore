@@ -1,0 +1,9 @@
+tmp/*
+.env
+.envrc
+vendor/*
+.idea/*
+*.swp
+config/*.yaml
+context.md
+plan.md

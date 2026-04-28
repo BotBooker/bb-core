@@ -1,0 +1,595 @@
+openapi: 3.0.3
+info:
+  title: Messenger Bot Scheduling API
+  version: 1.0.0
+  description: API for a messenger-bot-based scheduling application that handles
+    booking management and availability calculations for Telegram and Max
+    Messenger clients.
+  contact:
+    name: API Support
+    email: support@bot-scheduling.com
+
+servers:
+  - url: /api/v1
+    description: Base URL for the API
+
+security:
+  - apiKeyAuth: []
+
+paths:
+  # Availability Endpoints
+  /availability/dates:
+    get:
+      summary: Get available dates for booking
+      description: Returns a list of dates with available slots within a range (e.g.,
+        next 7 days)
+      operationId: getAvailableDates
+      parameters:
+        - name: staff_id
+          in: query
+          description: Filter by staff member ID
+          required: false
+          schema:
+            type: string
+        - name: service_id
+          in: query
+          description: Filter by service ID
+          required: false
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          description: Start date for the range (format YYYY-MM-DD)
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          description: End date for the range (format YYYY-MM-DD)
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Available dates returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dates:
+                    type: array
+                    items:
+                      type: string
+                      format: date
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /availability/slots:
+    get:
+      summary: Get available time slots for a specific date
+      description: Returns specific time windows available for booking on a given date
+      operationId: getAvailableSlots
+      parameters:
+        - name: date
+          in: query
+          description: Date for which to get available slots (format YYYY-MM-DD)
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: staff_id
+          in: query
+          description: Filter by staff member ID
+          required: false
+          schema:
+            type: string
+        - name: service_id
+          in: query
+          description: Filter by service ID
+          required: false
+          schema:
+            type: string
+        - name: duration_minutes
+          in: query
+          description: Required duration for the booking (in minutes)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Available slots returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slots:
+                    type: array
+                    items:
+                      type: string
+                      format: time
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Catalog Endpoints
+  /catalog/services:
+    get:
+      summary: Get list of services for a merchant
+      description: Lists all available services for a merchant
+      operationId: getServices
+      parameters:
+        - name: merchant_id
+          in: query
+          description: Filter by merchant ID
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Services returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Service'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /catalog/staff:
+    get:
+      summary: Get list of staff members for a merchant
+      description: Lists all staff members for a merchant
+      operationId: getStaff
+      parameters:
+        - name: merchant_id
+          in: query
+          description: Filter by merchant ID
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Staff members returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  staff:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Staff'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Booking Endpoints
+  /bookings:
+    post:
+      summary: Create a new booking
+      description: Creates a new booking. Returns 409 if the slot is already taken.
+      operationId: createBooking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingRequest'
+      responses:
+        '201':
+          description: Booking created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '400':
+          description: Bad request - Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict - Slot is already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      summary: Get list of bookings
+      description: Lists bookings for a specific customer or all bookings (admin)
+      operationId: getBookings
+      parameters:
+        - name: user_id
+          in: query
+          description: Filter by user ID
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by booking status
+          required: false
+          schema:
+            type: string
+            enum: [pending, confirmed, cancelled]
+        - name: start_date
+          in: query
+          description: Start date for booking range (format YYYY-MM-DD)
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          description: End date for booking range (format YYYY-MM-DD)
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Bookings returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Booking'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /bookings/{id}:
+    get:
+      summary: Get booking details
+      description: Returns details of a single booking
+      operationId: getBooking
+      parameters:
+        - name: id
+          in: path
+          description: Booking ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking details returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /bookings/{id}/cancel:
+    put:
+      summary: Cancel a booking
+      description: Cancels a booking. Idempotent.
+      operationId: cancelBooking
+      parameters:
+        - name: id
+          in: path
+          description: Booking ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Booking cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Service:
+      type: object
+      required:
+        - id
+        - name
+        - duration_minutes
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the service
+        name:
+          type: string
+          description: Name of the service
+        duration_minutes:
+          type: integer
+          description: Duration of the service in minutes
+        working_hours:
+          type: object
+          description: Working hours for this service by day
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        price:
+          type: number
+          description: Price for the service (optional)
+          format: float
+        merchant_id:
+          type: string
+          description: ID of the merchant this service belongs to
+
+    Staff:
+      type: object
+      required:
+        - id
+        - name
+        - services
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the staff member
+        name:
+          type: string
+          description: Name of the staff member
+        services:
+          type: array
+          description: List of service IDs that this staff member can provide
+          items:
+            type: string
+        working_hours:
+          type: object
+          description: Working hours for this staff member by day
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        merchant_id:
+          type: string
+          description: ID of the merchant this staff member belongs to
+
+    Customer:
+      type: object
+      required:
+        - id
+        - user_id
+        - name
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the customer
+        user_id:
+          type: string
+          description: Unique Messenger/Telegram user ID
+        name:
+          type: string
+          description: Customer's name
+
+    Booking:
+      type: object
+      required:
+        - id
+        - user_id
+        - service_id
+        - staff_id
+        - start_time
+        - duration_minutes
+        - status
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the booking
+        user_id:
+          type: string
+          description: The Messenger/Telegram user ID
+        service_id:
+          type: string
+          description: ID of the service
+        staff_id:
+          type: string
+          description: ID of the staff member
+        start_time:
+          type: string
+          format: date-time
+          description: Start time of the booking
+        duration_minutes:
+          type: integer
+          description: Duration of the booking in minutes
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled]
+          description: Current status of the booking
+        price:
+          type: number
+          description: Price for the booking (optional)
+          format: float
+        paid:
+          type: boolean
+          description: Whether the booking has been paid (optional)
+
+    BookingRequest:
+      type: object
+      required:
+        - user_id
+        - service_id
+        - staff_id
+        - start_time
+        - duration_minutes
+      properties:
+        user_id:
+          type: string
+          description: The Messenger/Telegram user ID
+        service_id:
+          type: string
+          description: ID of the service
+        staff_id:
+          type: string
+          description: ID of the staff member
+        start_time:
+          type: string
+          format: date-time
+          description: Start time of the booking
+        duration_minutes:
+          type: integer
+          description: Duration of the booking in minutes
+
+    Error:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: string
+          description: Additional details about the error
+
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API Key for authentication
+
+  requestBodies:
+    BookingRequest:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BookingRequest'
+      required: true
