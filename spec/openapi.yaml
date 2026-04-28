@@ -17,6 +17,492 @@ security:
   - apiKeyAuth: []
 
 paths:
+  # Admin Endpoints
+  # Services Admin
+  /admin/services:
+    post:
+      summary: Create a new service
+      description: Creates a new service for a merchant
+      operationId: createService
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - merchant_id
+                - duration_minutes
+              properties:
+                merchant_id:
+                  type: string
+                  description: ID of the merchant
+                name:
+                  type: string
+                  description: Name of the service
+                duration_minutes:
+                  type: integer
+                  minimum: 1
+                  description: Duration of the service in minutes
+                price:
+                  type: number
+                  format: float
+                  description: Price for the service (optional)
+                working_hours:
+                  type: object
+                  description: Working hours for this service by day
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
+      responses:
+        '201':
+          description: Service created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict - Service with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/services/{id}:
+    delete:
+      summary: Delete a service
+      description: Permanently deletes a service
+      operationId: deleteService
+      parameters:
+        - name: id
+          in: path
+          description: Service ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Service deleted successfully
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Service not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/services/list:
+    get:
+      summary: List all services
+      description: Lists all services with optional filtering
+      operationId: listServicesFiltered
+      parameters:
+        - name: merchant_id
+          in: query
+          description: Filter by merchant ID
+          required: false
+          schema:
+            type: string
+        - name: name
+          in: query
+          description: Filter by service name (partial match)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Services returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: Total number of services
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Service'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Staff Admin
+  /admin/staff:
+    post:
+      summary: Create a new staff member
+      description: Creates a new staff member for a merchant
+      operationId: createStaff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - merchant_id
+              properties:
+                merchant_id:
+                  type: string
+                  description: ID of the merchant
+                name:
+                  type: string
+                  description: Name of the staff member
+                service_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of service IDs that this staff member can provide
+                working_hours:
+                  type: object
+                  description: Working hours for this staff member by day
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
+      responses:
+        '201':
+          description: Staff created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Staff'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict - Staff with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/staff/{id}:
+    delete:
+      summary: Delete a staff member
+      description: Permanently deletes a staff member
+      operationId: deleteStaff
+      parameters:
+        - name: id
+          in: path
+          description: Staff member ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Staff member deleted successfully
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Staff member not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/staff/list:
+    get:
+      summary: List all staff members
+      description: Lists all staff members with optional filtering
+      operationId: listStaffFiltered
+      parameters:
+        - name: merchant_id
+          in: query
+          description: Filter by merchant ID
+          required: false
+          schema:
+            type: string
+        - name: name
+          in: query
+          description: Filter by staff name (partial match)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Staff members returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: Total number of staff members
+                  staff:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Staff'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Merchant Admin
+  /admin/merchant:
+    post:
+      summary: Create a new merchant
+      description: Creates a new merchant in the system
+      operationId: createMerchant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Name of the merchant
+                welcome_message:
+                  type: string
+                  description: Default welcome message for the merchant (optional)
+      responses:
+        '201':
+          description: Merchant created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    description: ID of the created merchant
+                  name:
+                    type: string
+                    description: Name of the merchant
+                  welcome_message:
+                    type: string
+                    description: Welcome message for the merchant
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/merchant/{id}:
+    get:
+      summary: Get a merchant by ID
+      description: Returns details of a specific merchant
+      operationId: getMerchant
+      parameters:
+        - name: id
+          in: path
+          description: Merchant ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Merchant details returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    description: ID of the merchant
+                  name:
+                    type: string
+                    description: Name of the merchant
+                  welcome_message:
+                    type: string
+                    description: Welcome message for the merchant
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Merchant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/merchant/{id}/delete:
+    delete:
+      summary: Delete a merchant
+      description: Permanently deletes a merchant and all their services and staff
+      operationId: deleteMerchant
+      parameters:
+        - name: id
+          in: path
+          description: Merchant ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Merchant deleted successfully
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Merchant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/merchants/list:
+    get:
+      summary: List all merchants
+      description: Lists all merchants with optional filtering
+      operationId: listMerchantsFiltered
+      parameters:
+        - name: name
+          in: query
+          description: Filter by merchant name (partial match)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Merchants returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: Total number of merchants
+                  merchants:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: ID of the merchant
+                        name:
+                          type: string
+                          description: Name of the merchant
+                        welcome_message:
+                          type: string
+                          description: Welcome message for the merchant
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   # Availability Endpoints
   /availability/dates:
     get:
