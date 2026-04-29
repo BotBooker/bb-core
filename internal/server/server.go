@@ -1,13 +1,15 @@
-// internal/server/server.go
+// internal/server/server.go (updated)
 package server
 
 import (
 	"net/http"
 	"time"
 
+	"bookerbotapi/internal/availability"
 	"bookerbotapi/internal/config"
 	"bookerbotapi/internal/handlers"
 	"bookerbotapi/internal/middleware"
+	"bookerbotapi/internal/repository"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -19,7 +21,7 @@ type Server struct {
 	cfg *config.Config
 }
 
-func New(cfg *config.Config) *Server {
+func New(cfg *config.Config, bookingRepo repository.BookingRepository, availabilityManager *availability.AvailabilityManager) *Server {
 	r := chi.NewRouter()
 
 	// Setup global middleware
@@ -39,8 +41,15 @@ func New(cfg *config.Config) *Server {
 		MaxAge:           300,
 	}))
 
+	// Initialize handlers with dependencies
+	healthHandler := handlers.NewHealthHandler()
+	availabilityHandler := handlers.NewAvailabilityHandler(availabilityManager, bookingRepo)
+	catalogHandler := handlers.NewCatalogHandler(bookingRepo)
+	bookingHandler := handlers.NewBookingHandler(bookingRepo, availabilityManager)
+	adminHandler := handlers.NewAdminHandler(bookingRepo)
+
 	// Health check endpoint
-	r.Get("/health", handlers.HealthCheck)
+	r.Get("/health", healthHandler.HealthCheck)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -48,36 +57,36 @@ func New(cfg *config.Config) *Server {
 		r.Use(middleware.APIKeyAuth(cfg.Auth.APIKeys))
 
 		// Availability endpoints
-		r.Get("/availability/dates", handlers.GetAvailableDates)
-		r.Get("/availability/slots", handlers.GetAvailableSlots)
+		r.Get("/availability/dates", availabilityHandler.GetAvailableDates)
+		r.Get("/availability/slots", availabilityHandler.GetAvailableSlots)
 
 		// Catalog endpoints
-		r.Get("/catalog/services", handlers.ListServices)
-		r.Get("/catalog/staff", handlers.ListStaff)
+		r.Get("/catalog/services", catalogHandler.ListServices)
+		r.Get("/catalog/staff", catalogHandler.ListStaff)
 
 		// Booking endpoints
-		r.Post("/bookings", handlers.CreateBooking)
-		r.Get("/bookings", handlers.ListBookings)
-		r.Get("/bookings/{id}", handlers.GetBooking)
-		r.Put("/bookings/{id}/cancel", handlers.CancelBooking)
+		r.Post("/bookings", bookingHandler.CreateBooking)
+		r.Get("/bookings", bookingHandler.ListBookings)
+		r.Get("/bookings/{id}", bookingHandler.GetBooking)
+		r.Put("/bookings/{id}/cancel", bookingHandler.CancelBooking)
 
 		// Admin endpoints
 		r.Route("/admin", func(r chi.Router) {
 			// Services
-			r.Post("/services", handlers.CreateService)
-			r.Delete("/services/{id}", handlers.DeleteService)
-			r.Get("/services/list", handlers.ListServicesFiltered)
+			r.Post("/services", adminHandler.CreateService)
+			r.Delete("/services/{id}", adminHandler.DeleteService)
+			r.Get("/services/list", adminHandler.ListServicesFiltered)
 
 			// Staff
-			r.Post("/staff", handlers.CreateStaff)
-			r.Delete("/staff/{id}", handlers.DeleteStaff)
-			r.Get("/staff/list", handlers.ListStaffFiltered)
+			r.Post("/staff", adminHandler.CreateStaff)
+			r.Delete("/staff/{id}", adminHandler.DeleteStaff)
+			r.Get("/staff/list", adminHandler.ListStaffFiltered)
 
 			// Merchant
-			r.Post("/merchant", handlers.CreateMerchant)
-			r.Get("/merchant/{id}", handlers.GetMerchant)
-			r.Delete("/merchant/{id}", handlers.DeleteMerchant)
-			r.Get("/merchants/list", handlers.ListMerchantsFiltered)
+			r.Post("/merchant", adminHandler.CreateMerchant)
+			r.Get("/merchant/{id}", adminHandler.GetMerchant)
+			r.Delete("/merchant/{id}", adminHandler.DeleteMerchant)
+			r.Get("/merchants/list", adminHandler.ListMerchantsFiltered)
 		})
 	})
 
