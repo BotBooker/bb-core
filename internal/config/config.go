@@ -4,10 +4,14 @@ package config
 import (
 	"embed"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/nil-go/konf"
 	"github.com/nil-go/konf/provider/env"
+	"github.com/nil-go/konf/provider/file"
+	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 )
 
 var configFiles embed.FS
@@ -21,10 +25,10 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port         string `konf:"port,default=8080"`
-	ReadTimeout  int    `konf:"read_timeout,default=30"`
-	WriteTimeout int    `konf:"write_timeout,default=30"`
-	IdleTimeout  int    `konf:"idle_timeout,default=60"`
+	Port         string        `konf:"port,default=8080"`
+	ReadTimeout  time.Duration `konf:"read_timeout,default=30s"`
+	WriteTimeout time.Duration `konf:"write_timeout,default=30s"`
+	IdleTimeout  time.Duration `konf:"idle_timeout,default=60s"`
 }
 
 type AuthConfig struct {
@@ -55,6 +59,20 @@ type LoggingConfig struct {
 func Load() (*Config, error) {
 	// Create a new konf configuration instance
 	cfg := konf.New()
+
+	instance := os.Getenv("INSTANCE")
+	if instance == "" {
+		instance = "local"
+	}
+
+	path := "config/" + instance + "/config.yaml"
+	log.Info().Msgf("using %s instance", instance)
+	log.Info().Msgf("loading configuration at %s", path)
+	// Load configuration
+	if err := cfg.Load(file.New(path, file.WithUnmarshal(yaml.Unmarshal))); err != nil {
+		// Handle error here.
+		log.Fatal().Err(err)
+	}
 
 	// Load from environment variables
 	// Using WithPrefix("") to load all environment variables without a prefix

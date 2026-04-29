@@ -4,6 +4,7 @@ tmp/*
 vendor/*
 .idea/*
 *.swp
-config/*.yaml
+config/*/*.yaml
 context.md
 plan.md
+

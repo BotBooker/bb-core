@@ -1,0 +1,26 @@
+auth:
+  api_keys:
+    - test-api-key-1
+    - test-api-key-2
+
+server:
+  port: 8081
+  read_timeout: 1m
+  write_timeout: 5s
+  idle_timeout: 60m
+
+database:
+  driver: postgres
+  dsn: postgres://postgres:123123@localhost:5432/bookerbot?sslmode=disable
+  max_open_conns: 5
+  max_idle_conns: 1
+  conn_max_lifetime_minutes: 5
+  conn_max_idle_time_minutes: 10
+
+redis:
+  host: localhost
+  port: 6379
+
+logging:
+  level: debug
+  json: false
