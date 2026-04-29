@@ -12,11 +12,11 @@ import (
 )
 
 type AvailabilityHandler struct {
-	availabilityManager *availability.AvailabilityManager
+	availabilityManager availability.AManager
 	repo                repository.BookingRepository
 }
 
-func NewAvailabilityHandler(am *availability.AvailabilityManager, repo repository.BookingRepository) *AvailabilityHandler {
+func NewAvailabilityHandler(am availability.AManager, repo repository.BookingRepository) *AvailabilityHandler {
 	return &AvailabilityHandler{
 		availabilityManager: am,
 		repo:                repo,
@@ -25,7 +25,7 @@ func NewAvailabilityHandler(am *availability.AvailabilityManager, repo repositor
 
 func (h *AvailabilityHandler) GetAvailableDates(w http.ResponseWriter, r *http.Request) {
 	staffID := r.URL.Query().Get("staff_id")
-	_ = staffID // fixme
+	_ = staffID
 	serviceID := r.URL.Query().Get("service_id")
 	daysAhead := 7 // default
 

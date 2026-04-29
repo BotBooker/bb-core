@@ -11,6 +11,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+type AManager interface {
+	GetOrCreateBitmap(ctx context.Context, service *models.Service, date time.Time) ([]byte, error)
+	CheckAvailability(ctx context.Context, service *models.Service, startTime time.Time, durationMinutes int) (bool, error)
+	ReserveBooking(ctx context.Context, service *models.Service, startTime time.Time, durationMinutes int) error
+}
+
 type AvailabilityManager struct {
 	bitmapManager *BitmapManager
 	repo          repository.BookingRepository

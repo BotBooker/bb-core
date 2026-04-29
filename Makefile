@@ -1,9 +1,11 @@
-.PHONY: build run test clean migrate-up migrate-down migrate-create
+.PHONY: build run test t clean mock migrate-up migrate-down migrate-create
 
 # Variables
 BINARY_NAME=bookerbot
 INSTANCE ?= local
 MIGRATION_DIR=db/migrations
+GO=$(shell which go)
+
 
 # Build the application
 build:
@@ -14,13 +16,21 @@ run:
 	INSTANCE=$(INSTANCE) go run cmd/bot/main.go
 
 # Test the application
-test:
-	go test -v ./...
+test: t
+	$(GO) test -v $(shell go list ./... | grep -v /vendor/)
+
+t:
+	$(GO) test -v ./... -count=2 -race -coverprofile=cover.out.tmp $(RUN_ARGS)
 
 # Clean build artifacts
 clean:
 	go clean
 	rm -rf bin/
+
+# Generate mocks
+mock:
+	mockgen -source=./internal/repository/booking_repository.go > ./internal/repository/mock/mock_booking_repository.go
+	mockgen -source=./internal/availability/manager.go > ./internal/availability/mocks/manager.go
 
 # Create new migration
 migrate-create:
