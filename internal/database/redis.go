@@ -4,8 +4,9 @@ package database
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -42,7 +43,7 @@ func NewRedisClient(cfg RedisConfig) (*RedisClient, error) {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
-	log.Println("Redis connected successfully")
+	log.Info().Msg("Redis connected successfully")
 
 	return &RedisClient{Client: client}, nil
 }
@@ -50,7 +51,7 @@ func NewRedisClient(cfg RedisConfig) (*RedisClient, error) {
 // Close closes the Redis connection
 func (r *RedisClient) Close() error {
 	if r.Client != nil {
-		log.Println("Closing Redis connection")
+		log.Info().Msg("Closing Redis connection")
 		return r.Client.Close()
 	}
 	return nil

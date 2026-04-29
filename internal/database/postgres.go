@@ -5,8 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -63,7 +64,7 @@ func NewPostgresDB(cfg Config) (*PostgresDB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	log.Println("PostgreSQL database connected successfully")
+	log.Info().Msg("PostgreSQL database connected successfully")
 
 	return &PostgresDB{DB: db}, nil
 }
@@ -71,7 +72,7 @@ func NewPostgresDB(cfg Config) (*PostgresDB, error) {
 // Close closes the database connection
 func (p *PostgresDB) Close() error {
 	if p.DB != nil {
-		log.Println("Closing PostgreSQL database connection")
+		log.Info().Msg("Closing PostgreSQL database connection")
 		return p.DB.Close()
 	}
 	return nil

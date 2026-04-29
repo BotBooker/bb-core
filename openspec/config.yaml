@@ -1,5 +1,11 @@
 schema: spec-driven
 
+context: |
+  Tech stack: Golang, Postgresql, Redis, Telegram Bot API, MAX Messenger Bot API
+  We use conventional commits
+  We check README.md before doing anything
+  Domain: e-commerce platform
+
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.
