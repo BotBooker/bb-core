@@ -1,0 +1,556 @@
+openapi: 3.0.3
+info:
+  title: BookerBot Internal Admin API
+  version: 1.0.0
+  description: |
+    **INTERNAL USE ONLY** - Admin API for internal administration operations.
+    
+    Serves the internal admin UI for management of merchants, services, and staff.
+    
+    ## Architecture Notes
+    - **No Redis caching**: Direct database writes for all admin operations
+    - **Super-admin only**: Single admin account for now
+    - **Idempotency**: Not guaranteed for admin operations (acceptable for internal use)
+    - **Error handling**: Clean error messages, debug logging available
+    - **TTL**: N/A (no caching layer)
+    
+    ## Conventions
+    - All admin entities use PostgreSQL tables managed by goose migrations
+    - Direct writes to database without Redis intermediate layer
+    - Filtering is supported for list operations (by merchant_id, name)
+    - Uses `uuid` for all entity IDs
+
+servers:
+  - url: /admin
+    description: Internal admin API (no auth for internal use, or X-Admin-Key header)
+
+security:
+  - adminApiKeyAuth: []  # Internal API keys for admin operations
+
+paths:
+  # Merchant Admin
+  /admin/merchant:
+    post:
+      summary: Create a new merchant
+      description: |
+        Creates a new merchant in the system.
+        All subsequent admin operations are scoped to this merchant.
+        
+        **Internal Convention**: Direct DB write, no Redis caching.
+      operationId: createMerchantInternal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantCreate'
+      responses:
+        '201':
+          description: Merchant created and persisted to database
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Merchant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/merchant/{id}:
+    get:
+      summary: Get merchant details
+      description: Returns full details of a specific merchant including services and staff counts
+      operationId: getMerchantInternal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Merchant UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Merchant details returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Merchant'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/merchant/{id}/delete:
+    delete:
+      summary: Delete a merchant (cascade)
+      description: |
+        Permanently deletes a merchant and cascades to delete:
+        - All services owned by this merchant
+        - All staff owned by this merchant
+        - All bookings for this merchant (soft-delete)
+      operationId: deleteMerchantInternal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Merchant UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Merchant and cascaded entities deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/merchants/list:
+    get:
+      summary: List all merchants
+      description: Lists all merchants with optional filtering
+      operationId: listMerchantsInternal
+      parameters:
+        - name: name
+          in: query
+          description: Filter by merchant name (partial match)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Merchants returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: Total merchant count
+                  merchants:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MerchantSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # Service Admin
+  /admin/services:
+    post:
+      summary: Create a new service
+      description: |
+        Creates a new service for a merchant.
+        
+        **Internal Convention**: No Redis caching - direct database write.
+        
+        **Idempoterency Note**: May return 409 conflict if service with same name already exists.
+      operationId: createServiceInternal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceCreate'
+      responses:
+        '201':
+          description: Service created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Service with this name already exists for the merchant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/responses/Error'
+
+  /admin/services/{id}:
+    delete:
+      summary: Delete a service
+      description: Permanently deletes a service (may affect bookings referencing it)
+      operationId: deleteServiceInternal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Service UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Service deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/services/list:
+    get:
+      summary: List all services
+      description: Lists all services with optional merchant filtering
+      operationId: listServicesInternal
+      parameters:
+        - name: merchant_id
+          in: query
+          description: Filter by merchant UUID
+          required: false
+          schema:
+            type: string
+            format: uuid
+
+  # Staff Admin
+  /admin/staff:
+    post:
+      summary: Create a new staff member
+      description: |
+        Creates a new staff member for a merchant.
+        
+        **Internal Convention**: Direct database write, no Redis caching.
+        
+        Can optionally assign working hours and service assignments.
+      operationId: createStaffInternal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffCreate'
+      responses:
+        '201':
+          description: Staff created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Staff'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Staff with this name already exists for the merchant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/responses/Error'
+
+  /admin/staff/{id}:
+    delete:
+      summary: Delete a staff member
+      description: Permanently deletes a staff member
+      operationId: deleteStaffInternal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Staff member UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Staff member deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/staff/list:
+    get:
+      summary: List all staff members
+      description: Lists all staff members with optional filtering
+      operationId: listStaffInternal
+      parameters:
+        - name: merchant_id
+          in: query
+          description: Filter by merchant UUID
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: name
+          in: query
+          description: Filter by staff name (partial match)
+          required: false
+          schema:
+            type: string
+
+  # Internal Health and Debug
+  /admin/health:
+    get:
+      summary: Health check (internal)
+      description: Internal health check for admin operations
+      operationId: healthCheckInternal
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy]
+                  version:
+                    type: string
+                  admin_mode:
+                    type: boolean
+                    description: Indicates this is an admin endpoint
+
+  /admin/debug:
+    get:
+      summary: Debug info (internal only)
+      description: |
+        Debug information for internal admin operations.
+        Shows database connection status, migration state, etc.
+        
+        **WARNING**: Only for internal debugging, not for production.
+      operationId: debugInternal
+      responses:
+        '200':
+          description: Debug information returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database_connected:
+                    type: boolean
+                  migration_latest:
+                    type: string
+                  redis_connected:
+                    type: boolean
+                    description: 'Always false for admin operations (no caching)'
+
+components:
+  schemas:
+    MerchantCreate:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Name of the merchant
+          minLength: 1
+          maxLength: 100
+        welcome_message:
+          type: string
+          description: Optional default welcome message
+          maxLength: 500
+
+    Merchant:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/MerchantCreate'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: Unique identifier for the merchant
+            created_at:
+              type: string
+              format: date-time
+              description: When the merchant was created
+            updated_at:
+              type: string
+              format: date-time
+              description: When the merchant was last updated
+            service_count:
+              type: integer
+              description: Count of services for this merchant (cached/counted)
+            staff_count:
+              type: integer
+              description: Count of staff members for this merchant
+
+    MerchantSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        welcome_message:
+          type: string
+          maxLength: 500
+
+    ServiceCreate:
+      type: object
+      required:
+        - name
+        - merchant_id
+        - duration_minutes
+      properties:
+        name:
+          type: string
+          description: Name of the service
+          minLength: 1
+          maxLength: 100
+        merchant_id:
+          type: string
+          format: uuid
+          description: UUID of the merchant this service belongs to
+        duration_minutes:
+          type: integer
+          minimum: 10
+          description: Duration of the service in minutes (10-1440)
+        price:
+          type: number
+          format: float
+          description: Optional price for the service
+        working_hours:
+          type: object
+          description: Working hours by day (day_id -> hours)
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              pattern: '^[HH]:MM-([HH]:MM)?$'
+
+    Service:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/ServiceCreate'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: Unique identifier for the service
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+    StaffCreate:
+      type: object
+      required:
+        - name
+        - merchant_id
+      properties:
+        name:
+          type: string
+          description: Name of the staff member
+          minLength: 1
+          maxLength: 100
+        merchant_id:
+          type: string
+          format: uuid
+          description: UUID of the merchant this staff belongs to
+        service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Optional list of service IDs this staff can provide
+        working_hours:
+          type: object
+          description: Working hours by day
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              pattern: '^[HH]:MM-([HH]:MM)?$'
+
+    Staff:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/StaffCreate'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: Unique identifier for the staff member
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            service_count:
+              type: integer
+              description: Count of services assigned
+
+    # Common Response Schemas
+    Error:
+      type: object
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: string
+          description: Additional details (sanitized for production)
+
+  responses:
+    BadRequest:
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: Resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes:
+    adminApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+      description: Internal API key for admin operations
+
+x-internal: true
+x-purpose: internal-admin-ui
+x-cache-strategy: no-cache-direct-db
+x-admin-user: single-super-admin

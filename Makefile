@@ -9,11 +9,11 @@ GO=$(shell which go)
 
 # Build the application
 build:
-	go build -o bin/$(BINARY_NAME) cmd/bot/main.go
+	go build -o bin/$(BINARY_NAME) cmd/bookerbotapi/main.go
 
 # Run the application
 run:
-	INSTANCE=$(INSTANCE) go run cmd/bot/main.go
+	INSTANCE=$(INSTANCE) go run cmd/bookerbotapi/main.go
 
 # Test the application
 test: t
