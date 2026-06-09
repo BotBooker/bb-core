@@ -1,3 +1,4 @@
+// internal/availability/manager.go
 package availability
 
 import (
@@ -19,11 +20,11 @@ type AManager interface {
 
 type AvailabilityManager struct {
 	bitmapManager *BitmapManager
-	repo          repository.BookingRepository
+	repo          repository.AdminRepository
 	redis         *redis.Client
 }
 
-func NewAvailabilityManager(redisClient *redis.Client, repo repository.BookingRepository) *AvailabilityManager {
+func NewAvailabilityManager(redisClient *redis.Client, repo repository.AdminRepository) *AvailabilityManager {
 	return &AvailabilityManager{
 		bitmapManager: NewBitmapManager(redisClient),
 		repo:          repo,

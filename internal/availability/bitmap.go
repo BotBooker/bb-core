@@ -71,11 +71,6 @@ func SplitBookingIntoSplits(startTime time.Time, durationMinutes int, granularit
 	return indices
 }
 
-type WorkingHours struct {
-	Start time.Time
-	End   time.Time
-}
-
 // SplitWorkingHoursIntoSplits converts working hours intervals into bitmap indices
 func SplitWorkingHoursIntoSplits(date time.Time, workingHours []string, granularityMinutes int) ([]int, error) {
 	var indices []int
@@ -102,4 +97,16 @@ func SplitWorkingHoursIntoSplits(date time.Time, workingHours []string, granular
 	}
 
 	return indices, nil
+}
+
+// GetBit returns the bit value at the given position
+func GetBit(bitmap []byte, position int) int {
+	byteIndex := position / 8
+	bitIndex := uint(position % 8)
+
+	if byteIndex >= len(bitmap) {
+		return 0
+	}
+
+	return int((bitmap[byteIndex] >> bitIndex) & 1)
 }

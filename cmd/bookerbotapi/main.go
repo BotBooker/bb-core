@@ -1,4 +1,4 @@
-// cmd/api/main.go (updated)
+// cmd/api/main.go
 package main
 
 import (
@@ -60,14 +60,14 @@ func main() {
 		}
 	}()
 
-	// Initialize repositories
-	bookingRepo := repository.NewPostgresBookingRepository(postgresDB.DB)
+	// Initialize admin repository
+	adminRepo := repository.NewPostgresAdminRepository(postgresDB.DB)
 
 	// Initialize availability manager
-	availabilityManager := availability.NewAvailabilityManager(redisClient.Client, bookingRepo)
+	availabilityManager := availability.NewAvailabilityManager(redisClient.Client, adminRepo)
 
 	// Create server with dependencies
-	srv := server.New(cfg, bookingRepo, availabilityManager)
+	srv := server.New(cfg, adminRepo, availabilityManager)
 
 	// Start server in goroutine
 	go func() {
@@ -82,7 +82,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Info().Msg("Shutting down server...")
+	log.Info().Msg("Shutting down server..")
 
 	// Create shutdown context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

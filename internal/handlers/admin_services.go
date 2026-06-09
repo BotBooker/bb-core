@@ -15,10 +15,10 @@ import (
 )
 
 type AdminHandler struct {
-	repo repository.BookingRepository
+	repo repository.AdminRepository
 }
 
-func NewAdminHandler(repo repository.BookingRepository) *AdminHandler {
+func NewAdminHandler(repo repository.AdminRepository) *AdminHandler {
 	return &AdminHandler{
 		repo: repo,
 	}

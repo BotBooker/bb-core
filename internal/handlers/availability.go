@@ -3,7 +3,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"bookerbotapi/internal/availability"
@@ -13,10 +12,10 @@ import (
 
 type AvailabilityHandler struct {
 	availabilityManager availability.AManager
-	repo                repository.BookingRepository
+	repo                repository.AdminRepository
 }
 
-func NewAvailabilityHandler(am availability.AManager, repo repository.BookingRepository) *AvailabilityHandler {
+func NewAvailabilityHandler(am availability.AManager, repo repository.AdminRepository) *AvailabilityHandler {
 	return &AvailabilityHandler{
 		availabilityManager: am,
 		repo:                repo,
@@ -24,16 +23,7 @@ func NewAvailabilityHandler(am availability.AManager, repo repository.BookingRep
 }
 
 func (h *AvailabilityHandler) GetAvailableDates(w http.ResponseWriter, r *http.Request) {
-	staffID := r.URL.Query().Get("staff_id")
-	_ = staffID
 	serviceID := r.URL.Query().Get("service_id")
-	daysAhead := 7 // default
-
-	if days := r.URL.Query().Get("days_ahead"); days != "" {
-		if d, err := strconv.Atoi(days); err == nil && d > 0 && d <= 30 {
-			daysAhead = d
-		}
-	}
 
 	if serviceID == "" {
 		response.Error(w, http.StatusBadRequest, "MISSING_SERVICE", "service_id is required", "")
@@ -54,6 +44,7 @@ func (h *AvailabilityHandler) GetAvailableDates(w http.ResponseWriter, r *http.R
 	// Calculate available dates
 	availableDates := []map[string]interface{}{}
 	now := time.Now()
+	daysAhead := 14 // Check next 2 weeks
 
 	for i := 0; i < daysAhead; i++ {
 		date := now.AddDate(0, 0, i)
@@ -84,17 +75,15 @@ func (h *AvailabilityHandler) GetAvailableSlots(w http.ResponseWriter, r *http.R
 	staffID := r.URL.Query().Get("staff_id")
 	serviceID := r.URL.Query().Get("service_id")
 
-	// TODO  Add staff filtering
-	_ = staffID
-
-	if dateStr == "" || serviceID == "" {
-		response.Error(w, http.StatusBadRequest, "MISSING_PARAMETERS", "date and service_id are required", "")
+	if serviceID == "" || dateStr == "" {
+		response.Error(w, http.StatusBadRequest, "MISSING_PARAMS", "service_id and date are required", "")
 		return
 	}
 
+	// Parse date
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, "INVALID_DATE", "Invalid date format", err.Error())
+		response.Error(w, http.StatusBadRequest, "INVALID_DATE", "Invalid date format. Use YYYY-MM-DD", "")
 		return
 	}
 
@@ -109,6 +98,22 @@ func (h *AvailabilityHandler) GetAvailableSlots(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Filter by staff if staff_id is provided
+	if staffID != "" {
+		staff, err := h.repo.GetStaffByID(r.Context(), staffID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "STAFF_ERROR", "Failed to get staff", err.Error())
+			return
+		}
+		if staff == nil {
+			response.Error(w, http.StatusNotFound, "STAFF_NOT_FOUND", "Staff not found", "")
+			return
+		}
+
+		// Check if staff is associated with the service (simplified - we'll skip this for now)
+		// TODO: Implement staff-service relationship checking
+	}
+
 	// Get or create bitmap
 	bitmap, err := h.availabilityManager.GetOrCreateBitmap(r.Context(), service, date)
 	if err != nil {
@@ -119,8 +124,6 @@ func (h *AvailabilityHandler) GetAvailableSlots(w http.ResponseWriter, r *http.R
 	// Extract available slots from bitmap
 	slots := extractAvailableSlots(bitmap, date, service.TimeGranularity, service.DurationMinutes)
 
-	// TODO If staff_id is provided, filter slots by staff availability (simplified)
-
 	response.JSON(w, http.StatusOK, slots)
 }
 
@@ -129,7 +132,7 @@ func countAvailableSlots(bitmap []byte, granularity int) int {
 	bitmapSize := availability.CalculateBitmapSize(granularity)
 	count := 0
 	for i := 0; i < bitmapSize; i++ {
-		if getBitFromBitmap(bitmap, i) == 1 {
+		if availability.GetBit(bitmap, i) == 1 {
 			count++
 		}
 	}
@@ -141,7 +144,7 @@ func extractAvailableSlots(bitmap []byte, date time.Time, granularity, durationM
 	bitmapSize := availability.CalculateBitmapSize(granularity)
 
 	for i := 0; i < bitmapSize; i++ {
-		if getBitFromBitmap(bitmap, i) == 1 {
+		if availability.GetBit(bitmap, i) == 1 {
 			startTime := availability.BitIndexToTime(date, i, granularity)
 
 			// Check if the entire duration fits
@@ -149,7 +152,7 @@ func extractAvailableSlots(bitmap []byte, date time.Time, granularity, durationM
 			available := true
 
 			for j := 1; j < slotsNeeded; j++ {
-				if i+j >= bitmapSize || getBitFromBitmap(bitmap, i+j) == 0 {
+				if i+j >= bitmapSize || availability.GetBit(bitmap, i+j) == 0 {
 					available = false
 					break
 				}
@@ -158,22 +161,11 @@ func extractAvailableSlots(bitmap []byte, date time.Time, granularity, durationM
 			if available {
 				slots = append(slots, map[string]interface{}{
 					"start_time": startTime.Format(time.RFC3339),
-					"end_time":   startTime.Add(time.Duration(durationMinutes) * time.Minute).Format(time.RFC3339),
+					"end_time":   startTime.Add(time.Duration(durationMinutes)*time.Minute).Format(time.RFC3339),
 				})
 			}
 		}
 	}
 
 	return slots
-}
-
-func getBitFromBitmap(bitmap []byte, position int) int {
-	byteIndex := position / 8
-	bitIndex := uint(position % 8)
-
-	if byteIndex >= len(bitmap) {
-		return 0
-	}
-
-	return int((bitmap[byteIndex] >> bitIndex) & 1)
 }

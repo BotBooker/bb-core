@@ -21,7 +21,7 @@ type Server struct {
 	cfg *config.Config
 }
 
-func New(cfg *config.Config, bookingRepo repository.BookingRepository, availabilityManager *availability.AvailabilityManager) *Server {
+func New(cfg *config.Config, bookingRepo repository.AdminRepository, availabilityManager *availability.AvailabilityManager) *Server {
 	r := chi.NewRouter()
 
 	// Setup global middleware

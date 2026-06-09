@@ -9,10 +9,10 @@ import (
 )
 
 type CatalogHandler struct {
-	repo repository.BookingRepository
+	repo repository.AdminRepository
 }
 
-func NewCatalogHandler(repo repository.BookingRepository) *CatalogHandler {
+func NewCatalogHandler(repo repository.AdminRepository) *CatalogHandler {
 	return &CatalogHandler{
 		repo: repo,
 	}

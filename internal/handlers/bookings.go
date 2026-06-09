@@ -17,11 +17,11 @@ import (
 )
 
 type BookingHandler struct {
-	repo                repository.BookingRepository
+	repo                repository.AdminRepository
 	availabilityManager *availability.AvailabilityManager
 }
 
-func NewBookingHandler(repo repository.BookingRepository, am *availability.AvailabilityManager) *BookingHandler {
+func NewBookingHandler(repo repository.AdminRepository, am *availability.AvailabilityManager) *BookingHandler {
 	return &BookingHandler{
 		repo:                repo,
 		availabilityManager: am,
