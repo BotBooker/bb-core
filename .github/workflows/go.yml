@@ -32,7 +32,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -79,10 +79,10 @@ jobs:
           cache: true
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Cache Go modules and build
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ${{ matrix.go-build }}
