@@ -82,7 +82,7 @@ func (am *AvailabilityManager) createBitmap(ctx context.Context, service *models
 
 	// Mark available slots as 1
 	for _, idx := range availableIndices {
-		setBit(bitmap, idx, 1)
+		SetBit(bitmap, idx, 1)
 	}
 
 	// Get existing bookings for this date
@@ -100,7 +100,7 @@ func (am *AvailabilityManager) createBitmap(ctx context.Context, service *models
 
 		bookedIndices := SplitBookingIntoSplits(startTime, booking.DurationMinutes, granularity)
 		for _, idx := range bookedIndices {
-			setBit(bitmap, idx, 0)
+			SetBit(bitmap, idx, 0)
 		}
 	}
 
@@ -122,7 +122,7 @@ func (am *AvailabilityManager) CheckAvailability(ctx context.Context, service *m
 
 	// Check all required slots are available (bit = 1)
 	for _, idx := range indices {
-		if getBit(bitmap, idx) == 0 {
+		if GetBit(bitmap, idx) == 0 {
 			return false, nil
 		}
 	}
@@ -156,14 +156,14 @@ func (am *AvailabilityManager) ReserveBooking(ctx context.Context, service *mode
 		indices := SplitBookingIntoSplits(startTime, durationMinutes, granularity)
 
 		for _, idx := range indices {
-			if getBit(bitmap, idx) == 0 {
+			if GetBit(bitmap, idx) == 0 {
 				return fmt.Errorf("slot unavailable")
 			}
 		}
 
 		// Mark slots as booked (set to 0)
 		for _, idx := range indices {
-			setBit(bitmap, idx, 0)
+			SetBit(bitmap, idx, 0)
 		}
 
 		// Update bitmap in Redis
@@ -182,47 +182,28 @@ func (am *AvailabilityManager) ReserveBooking(ctx context.Context, service *mode
 	return nil
 }
 
-// getWorkingHoursForDay returns working hours for a specific weekday
+// getWorkingHoursForDay returns working hours for a specific weekday.
+// Returns nil-safe: empty slice if no hours are configured for that day.
 func getWorkingHoursForDay(workingHours models.WorkingHours, weekday time.Weekday) []string {
+	var hours []string
 	switch weekday {
 	case time.Monday:
-		return workingHours.Monday
+		hours = workingHours.Monday
 	case time.Tuesday:
-		return workingHours.Tuesday
+		hours = workingHours.Tuesday
 	case time.Wednesday:
-		return workingHours.Wednesday
+		hours = workingHours.Wednesday
 	case time.Thursday:
-		return workingHours.Thursday
+		hours = workingHours.Thursday
 	case time.Friday:
-		return workingHours.Friday
+		hours = workingHours.Friday
 	case time.Saturday:
-		return workingHours.Saturday
+		hours = workingHours.Saturday
 	case time.Sunday:
-		return workingHours.Sunday
-	default:
+		hours = workingHours.Sunday
+	}
+	if hours == nil {
 		return []string{}
 	}
-}
-
-// Bit manipulation helper functions
-func setBit(bitmap []byte, position int, value int) {
-	byteIndex := position / 8
-	bitIndex := uint(position % 8)
-
-	if value == 1 {
-		bitmap[byteIndex] |= 1 << bitIndex
-	} else {
-		bitmap[byteIndex] &^= 1 << bitIndex
-	}
-}
-
-func getBit(bitmap []byte, position int) int {
-	byteIndex := position / 8
-	bitIndex := uint(position % 8)
-
-	if byteIndex >= len(bitmap) {
-		return 0
-	}
-
-	return int((bitmap[byteIndex] >> bitIndex) & 1)
+	return hours
 }

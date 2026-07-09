@@ -3,8 +3,8 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"bookerbotapi/internal/availability"
@@ -16,12 +16,14 @@ import (
 	"github.com/google/uuid"
 )
 
+// BookingHandler handles booking endpoints.
+// It requires booking and service repository operations.
 type BookingHandler struct {
-	repo                repository.AdminRepository
+	repo                repository.Repository
 	availabilityManager *availability.AvailabilityManager
 }
 
-func NewBookingHandler(repo repository.AdminRepository, am *availability.AvailabilityManager) *BookingHandler {
+func NewBookingHandler(repo repository.Repository, am *availability.AvailabilityManager) *BookingHandler {
 	return &BookingHandler{
 		repo:                repo,
 		availabilityManager: am,
@@ -39,7 +41,7 @@ func (h *BookingHandler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body", err.Error())
+		response.InternalError(w, "INVALID_REQUEST", "Invalid request body", err)
 		return
 	}
 
@@ -52,14 +54,14 @@ func (h *BookingHandler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	// Parse start time
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, "INVALID_DATE", "Invalid start_time format", err.Error())
+		response.InternalError(w, "INVALID_DATE", "Invalid start_time format", err)
 		return
 	}
 
 	// Get service details
 	service, err := h.repo.GetServiceByID(r.Context(), req.ServiceID)
 	if err != nil {
-		response.Error(w, http.StatusInternalServerError, "SERVICE_ERROR", "Failed to get service", err.Error())
+		response.InternalError(w, "SERVICE_ERROR", "Failed to get service", err)
 		return
 	}
 	if service == nil {
@@ -82,7 +84,7 @@ func (h *BookingHandler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	// Check availability
 	available, err := h.availabilityManager.CheckAvailability(r.Context(), service, startTime, durationMinutes)
 	if err != nil {
-		response.Error(w, http.StatusInternalServerError, "AVAILABILITY_CHECK_FAILED", "Failed to check availability", err.Error())
+		response.InternalError(w, "AVAILABILITY_CHECK_FAILED", "Failed to check availability", err)
 		return
 	}
 
@@ -94,7 +96,7 @@ func (h *BookingHandler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	// Reserve the booking in Redis
 	err = h.availabilityManager.ReserveBooking(r.Context(), service, startTime, durationMinutes)
 	if err != nil {
-		response.Error(w, http.StatusConflict, "RESERVATION_FAILED", "Failed to reserve time slot", err.Error())
+		response.InternalError(w, "RESERVATION_FAILED", "Failed to reserve time slot", err)
 		return
 	}
 
@@ -116,7 +118,7 @@ func (h *BookingHandler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.repo.CreateBooking(r.Context(), booking); err != nil {
 		// Note: In production, implement Redis rollback mechanism
-		response.Error(w, http.StatusInternalServerError, "BOOKING_CREATION_FAILED", "Failed to create booking", err.Error())
+		response.InternalError(w, "BOOKING_CREATION_FAILED", "Failed to create booking", err)
 		return
 	}
 
@@ -130,13 +132,13 @@ func (h *BookingHandler) ListBookings(w http.ResponseWriter, r *http.Request) {
 	offset := 0
 
 	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := parseInt(l); err == nil && parsed > 0 && parsed <= 100 {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
 			limit = parsed
 		}
 	}
 
 	if o := r.URL.Query().Get("offset"); o != "" {
-		if parsed, err := parseInt(o); err == nil && parsed >= 0 {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
 			offset = parsed
 		}
 	}
@@ -148,7 +150,7 @@ func (h *BookingHandler) ListBookings(w http.ResponseWriter, r *http.Request) {
 
 	bookings, total, err := h.repo.GetBookingsByUserID(r.Context(), userID, status, limit, offset)
 	if err != nil {
-		response.Error(w, http.StatusInternalServerError, "FETCH_FAILED", "Failed to fetch bookings", err.Error())
+		response.InternalError(w, "FETCH_FAILED", "Failed to fetch bookings", err)
 		return
 	}
 
@@ -206,10 +208,4 @@ func (h *BookingHandler) CancelBooking(w http.ResponseWriter, r *http.Request) {
 		"id":     id,
 		"status": "cancelled",
 	})
-}
-
-func parseInt(s string) (int, error) {
-	var result int
-	_, err := fmt.Sscanf(s, "%d", &result)
-	return result, err
 }

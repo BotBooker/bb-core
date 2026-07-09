@@ -6,16 +6,19 @@ import (
 	"time"
 
 	"bookerbotapi/internal/availability"
+	"bookerbotapi/internal/models"
 	"bookerbotapi/internal/repository"
 	"bookerbotapi/pkg/response"
 )
 
+// AvailabilityHandler handles availability endpoints.
+// It requires service, staff, and booking repository operations.
 type AvailabilityHandler struct {
 	availabilityManager availability.AManager
-	repo                repository.AdminRepository
+	repo                repository.Repository
 }
 
-func NewAvailabilityHandler(am availability.AManager, repo repository.AdminRepository) *AvailabilityHandler {
+func NewAvailabilityHandler(am availability.AManager, repo repository.Repository) *AvailabilityHandler {
 	return &AvailabilityHandler{
 		availabilityManager: am,
 		repo:                repo,
@@ -33,7 +36,7 @@ func (h *AvailabilityHandler) GetAvailableDates(w http.ResponseWriter, r *http.R
 	// Get service details
 	service, err := h.repo.GetServiceByID(r.Context(), serviceID)
 	if err != nil {
-		response.Error(w, http.StatusInternalServerError, "SERVICE_ERROR", "Failed to get service", err.Error())
+		response.InternalError(w, "SERVICE_ERROR", "Failed to get service", err)
 		return
 	}
 	if service == nil {
@@ -90,7 +93,7 @@ func (h *AvailabilityHandler) GetAvailableSlots(w http.ResponseWriter, r *http.R
 	// Get service details
 	service, err := h.repo.GetServiceByID(r.Context(), serviceID)
 	if err != nil {
-		response.Error(w, http.StatusInternalServerError, "SERVICE_ERROR", "Failed to get service", err.Error())
+		response.InternalError(w, "SERVICE_ERROR", "Failed to get service", err)
 		return
 	}
 	if service == nil {
@@ -98,11 +101,20 @@ func (h *AvailabilityHandler) GetAvailableSlots(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Extract available slots from bitmap
+	bitmap, err := h.availabilityManager.GetOrCreateBitmap(r.Context(), service, date)
+	if err != nil {
+		response.InternalError(w, "BITMAP_ERROR", "Failed to get availability", err)
+		return
+	}
+
+	slots := extractAvailableSlots(bitmap, date, service.TimeGranularity, service.DurationMinutes)
+
 	// Filter by staff if staff_id is provided
 	if staffID != "" {
 		staff, err := h.repo.GetStaffByID(r.Context(), staffID)
 		if err != nil {
-			response.Error(w, http.StatusInternalServerError, "STAFF_ERROR", "Failed to get staff", err.Error())
+			response.InternalError(w, "STAFF_ERROR", "Failed to get staff", err)
 			return
 		}
 		if staff == nil {
@@ -110,19 +122,30 @@ func (h *AvailabilityHandler) GetAvailableSlots(w http.ResponseWriter, r *http.R
 			return
 		}
 
-		// Check if staff is associated with the service (simplified - we'll skip this for now)
-		// TODO: Implement staff-service relationship checking
-	}
+		// Verify staff is associated with the requested service
+		staffCanProvideService := false
+		for _, svcID := range staff.Services {
+			if svcID == serviceID {
+				staffCanProvideService = true
+				break
+			}
+		}
+		if !staffCanProvideService {
+			response.Error(w, http.StatusUnprocessableEntity, "STAFF_SERVICE_MISMATCH",
+				"Staff cannot provide this service", "")
+			return
+		}
 
-	// Get or create bitmap
-	bitmap, err := h.availabilityManager.GetOrCreateBitmap(r.Context(), service, date)
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, "BITMAP_ERROR", "Failed to get availability", err.Error())
-		return
-	}
+		// Filter slots by staff availability - verify bookings don't conflict
+		existingBookings, err := h.repo.GetBookingsByServiceAndDate(r.Context(), serviceID, date)
+		if err != nil {
+			response.InternalError(w, "BOOKING_ERROR", "Failed to get existing bookings", err)
+			return
+		}
 
-	// Extract available slots from bitmap
-	slots := extractAvailableSlots(bitmap, date, service.TimeGranularity, service.DurationMinutes)
+		// Remove slots that are already booked by this staff member
+		slots = removeBookedSlots(slots, existingBookings, staffID)
+	}
 
 	response.JSON(w, http.StatusOK, slots)
 }
@@ -168,4 +191,25 @@ func extractAvailableSlots(bitmap []byte, date time.Time, granularity, durationM
 	}
 
 	return slots
+}
+
+// removeBookedSlots removes time slots that are already booked by the specified staff.
+func removeBookedSlots(slots []map[string]interface{}, bookings []models.Booking, staffID string) []map[string]interface{} {
+	// Build a set of occupied start times for this staff member
+	occupied := map[string]bool{}
+	for _, b := range bookings {
+		if b.StaffID == staffID && b.Status != "cancelled" {
+			occupied[b.StartTime] = true
+		}
+	}
+
+	filtered := make([]map[string]interface{}, 0, len(slots))
+	for _, s := range slots {
+		startTime, ok := s["start_time"].(string)
+		if !ok || occupied[startTime] {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	return filtered
 }

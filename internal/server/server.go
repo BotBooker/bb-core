@@ -21,7 +21,7 @@ type Server struct {
 	cfg *config.Config
 }
 
-func New(cfg *config.Config, bookingRepo repository.AdminRepository, availabilityManager *availability.AvailabilityManager) *Server {
+func New(cfg *config.Config, repo repository.Repository, availabilityManager *availability.AvailabilityManager) *Server {
 	r := chi.NewRouter()
 
 	// Setup global middleware
@@ -43,10 +43,10 @@ func New(cfg *config.Config, bookingRepo repository.AdminRepository, availabilit
 
 	// Initialize handlers with dependencies
 	healthHandler := handlers.NewHealthHandler()
-	availabilityHandler := handlers.NewAvailabilityHandler(availabilityManager, bookingRepo)
-	catalogHandler := handlers.NewCatalogHandler(bookingRepo)
-	bookingHandler := handlers.NewBookingHandler(bookingRepo, availabilityManager)
-	adminHandler := handlers.NewAdminHandler(bookingRepo)
+	availabilityHandler := handlers.NewAvailabilityHandler(availabilityManager, repo)
+	catalogHandler := handlers.NewCatalogHandler(repo, repo)
+	bookingHandler := handlers.NewBookingHandler(repo, availabilityManager)
+	adminHandler := handlers.NewAdminHandler(repo)
 
 	// Health check endpoint
 	r.Get("/health", healthHandler.HealthCheck)

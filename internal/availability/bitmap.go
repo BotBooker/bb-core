@@ -110,3 +110,15 @@ func GetBit(bitmap []byte, position int) int {
 
 	return int((bitmap[byteIndex] >> bitIndex) & 1)
 }
+
+// SetBit sets the bit at the given position to the given value (0 or 1).
+func SetBit(bitmap []byte, position int, value int) {
+	byteIndex := position / 8
+	bitIndex := uint(position % 8)
+
+	if value == 1 {
+		bitmap[byteIndex] |= 1 << bitIndex
+	} else {
+		bitmap[byteIndex] &^= 1 << bitIndex
+	}
+}

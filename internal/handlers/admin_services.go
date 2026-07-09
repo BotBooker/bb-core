@@ -2,10 +2,10 @@
 package handlers
 
 import (
-	"bookerbotapi/internal/availability"
 	"encoding/json"
 	"net/http"
 
+	"bookerbotapi/internal/availability"
 	"bookerbotapi/internal/models"
 	"bookerbotapi/internal/repository"
 	"bookerbotapi/pkg/response"
@@ -14,11 +14,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// AdminHandler handles admin CRUD endpoints.
+// It depends on the composite repository (needs all domains).
 type AdminHandler struct {
-	repo repository.AdminRepository
+	repo repository.Repository
 }
 
-func NewAdminHandler(repo repository.AdminRepository) *AdminHandler {
+func NewAdminHandler(repo repository.Repository) *AdminHandler {
 	return &AdminHandler{
 		repo: repo,
 	}
@@ -27,7 +29,7 @@ func NewAdminHandler(repo repository.AdminRepository) *AdminHandler {
 func (h *AdminHandler) CreateService(w http.ResponseWriter, r *http.Request) {
 	var req models.Service
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body", err.Error())
+		response.InternalError(w, "INVALID_REQUEST", "Invalid request body", err)
 		return
 	}
 
@@ -50,7 +52,11 @@ func (h *AdminHandler) CreateService(w http.ResponseWriter, r *http.Request) {
 	// Generate ID
 	req.ID = uuid.New().String()
 
-	// In production, implement CreateService in repository
+	if err := h.repo.CreateService(r.Context(), &req); err != nil {
+		response.InternalError(w, "CREATE_SERVICE_ERROR", "Failed to create service", err)
+		return
+	}
+
 	response.JSON(w, http.StatusCreated, req)
 }
 
@@ -62,23 +68,41 @@ func (h *AdminHandler) DeleteService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO In production, implement DeleteService in repository
+	if err := h.repo.DeleteService(r.Context(), id); err != nil {
+		response.InternalError(w, "DELETE_SERVICE_ERROR", "Failed to delete service", err)
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *AdminHandler) ListServicesFiltered(w http.ResponseWriter, r *http.Request) {
 	merchantID := r.URL.Query().Get("merchant_id")
 	nameContains := r.URL.Query().Get("name_contains")
-	status := r.URL.Query().Get("status")
 
-	// In production, implement filtered query in repository
+	services, err := h.repo.ListServicesFiltered(r.Context(), merchantID, nameContains)
+	if err != nil {
+		response.InternalError(w, "LIST_SERVICES_ERROR", "Failed to list services", err)
+		return
+	}
+
+	svcsResponse := make([]interface{}, len(services))
+	for i, svc := range services {
+		svcsResponse[i] = map[string]interface{}{
+			"id":              svc.ID,
+			"name":            svc.Name,
+			"merchant_id":     svc.MerchantID,
+			"duration_minutes": svc.DurationMinutes,
+			"time_granularity": svc.TimeGranularity,
+		}
+	}
+
 	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"total":    0,
-		"services": []interface{}{},
+		"total":    len(svcsResponse),
+		"services": svcsResponse,
 		"filters": map[string]string{
 			"merchant_id":   merchantID,
 			"name_contains": nameContains,
-			"status":        status,
 		},
 	})
 }

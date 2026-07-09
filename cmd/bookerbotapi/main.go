@@ -22,7 +22,7 @@ func main() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal().Err(err).Msgf("Failed to load configuration: %v", err)
+		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
 	// Initialize PostgreSQL database
@@ -36,11 +36,11 @@ func main() {
 		ConnMaxIdleTime: dbConfig.ConnMaxIdleTime,
 	})
 	if err != nil {
-		log.Fatal().Msgf("Failed to initialize database: %v", err)
+		log.Fatal().Err(err).Msg("Failed to initialize database")
 	}
 	defer func() {
 		if err := postgresDB.Close(); err != nil {
-			log.Warn().Msgf("Error closing database: %v", err)
+			log.Warn().Err(err).Msg("Error closing database")
 		}
 	}()
 
@@ -52,11 +52,11 @@ func main() {
 		DB:       cfg.Redis.DB,
 	})
 	if err != nil {
-		log.Fatal().Msgf("Failed to initialize Redis: %v", err)
+		log.Fatal().Err(err).Msg("Failed to initialize Redis")
 	}
 	defer func() {
 		if err := redisClient.Close(); err != nil {
-			log.Warn().Msgf("Error closing Redis: %v", err)
+			log.Warn().Err(err).Msg("Error closing Redis")
 		}
 	}()
 
@@ -73,7 +73,7 @@ func main() {
 	go func() {
 		log.Printf("Server starting on port %s", cfg.Server.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Msgf("Server failed to start: %v", err)
+			log.Fatal().Err(err).Msg("Server failed to start")
 		}
 	}()
 
@@ -90,7 +90,7 @@ func main() {
 
 	// Shutdown server
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal().Err(err).Msgf("Server forced to shutdown: %v", err)
+		log.Fatal().Err(err).Msg("Server forced to shutdown")
 	}
 
 	log.Info().Msg("Server exited gracefully")

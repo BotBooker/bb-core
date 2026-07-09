@@ -2,63 +2,67 @@
 package config
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"time"
 
-	"github.com/nil-go/konf"
-	"github.com/nil-go/konf/provider/env"
-	"github.com/nil-go/konf/provider/file"
+	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/env"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
+
 	"github.com/rs/zerolog/log"
-	"gopkg.in/yaml.v3"
 )
 
-var configFiles embed.FS
-
+// Config holds all configuration for the application.
 type Config struct {
-	Server   ServerConfig   `konf:"server"`
-	Auth     AuthConfig     `konf:"auth"`
-	Database DatabaseConfig `konf:"database"`
-	Redis    RedisConfig    `konf:"redis"`
-	Logging  LoggingConfig  `konf:"logging"`
+	Server   ServerConfig   `koanf:"server"`
+	Auth     AuthConfig     `koanf:"auth"`
+	Database DatabaseConfig `koanf:"database"`
+	Redis    RedisConfig    `koanf:"redis"`
+	Logging  LoggingConfig  `koanf:"logging"`
 }
 
+// ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
-	Port         string        `konf:"port,default=8080"`
-	ReadTimeout  time.Duration `konf:"read_timeout,default=30s"`
-	WriteTimeout time.Duration `konf:"write_timeout,default=30s"`
-	IdleTimeout  time.Duration `konf:"idle_timeout,default=60s"`
+	Port         string        `koanf:"port"`
+	ReadTimeout  time.Duration `koanf:"read_timeout"`
+	WriteTimeout time.Duration `koanf:"write_timeout"`
+	IdleTimeout  time.Duration `koanf:"idle_timeout"`
 }
 
+// AuthConfig holds authentication configuration.
 type AuthConfig struct {
-	APIKeys []string `konf:"api_keys"`
+	APIKeys []string `koanf:"api_keys"`
 }
 
+// DatabaseConfig holds database connection configuration.
 type DatabaseConfig struct {
-	Driver          string `konf:"driver,default=postgres"`
-	DSN             string `konf:"dsn"`
-	MaxOpenConns    int    `konf:"max_open_conns,default=25"`
-	MaxIdleConns    int    `konf:"max_idle_conns,default=10"`
-	ConnMaxLifetime int    `konf:"conn_max_lifetime_minutes,default=5"`
-	ConnMaxIdleTime int    `konf:"conn_max_idle_time_minutes,default=10"`
+	Driver          string `koanf:"driver"`
+	DSN             string `koanf:"dsn"`
+	MaxOpenConns    int    `koanf:"max_open_conns"`
+	MaxIdleConns    int    `koanf:"max_idle_conns"`
+	ConnMaxLifetime int    `koanf:"conn_max_lifetime_minutes"`
+	ConnMaxIdleTime int    `koanf:"conn_max_idle_time_minutes"`
 }
 
+// RedisConfig holds Redis connection configuration.
 type RedisConfig struct {
-	Host     string `konf:"host,default=localhost"`
-	Port     string `konf:"port,default=6379"`
-	Password string `konf:"password,default="`
-	DB       int    `konf:"db,default=0"`
+	Host     string `koanf:"host"`
+	Port     string `koanf:"port"`
+	Password string `koanf:"password"`
+	DB       int    `koanf:"db"`
 }
 
+// LoggingConfig holds logging configuration.
 type LoggingConfig struct {
-	Level string `konf:"level,default=info"`
-	JSON  bool   `konf:"json,default=false"`
+	Level string `koanf:"level"`
+	JSON  bool   `koanf:"json"`
 }
 
+// Load loads configuration from YAML files and environment variables.
 func Load() (*Config, error) {
-	// Create a new konf configuration instance
-	cfg := konf.New()
+	k := koanf.New(".")
 
 	instance := os.Getenv("INSTANCE")
 	if instance == "" {
@@ -66,42 +70,72 @@ func Load() (*Config, error) {
 	}
 
 	path := "config/" + instance + "/config.yaml"
-	log.Info().Msgf("using %s instance", instance)
-	log.Info().Msgf("loading configuration at %s", path)
-	// Load configuration
-	if err := cfg.Load(file.New(path, file.WithUnmarshal(yaml.Unmarshal))); err != nil {
-		// Handle error here.
-		log.Fatal().Err(err)
+	log.Info().Msgf("using instance: %s", instance)
+	log.Info().Msgf("loading configuration from: %s", path)
+
+	// Load YAML config file (non-fatal if missing)
+	if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
+		log.Warn().Err(err).Msg("failed to load config file, using defaults")
 	}
 
-	// Load from environment variables
-	// Using WithPrefix("") to load all environment variables without a prefix
-	if err := cfg.Load(env.New(env.WithPrefix(""))); err != nil {
+	// Load environment variables (without prefix, underscore as separator)
+	if err := k.Load(env.Provider("", "_", nil), nil); err != nil {
 		return nil, fmt.Errorf("failed to load environment variables: %w", err)
 	}
 
-	// FIXME update from mkk file loading
-	// Optionally load from embedded config file as fallback defaults
-	// Uncomment if you want to use embedded JSON config files
-	/*
-		if err := cfg.Load(fs.New(configFiles, "configs/config.json")); err != nil {
-			// Silently continue - embedded config might not exist
-		}
-	*/
-
-	// Set as default global configuration
-	konf.SetDefault(cfg)
-
-	// Unmarshal the configuration into our struct
+	// Unmarshal into config struct
 	var config Config
-	if err := cfg.Unmarshal("", &config); err != nil {
+	if err := k.Unmarshal("", &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal configuration: %w", err)
 	}
+
+	// Apply defaults for zero-value fields
+	config.applyDefaults()
 
 	return &config, nil
 }
 
-// GetDatabaseConfig returns database configuration with parsed durations
+// applyDefaults sets sensible defaults for any unconfigured fields.
+func (c *Config) applyDefaults() {
+	if c.Server.Port == "" {
+		c.Server.Port = "8080"
+	}
+	if c.Server.ReadTimeout <= 0 {
+		c.Server.ReadTimeout = 30 * time.Second
+	}
+	if c.Server.WriteTimeout <= 0 {
+		c.Server.WriteTimeout = 30 * time.Second
+	}
+	if c.Server.IdleTimeout <= 0 {
+		c.Server.IdleTimeout = 60 * time.Second
+	}
+	if c.Database.Driver == "" {
+		c.Database.Driver = "postgres"
+	}
+	if c.Database.MaxOpenConns <= 0 {
+		c.Database.MaxOpenConns = 25
+	}
+	if c.Database.MaxIdleConns <= 0 {
+		c.Database.MaxIdleConns = 10
+	}
+	if c.Database.ConnMaxLifetime <= 0 {
+		c.Database.ConnMaxLifetime = 5
+	}
+	if c.Database.ConnMaxIdleTime <= 0 {
+		c.Database.ConnMaxIdleTime = 10
+	}
+	if c.Redis.Host == "" {
+		c.Redis.Host = "localhost"
+	}
+	if c.Redis.Port == "" {
+		c.Redis.Port = "6379"
+	}
+	if c.Logging.Level == "" {
+		c.Logging.Level = "info"
+	}
+}
+
+// GetDatabaseConfig returns database configuration with parsed durations.
 func (c *Config) GetDatabaseConfig() DatabaseConfigWithDuration {
 	return DatabaseConfigWithDuration{
 		Driver:          c.Database.Driver,
@@ -113,6 +147,7 @@ func (c *Config) GetDatabaseConfig() DatabaseConfigWithDuration {
 	}
 }
 
+// DatabaseConfigWithDuration holds database config with parsed time.Duration fields.
 type DatabaseConfigWithDuration struct {
 	Driver          string
 	DSN             string
