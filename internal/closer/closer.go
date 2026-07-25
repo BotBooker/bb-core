@@ -110,7 +110,8 @@ func (c *closer) closeAll(ctx context.Context) error {
 
 			if err := f.fn(ctx); err != nil {
 				// Логируем ошибку, но продолжаем закрывать остальные ресурсы.
-				slog.Error("ошибка при закрытии ресурса",
+				slog.Error(
+					"ошибка при закрытии ресурса",
 					"name", f.name,
 					"error", err,
 					"duration", time.Since(start),
