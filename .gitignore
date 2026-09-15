@@ -31,3 +31,4 @@ go.work
 go.work.sum
 
 build/
+*.sarif
