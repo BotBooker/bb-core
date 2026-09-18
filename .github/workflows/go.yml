@@ -2,6 +2,7 @@ name: Run lint & Tests
 
 permissions:
   contents: read
+  security-events: read
 
 on:
   push:
