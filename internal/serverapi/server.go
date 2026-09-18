@@ -80,20 +80,20 @@ func (a *ServerAPI) Run() error {
 		err = errors.Join(err, otelShutdown(context.Background()))
 	}()
 
-	slog.Info("сервер запущен", "addr", config.AppConfig().HTTPAddr)
+	slog.Info("the server is running", "addr", config.AppConfig().HTTPAddr)
 
 	// 2. Запуск сервера в горутине.
 	// ListenAndServe блокирует — поэтому запускаем в горутине, а main ждёт сигнал.
 	// http.ErrServerClosed — нормальное завершение (мы сами вызвали Shutdown), не ошибка.
 	go func() {
 		if err := a.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("ошибка сервера", "err", err)
+			slog.Error("server error", "err", err)
 		}
 	}()
 
 	// 3. Ожидание сигнала.
 	<-ctx.Done()
-	slog.Info("получен сигнал, завершаем...")
+	slog.Info("signal received, shutting down...")
 
 	// Паттерн "двойной Ctrl+C": снимаем custom handler.
 	// Теперь второй Ctrl+C убьёт процесс мгновенно (дефолтное поведение ОС).
@@ -111,10 +111,10 @@ func (a *ServerAPI) Run() error {
 	defer shutdownCancel()
 
 	if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
-		slog.Error("ошибка при остановке сервера", "err", err)
+		slog.Error("error while stopping the server", "err", err)
 	}
 
-	slog.Info("сервер остановлен")
+	slog.Info("server stopped")
 
 	// 5. Закрытие всех ресурсов через глобальный closer (LIFO).
 	// Отдельный контекст с таймаутом 10 секунд — свой бюджет для ресурсов.
@@ -123,7 +123,7 @@ func (a *ServerAPI) Run() error {
 	defer closerCancel()
 
 	if err := closer.CloseAll(closerCtx); err != nil {
-		slog.Error("ошибки при закрытии ресурсов", "err", err)
+		slog.Error("failed to close resources", "err", err)
 	}
 
 	return nil

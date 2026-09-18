@@ -23,10 +23,10 @@ type db struct {
 // New создаёт подключение к базе данных.
 func New(dsn string) (DB, error) {
 	if dsn == "" {
-		return nil, errors.New("dsn пустой")
+		return nil, errors.New("DSN (Data Source Name) is empty")
 	}
 
-	slog.Debug("подключились к базе данных")
+	slog.Debug("connected to the database")
 	return &db{dsn: dsn}, nil
 }
 
@@ -61,6 +61,6 @@ func (d *db) BulkInsert(query string, args ...any) error {
 
 // Close закрывает подключение к базе данных.
 func (d *db) Close() error {
-	slog.Debug("подключение к базе данных закрыто")
+	slog.Debug("connection to the database closed")
 	return nil
 }

@@ -18,7 +18,7 @@ type redisCache struct {
 
 // New создаёт подключение к кэшу.
 func New(addr string) Cache {
-	slog.Debug("подключились к кэшу", "addr", addr)
+	slog.Debug("connected to the cache", "addr", addr)
 	return &redisCache{addr: addr}
 }
 
@@ -35,6 +35,6 @@ func (c *redisCache) Set(key, value string) error {
 
 // Close закрывает подключение к кэшу.
 func (c *redisCache) Close() error {
-	slog.Debug("подключение к кэшу закрыто")
+	slog.Debug("connection to the cache closed")
 	return nil
 }
