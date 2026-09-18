@@ -47,7 +47,7 @@ func NewAuthService(
 	cache AuthCache,
 	events AuthEventPublisher,
 ) AuthService {
-	slog.Debug("сервис авторизации создан")
+	slog.Debug("auth service created")
 	return &authService{
 		userRepo:    userRepo,
 		sessionRepo: sessionRepo,

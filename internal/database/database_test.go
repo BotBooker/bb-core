@@ -284,7 +284,7 @@ func TestNew_ErrorMessage(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for empty DSN")
 	}
-	expectedErr := "dsn пустой"
+	expectedErr := "DSN (Data Source Name) is empty"
 	if err.Error() != expectedErr {
 		t.Errorf("New() error = %v, want %v", err.Error(), expectedErr)
 	}

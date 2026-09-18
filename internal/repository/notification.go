@@ -19,6 +19,6 @@ type notificationRepo struct {
 
 // NewNotificationRepo создаёт репозиторий уведомлений.
 func NewNotificationRepo(db NotificationDB) NotificationRepo {
-	slog.Debug("репозиторий уведомлений создан")
+	slog.Debug("notification repository created")
 	return &notificationRepo{db: db}
 }

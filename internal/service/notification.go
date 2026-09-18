@@ -33,7 +33,7 @@ func NewNotificationService(
 	userService NotificationUserService,
 	events NotificationEventSubscriber,
 ) NotificationService {
-	slog.Debug("сервис уведомлений создан")
+	slog.Debug("notification service created")
 	return &notificationService{
 		notificationRepo: notificationRepo,
 		userService:      userService,

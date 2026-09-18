@@ -97,7 +97,7 @@ func (c *closer) closeAll(ctx context.Context) error {
 			return
 		}
 
-		slog.Debug("начинаем плавное завершение", "count", len(funcs))
+		slog.Debug("initiating graceful shutdown", "count", len(funcs))
 
 		var errs []error
 
@@ -106,12 +106,12 @@ func (c *closer) closeAll(ctx context.Context) error {
 			f := funcs[i]
 
 			start := time.Now()
-			slog.Debug("закрываем ресурс", "name", f.name)
+			slog.Debug("closing the resource", "name", f.name)
 
 			if err := f.fn(ctx); err != nil {
 				// Логируем ошибку, но продолжаем закрывать остальные ресурсы.
 				slog.Error(
-					"ошибка при закрытии ресурса",
+					"error while closing resource",
 					"name", f.name,
 					"error", err,
 					"duration", time.Since(start),
@@ -119,11 +119,11 @@ func (c *closer) closeAll(ctx context.Context) error {
 
 				errs = append(errs, err)
 			} else {
-				slog.Debug("ресурс закрыт", "name", f.name, "duration", time.Since(start))
+				slog.Debug("resource successfully closed", "name", f.name, "duration", time.Since(start))
 			}
 		}
 
-		slog.Info("все ресурсы закрыты")
+		slog.Info("all resources successfully closed")
 
 		result = errors.Join(errs...)
 	})
