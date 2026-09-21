@@ -2,7 +2,6 @@ name: Run lint & Tests
 
 permissions:
   contents: read
-  security-events: read
 
 on:
   push:
@@ -31,6 +30,8 @@ concurrency:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
