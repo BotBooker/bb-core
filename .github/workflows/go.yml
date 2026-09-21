@@ -108,9 +108,18 @@ jobs:
         with:
           postgres-version: 16
 
+      - name: Setup Redis
+        uses: shogo82148/actions-setup-redis@88a1fb308aae95aa485bf3da667c9d6e61be4c53 # v1.58.0
+        with:
+          distribution: redis
+          redis-version: "8.10"
+          redis-conf: |
+            requirepass "redis#password"
+
       - name: Run Tests
         env:
           PG: postgres://postgres:postgres@localhost/postgres?sslmode=disable
+          REDIS_HOST: redis://default:redis#password@localhost:6379/0
         run: |
           go mod edit -go=${{ matrix.go }}
           TESTTAGS='-failfast -shuffle=off' make coverage
