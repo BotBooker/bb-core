@@ -1,4 +1,4 @@
-COVERAGE_OUT := $(shell test -f coverage.out && echo 1 || echo 0)
+COVERAGE_OUT := $(shell test -f coverage.txt && echo 1 || echo 0)
 BIN_FILE_API := $(shell test -x ./build/api && echo 1 || echo 0)
 GO ?= go
 GO_VERSION=$(shell $(GO) version | cut -c 14- | cut -d' ' -f1 | cut -d'.' -f2)
@@ -23,7 +23,7 @@ help: ## Show this help message
 test: ## Run tests to verify code functionality.
 test: gotestfmt
 	@echo "Running tests with coverage report...";
-	@set -eu;$(GO) mod tidy;$(GO) test -json -shuffle=on -timeout=5m -count=1 $(TESTTAGS) $(TESTFOLDER) -coverprofile=coverage.out -covermode=atomic 2>&1 | tee ./gotest-e2e.log | gotestfmt
+	@set -eu;$(GO) mod tidy;$(GO) test -json -shuffle=on -timeout=5m -count=1 $(TESTTAGS) $(TESTFOLDER) -coverprofile=coverage.txt -covermode=atomic 2>&1 | tee ./gotest-e2e.log | gotestfmt
 
 .PHONY: coverage
 coverage: ## Percentage of test coverage. If coverage <80%, output signal 1.
@@ -32,7 +32,7 @@ coverage: test
 else
 coverage:
 endif
-	@PERCENT=$$($(GO) tool cover -func=coverage.out | grep total | awk '{print $$3}'); \
+	@PERCENT=$$($(GO) tool cover -func=coverage.txt | grep total | awk '{print $$3}'); \
 	echo "coverage at: $${PERCENT}"; \
 	echo $${PERCENT} | sed 's/%//' | xargs -I {} sh -c 'echo "{} < 80" | bc -l | grep -q 1 && exit 1 || exit 0'
 
@@ -109,7 +109,7 @@ build: ## Build for release
 
 .PHONY: clean
 clean: ## Clean all cache
-	@rm -f coverage.out gotest-e2e.log
+	@rm -f coverage.txt gotest-e2e.log
 	@$(GO) clean -modcache
 
 .PHONY: run

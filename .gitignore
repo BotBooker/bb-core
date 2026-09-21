@@ -19,7 +19,7 @@
 
 # Code coverage profiles and other test artifacts
 *.out
-coverage.out
+coverage.txt
 *.coverprofile
 profile.cov
 
