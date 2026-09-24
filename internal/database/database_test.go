@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestNew(t *testing.T) {
+func TestDB_New(t *testing.T) {
 	tests := []struct {
 		name       string
 		dsn        string
@@ -279,12 +279,12 @@ func TestDB_Close(t *testing.T) {
 	}
 }
 
-func TestNew_ErrorMessage(t *testing.T) {
+func TestDB_New_ErrorMessage(t *testing.T) {
 	_, err := New("")
 	if err == nil {
 		t.Fatal("Expected error for empty DSN")
 	}
-	expectedErr := "dsn пустой"
+	expectedErr := "DSN is empty"
 	if err.Error() != expectedErr {
 		t.Errorf("New() error = %v, want %v", err.Error(), expectedErr)
 	}

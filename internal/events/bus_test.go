@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestNewEventBus(t *testing.T) {
+func TestEventBus_NewEventBus(t *testing.T) {
 	tests := []struct {
 		name       string
 		wantNotNil bool
