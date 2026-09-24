@@ -10,21 +10,21 @@ import (
 	"github.com/botbooker/bb-core/internal/logger"
 )
 
-func TestInit(t *testing.T) {
+func TestLogger_Init(t *testing.T) {
 	log := logger.Init(slog.LevelInfo)
 	if log == nil {
 		t.Fatal("Init должен вернуть не nil логгер")
 	}
 }
 
-func TestInitJSON(t *testing.T) {
+func TestLogger_InitJSON(t *testing.T) {
 	log := logger.InitJSON(slog.LevelInfo)
 	if log == nil {
 		t.Fatal("InitJSON должен вернуть не nil логгер")
 	}
 }
 
-func TestInitWithDifferentLevels(t *testing.T) {
+func TestLogger_Init_With_Different_Levels(t *testing.T) {
 	levels := []slog.Level{
 		slog.LevelDebug,
 		slog.LevelInfo,
@@ -42,7 +42,7 @@ func TestInitWithDifferentLevels(t *testing.T) {
 	}
 }
 
-func TestInitJSONWithDifferentLevels(t *testing.T) {
+func TestLogger_InitJSON_With_Different_Levels(t *testing.T) {
 	levels := []slog.Level{
 		slog.LevelDebug,
 		slog.LevelInfo,
@@ -60,7 +60,7 @@ func TestInitJSONWithDifferentLevels(t *testing.T) {
 	}
 }
 
-func TestLoggerLevelFiltering(t *testing.T) {
+func TestLogger_Level_Filtering(t *testing.T) {
 	var buf bytes.Buffer
 
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
@@ -82,7 +82,7 @@ func TestLoggerLevelFiltering(t *testing.T) {
 	}
 }
 
-func TestInitReturnsTextHandler(t *testing.T) {
+func TestLogger_Init_Returns_TextHandler(t *testing.T) {
 	log := logger.Init(slog.LevelInfo)
 
 	// Проверяем, что логгер работает корректно
@@ -94,7 +94,7 @@ func TestInitReturnsTextHandler(t *testing.T) {
 	}
 }
 
-func TestInitJSONReturnsTextHandler(t *testing.T) {
+func TestLogger_InitJSON_Returns_TextHandler(t *testing.T) {
 	log := logger.InitJSON(slog.LevelInfo)
 
 	// Проверяем, что логгер работает корректно
@@ -106,7 +106,7 @@ func TestInitJSONReturnsTextHandler(t *testing.T) {
 	}
 }
 
-func TestInitAndSetDefault(t *testing.T) {
+func TestLogger_InitAndSetDefault(t *testing.T) {
 	log := logger.InitAndSetDefault(slog.LevelInfo)
 
 	// Проверяем, что логгер не nil
@@ -121,7 +121,7 @@ func TestInitAndSetDefault(t *testing.T) {
 	}
 }
 
-func TestInitJSONAndSetDefault(t *testing.T) {
+func TestLogger_InitJSONAndSetDefault(t *testing.T) {
 	log := logger.InitJSONAndSetDefault(slog.LevelInfo)
 
 	// Проверяем, что логгер не nil
@@ -136,7 +136,7 @@ func TestInitJSONAndSetDefault(t *testing.T) {
 	}
 }
 
-func TestInitAndSetDefault_DifferentLevels(t *testing.T) {
+func TestLogger_InitAndSetDefault_DifferentLevels(t *testing.T) {
 	levels := []slog.Level{
 		slog.LevelDebug,
 		slog.LevelInfo,
@@ -154,7 +154,7 @@ func TestInitAndSetDefault_DifferentLevels(t *testing.T) {
 	}
 }
 
-func TestInitJSONAndSetDefault_DifferentLevels(t *testing.T) {
+func TestLogger_InitJSONAndSetDefault_DifferentLevels(t *testing.T) {
 	levels := []slog.Level{
 		slog.LevelDebug,
 		slog.LevelInfo,
@@ -172,7 +172,7 @@ func TestInitJSONAndSetDefault_DifferentLevels(t *testing.T) {
 	}
 }
 
-func TestInitAndSetDefault_LogsCorrectly(t *testing.T) {
+func TestLogger_Init_And_Set_Default_LogsCorrectly(t *testing.T) {
 	var buf bytes.Buffer
 
 	// Создаём логгер с записью в буфер
@@ -190,7 +190,7 @@ func TestInitAndSetDefault_LogsCorrectly(t *testing.T) {
 	}
 }
 
-func TestLoggerOutput(t *testing.T) {
+func TestLogger_Output(t *testing.T) {
 	// Создаём буфер для захвата вывода
 	var buf bytes.Buffer
 

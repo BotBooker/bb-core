@@ -31,7 +31,7 @@ type userService struct {
 
 // NewUserService создаёт сервис пользователей.
 func NewUserService(userRepo UserRepository, authService UserAuthService, events UserEventPublisher) UserService {
-	slog.Debug("сервис пользователей создан")
+	slog.Debug("user service created")
 	return &userService{
 		userRepo:    userRepo,
 		authService: authService,
