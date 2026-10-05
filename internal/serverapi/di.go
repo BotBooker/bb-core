@@ -63,11 +63,11 @@ func (d *diContainer) DB() database.DB {
 	if d.db == nil {
 		db, err := database.New(config.AppConfig().DSN)
 		if err != nil {
-			slog.Error("не удалось подключиться к БД", "err", err)
+			slog.Error("failed to connect to the database", "err", err)
 			os.Exit(1)
 		}
 
-		closer.Add("база данных", func(_ context.Context) error {
+		closer.Add("database", func(_ context.Context) error {
 			return db.Close()
 		})
 
@@ -93,7 +93,7 @@ func (d *diContainer) Cache() cache.Cache {
 	if d.cache == nil {
 		c := cache.New(config.AppConfig().RedisAddr)
 
-		closer.Add("кэш", func(_ context.Context) error {
+		closer.Add("cache", func(_ context.Context) error {
 			return c.Close()
 		})
 

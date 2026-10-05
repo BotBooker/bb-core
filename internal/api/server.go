@@ -64,7 +64,7 @@ func (h *handler) healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := fmt.Fprintln(w, "ok"); err != nil {
-		slog.Error("ошибка записи ответа", "err", err)
+		slog.Error("failed to write response", "err", err)
 	}
 }
 
@@ -76,6 +76,6 @@ func (h *handler) getUserProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if err := json.NewEncoder(w).Encode(profile); err != nil {
-		slog.Error("ошибка записи ответа", "err", err)
+		slog.Error("failed to write response", "err", err)
 	}
 }

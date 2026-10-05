@@ -1,0 +1,29 @@
+codecov:
+  require_ci_to_pass: true
+
+ai_pr_review:
+  enabled: false
+
+coverage:
+  precision: 2
+  round: down
+  range: "60...85"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 5%
+        base: auto
+        if_ci_failed: error #success, failure, error, ignore
+    patch:
+      default:
+        target: auto
+        threshold: 20%
+
+slack_app: false
+
+github_checks:
+  annotations: false
+
+ignore:
+  - ./cmd/**/*.go

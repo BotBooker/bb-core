@@ -19,6 +19,6 @@ type userRepo struct {
 
 // NewUserRepo создаёт репозиторий пользователей.
 func NewUserRepo(db UserDB) UserRepo {
-	slog.Debug("репозиторий пользователей создан")
+	slog.Debug("user repository created")
 	return &userRepo{db: db}
 }

@@ -26,6 +26,6 @@ type sessionRepo struct {
 
 // NewSessionRepo создаёт репозиторий сессий.
 func NewSessionRepo(db SessionDB, cache SessionCache) SessionRepo {
-	slog.Debug("репозиторий сессий создан")
+	slog.Debug("session repository created")
 	return &sessionRepo{db: db, cache: cache}
 }
