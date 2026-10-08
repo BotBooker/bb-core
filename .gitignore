@@ -30,5 +30,6 @@ vendor/
 go.work
 go.work.sum
 
+bin/
 build/
 *.sarif

@@ -1,4 +1,4 @@
-package api
+package serverapi
 
 import (
 	"net/http"

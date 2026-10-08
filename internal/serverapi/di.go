@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/botbooker/bb-core/internal/api"
 	"github.com/botbooker/bb-core/internal/cache"
 	"github.com/botbooker/bb-core/internal/closer"
 	"github.com/botbooker/bb-core/internal/config"
@@ -48,7 +47,7 @@ type diContainer struct {
 	notificationService service.NotificationService
 
 	// API
-	handler api.Handler
+	handler Handler
 }
 
 // newDIContainer создаёт новый пустой контейнер.
@@ -158,9 +157,9 @@ func (d *diContainer) NotificationService() service.NotificationService {
 }
 
 // Handler возвращает HTTP-хендлер.
-func (d *diContainer) Handler() api.Handler {
+func (d *diContainer) Handler() Handler {
 	if d.handler == nil {
-		d.handler = api.NewHandler(
+		d.handler = NewHandler(
 			d.UserService(),
 			d.AuthService(),
 			d.NotificationService(),

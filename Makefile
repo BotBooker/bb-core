@@ -1,13 +1,24 @@
-COVERAGE_OUT := $(shell test -f coverage.txt && echo 1 || echo 0)
 BIN_FILE_API := $(shell test -x ./build/api && echo 1 || echo 0)
+COVERAGE_OUT := $(shell test -f coverage.txt && echo 1 || echo 0)
 GO ?= go
 GO_VERSION=$(shell $(GO) version | cut -c 14- | cut -d' ' -f1 | cut -d'.' -f2)
+GOBIN = $(shell go env GOPATH)/bin
 GOFILES := $(shell find . -name "*.go")
 GOFMT ?= gofmt "-s"
 PACKAGES ?= $(shell $(GO) list ./...)
 TESTFOLDER := $(shell find . -path "./.git" -prune -o -name "*.go" -type f -exec dirname {} +|uniq)
 TESTTAGS ?= "-v"
 VETPACKAGES ?= $(shell $(GO) list ./... | grep -v /examples/)
+
+# fix version tools
+GOFUMPT_VERSION ?= v0.12.0
+GOIMPORTS_VERSION ?= v0.51.0
+GOLANGCI_LINT_VERSION ?= v2.14.0
+GOOSE_VERSION ?= v3.28.0
+GOTESTFMT_VERSION ?= v2.5.0
+MISSPELL_VERSION ?= v0.8.0
+
+export PATH := $(GOBIN):$(PATH)
 
 .DEFAULT_GOAL := help
 
@@ -21,7 +32,7 @@ help: ## Show this help message
 
 .PHONY: test
 test: ## Run tests to verify code functionality.
-test: gotestfmt
+test: tools
 	@echo "Running tests with coverage report...";
 	@set -eu;$(GO) mod tidy;$(GO) test -json -shuffle=on -timeout=5m -count=1 $(TESTTAGS) $(TESTFOLDER) -coverprofile=coverage.txt -covermode=atomic 2>&1 | tee ./gotest-e2e.log | gotestfmt
 
@@ -55,13 +66,7 @@ vet: ## Examine packages and report suspicious constructs if any.
 
 .PHONY: lint
 lint: ## Inspect source code for stylistic errors or potential bugs.
-	@if ! command -v golangci-lint >/dev/null 2>&1; then \
-		echo "Installing golangci-lint..."; \
-		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2; \
-		if command -v goenv >/dev/null 2>&1; then \
-			goenv rehash; \
-		fi \
-	fi
+lint: tools
 	@golangci-lint run --fix
 
 .PHONY: misspell
@@ -72,25 +77,31 @@ misspell: ## Correct commonly misspelled English words in source code.
 misspell-check: ## misspell (check only).
 	misspell -error $(GOFILES)
 
-.PHONY: tools
-tools: ## Install Go tools (including misspell).
-	@$(GO) install github.com/client9/misspell/cmd/misspell@latest
-	@$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-	@$(GO) install golang.org/x/tools/cmd/goimports@latest
-	@$(GO) install mvdan.cc/gofumpt@latest
-	@if command -v goenv >/dev/null 2>&1; then \
-		goenv rehash; \
-	fi;
+TOOLS     = gofumpt goimports golangci-lint goose gotestfmt misspell
+TOOLS_BIN = $(addprefix $(GOBIN)/, $(TOOLS))
 
-.PHONY: gotestfmt
-gotestfmt: ## Install gotestfmt if not present
-	@if ! command -v gotestfmt >/dev/null 2>&1; then \
-		echo "Installing gotestfmt..."; \
-		$(GO) install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest; \
-	fi
-	@if command -v goenv >/dev/null 2>&1; then \
-		goenv rehash; \
-	fi
+.PHONY: tools
+tools: $(TOOLS_BIN) ## Install Go tools
+	@command -v goenv >/dev/null 2>&1 && goenv rehash >/dev/null 2>&1 || true
+
+# Install specific utilities only if they are missing
+$(GOBIN)/gofumpt:
+	$(GO) install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
+
+$(GOBIN)/goimports:
+	$(GO) install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
+
+$(GOBIN)/golangci-lint:
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+$(GOBIN)/goose:
+	$(GO) install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
+
+$(GOBIN)/gotestfmt:
+	$(GO) install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@$(GOTESTFMT_VERSION)
+
+$(GOBIN)/misspell:
+	$(GO) install github.com/golangci/misspell/cmd/misspell@$(MISSPELL_VERSION)
 
 .PHONY: deps
 deps: ## Install dependencies
