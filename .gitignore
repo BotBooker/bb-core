@@ -33,3 +33,4 @@ go.work.sum
 bin/
 build/
 *.sarif
+*.lock

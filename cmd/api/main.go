@@ -5,13 +5,10 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/botbooker/bb-core/internal/config"
-	"github.com/botbooker/bb-core/internal/logger"
 	"github.com/botbooker/bb-core/internal/serverapi"
 )
 
 func main() {
-	logger.InitJSONAndSetDefault(config.AppConfig().LogLevel)
 	server := serverapi.New()
 	// Run server with graceful shutdown
 	if err := server.Run(); err != nil {

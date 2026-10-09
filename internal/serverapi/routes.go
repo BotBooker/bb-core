@@ -53,9 +53,21 @@ func NewHandler(
 // Routes возвращает маршрутизатор со всеми зарегистрированными хендлерами.
 // App-слой использует этот http.Handler при создании http.Server.
 func (h *handler) Routes() http.Handler {
+	fileServer := initSwaggerUI()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.healthHandler)
 	mux.HandleFunc("GET /users/me", h.getUserProfile)
+	// Swagger UI эндпоинты
+	// mux.Handle("/api/", &http.ServeMux{})
+	mux.Handle("/swagger-ui.html", fileServer)
+	mux.Handle("/swagger/swagger.swagger.json", fileServer)
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/swagger-ui.html", http.StatusMovedPermanently)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	}))
 
 	return mux
 }

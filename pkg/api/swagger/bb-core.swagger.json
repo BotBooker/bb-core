@@ -1,0 +1,556 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Package содержит API v1 для работы с сервисом BotBooker",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "TenantService",
+      "description": "Сервис управления арендаторами (организациями/клиентами/тенант)"
+    },
+    {
+      "name": "UserService",
+      "description": "Сервис для управления пользователями"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/tenants": {
+      "get": {
+        "operationId": "ListTenants",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListTenantsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      },
+      "post": {
+        "operationId": "CreateTenant",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1TenantResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateTenantRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      }
+    },
+    "/v1/tenants/{uuid}": {
+      "get": {
+        "operationId": "GetTenant",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1TenantResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      },
+      "delete": {
+        "operationId": "DeleteTenant",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      }
+    },
+    "/v1/users": {
+      "post": {
+        "summary": "Создать нового пользователя",
+        "operationId": "Create",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UserServiceCreateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1UserServiceCreateRequest"
+            }
+          }
+        ],
+        "tags": [
+          "UserService"
+        ]
+      }
+    },
+    "/v1/users/{uuid}": {
+      "get": {
+        "summary": "Получить пользователя по UUID",
+        "operationId": "Get",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UserServiceGetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "UUID пользователя обязателен и должен быть валидным UUID",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "UserService"
+        ]
+      },
+      "delete": {
+        "summary": "Удалить пользователя",
+        "operationId": "Delete",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "UUID удаляемого пользователя",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "UserService"
+        ]
+      },
+      "patch": {
+        "summary": "Обновить данные пользователя",
+        "operationId": "Update",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UserServiceUpdateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "UUID обновляемого пользователя",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserServiceUpdateBody"
+            }
+          }
+        ],
+        "tags": [
+          "UserService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "UserServiceUpdateBody": {
+      "type": "object",
+      "properties": {
+        "first_name": {
+          "type": "string",
+          "title": "Поля обернуты в wrappers для поддержки частичного обновления (PATCH)"
+        },
+        "last_name": {
+          "type": "string"
+        },
+        "middle_name": {
+          "type": "string"
+        },
+        "phone_number": {
+          "type": "string"
+        },
+        "gender": {
+          "type": "integer",
+          "format": "int32",
+          "title": "Ссылка на обертку для Enum, чтобы отличать \"не передано\" от \"значение 0\""
+        },
+        "birth_date": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Новая дата рождения"
+        }
+      },
+      "title": "Запрос на обновление пользователя"
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1CreateTenantRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "title": "Запрос на создание нового тенанта"
+    },
+    "v1Gender": {
+      "type": "string",
+      "enum": [
+        "GENDER_UNSPECIFIED",
+        "GENDER_MALE",
+        "GENDER_FEMALE"
+      ],
+      "default": "GENDER_UNSPECIFIED",
+      "description": "- GENDER_UNSPECIFIED: Пол не указан\n - GENDER_MALE: Мужской пол\n - GENDER_FEMALE: Женский пол",
+      "title": "Перечисление для указания пола пользователя"
+    },
+    "v1ListTenantsResponse": {
+      "type": "object",
+      "properties": {
+        "tenants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Tenant"
+          }
+        },
+        "next_page_token": {
+          "type": "string"
+        }
+      },
+      "title": "Ответ со списком тенантов и токеном следующей страницы"
+    },
+    "v1Tenant": {
+      "type": "object",
+      "properties": {
+        "uuid": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/v1TenantStatus"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Произвольные параметры/настройки"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "title": "Основная сущность арендатора"
+    },
+    "v1TenantResponse": {
+      "type": "object",
+      "properties": {
+        "tenant": {
+          "$ref": "#/definitions/v1Tenant"
+        }
+      },
+      "title": "Ответ, содержащий данные тенанта"
+    },
+    "v1TenantStatus": {
+      "type": "string",
+      "enum": [
+        "TENANT_STATUS_UNSPECIFIED",
+        "TENANT_STATUS_ACTIVE",
+        "TENANT_STATUS_SUSPENDED",
+        "TENANT_STATUS_DELETED"
+      ],
+      "default": "TENANT_STATUS_UNSPECIFIED",
+      "description": "Статус арендатора"
+    },
+    "v1User": {
+      "type": "object",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "title": "Уникальный идентификатор пользователя (UUIDv4)"
+        },
+        "email": {
+          "type": "string",
+          "title": "Электронная почта"
+        },
+        "first_name": {
+          "type": "string",
+          "title": "Имя пользователя"
+        },
+        "last_name": {
+          "type": "string",
+          "title": "Фамилия пользователя"
+        },
+        "middle_name": {
+          "type": "string",
+          "title": "Отчество пользователя (при наличии)"
+        },
+        "phone_number": {
+          "type": "string",
+          "title": "Номер телефона в международном формате"
+        },
+        "gender": {
+          "$ref": "#/definitions/v1Gender",
+          "title": "Пол пользователя"
+        },
+        "birth_date": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Дата рождения пользователя"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Время создания профиля"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Время последнего обновления профиля"
+        }
+      },
+      "title": "Модель пользователя"
+    },
+    "v1UserServiceCreateRequest": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "title": "Email обязателен к заполнению и должен быть валидным адресом"
+        },
+        "first_name": {
+          "type": "string",
+          "title": "Имя должно быть от 1 до 100 символов"
+        },
+        "last_name": {
+          "type": "string",
+          "title": "Фамилия должна быть от 1 до 100 символов"
+        },
+        "middle_name": {
+          "type": "string",
+          "title": "Отчество (опционально, до 100 символов)"
+        },
+        "phone_number": {
+          "type": "string",
+          "title": "Номер телефона в формате E.164 (например, +79991234567)"
+        },
+        "gender": {
+          "$ref": "#/definitions/v1Gender",
+          "title": "Пол пользователя (по умолчанию UNSPECIFIED, если не передан)"
+        },
+        "birth_date": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Дата рождения пользователя"
+        }
+      },
+      "title": "Запрос на создание пользователя"
+    },
+    "v1UserServiceCreateResponse": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "$ref": "#/definitions/v1User",
+          "title": "Созданный пользователь"
+        }
+      },
+      "title": "Ответ с данными созданного пользователя"
+    },
+    "v1UserServiceGetResponse": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "$ref": "#/definitions/v1User",
+          "title": "Найденный пользователь"
+        }
+      },
+      "title": "Ответ с данными запрошенного пользователя"
+    },
+    "v1UserServiceUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "$ref": "#/definitions/v1User",
+          "title": "Обновленный пользователь"
+        }
+      },
+      "title": "Ответ с обновленными данными пользователя"
+    }
+  }
+}
