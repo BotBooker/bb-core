@@ -28,7 +28,7 @@ func (m *mockAuthService) ValidateToken(token string) bool {
 // mockNotificationService is a mock implementation of NotificationService for testing.
 type mockNotificationService struct{}
 
-func TestNewHandler(t *testing.T) {
+func TestHandler_NewHandler(t *testing.T) {
 	tests := []struct {
 		name         string
 		userService  UserService

@@ -1,0 +1,20 @@
+version: v2
+
+deps:
+  - buf.build/envoyproxy/protoc-gen-validate
+  - buf.build/googleapis/googleapis
+
+# Настройки линтера для проверки качества proto файлов
+lint:
+  use:
+    - STANDARD          # Базовые правила стиля и именования
+    - COMMENT_ENUM      # Требует комментарии для enum значений
+    - COMMENT_MESSAGE   # Требует комментарии для message полей
+  except:
+    - RPC_RESPONSE_STANDARD_NAME    # Отключает строгие требования к именам Response
+    - RPC_REQUEST_RESPONSE_UNIQUE   # Позволяет переиспользовать Request/Response типы
+
+# Проверка breaking changes (критических изменений)
+breaking:
+  use:
+    - FILE  # Проверяет совместимость на уровне файлов (удаление полей, изменение типов и т.д.)

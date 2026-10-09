@@ -9,6 +9,13 @@ import (
 	"os"
 )
 
+type LogFormat string
+
+const (
+	LogFormatJSON LogFormat = "json"
+	LogFormatText LogFormat = "plain"
+)
+
 // Init инициализирует slog логгер с текстовым обработчиком.
 //
 // Параметры:
@@ -21,15 +28,13 @@ import (
 //
 //	log := logger.Init(slog.LevelInfo)
 //	slog.SetDefault(log)
-func Init(level slog.Level) *slog.Logger {
+func Init(level slog.Level, format LogFormat) *slog.Logger {
+	if format == LogFormatJSON {
+		return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: level,
+		}))
+	}
 	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: level,
-	}))
-}
-
-// Init инициализирует slog логгер с JSON обработчиком.
-func InitJSON(level slog.Level) *slog.Logger {
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: level,
 	}))
 }
@@ -45,14 +50,8 @@ func InitJSON(level slog.Level) *slog.Logger {
 // Пример использования:
 //
 //	log := logger.InitAndSetDefault(slog.LevelInfo)
-func InitAndSetDefault(level slog.Level) *slog.Logger {
-	log := Init(level)
-	slog.SetDefault(log)
-	return log
-}
-
-func InitJSONAndSetDefault(level slog.Level) *slog.Logger {
-	log := InitJSON(level)
+func InitAndSetDefault(level slog.Level, format LogFormat) *slog.Logger {
+	log := Init(level, format)
 	slog.SetDefault(log)
 	return log
 }

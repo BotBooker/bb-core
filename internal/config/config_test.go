@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/botbooker/bb-core/internal/tools"
+	"github.com/botbooker/bb-core/pkg/tools"
 )
 
 func TestAppConfig(t *testing.T) {

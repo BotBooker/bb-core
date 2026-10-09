@@ -9,7 +9,7 @@ import (
 	"github.com/botbooker/bb-core/internal/config"
 )
 
-func TestNew(t *testing.T) {
+func TestServerAPI_New(t *testing.T) {
 	// Save and restore env
 	originalHost := os.Getenv("SERVER_HOST")
 	originalPort := os.Getenv("SERVER_PORT")
@@ -29,7 +29,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestConfigAppConfig(t *testing.T) {
+func TestServerAPI_AppConfig(t *testing.T) {
 	// Test that config.AppConfig() works
 	cfg := config.AppConfig()
 	if cfg == nil {
@@ -42,7 +42,7 @@ func TestConfigAppConfig(t *testing.T) {
 	}
 }
 
-func TestHandlerRoutes(t *testing.T) {
+func TestServerAPI_HandlerRoutes(t *testing.T) {
 	// Save and restore env
 	originalDSN := os.Getenv("DSN")
 	originalRedis := os.Getenv("REDIS_HOST")

@@ -1,0 +1,35 @@
+version: v2
+
+# Удаляет сгенерированные ранее файлы в папках out каждого плагина
+clean: true
+
+plugins:
+  # Плагин для генерации базовых Go структур из proto (messages, enums)
+  - local: protoc-gen-go      # Путь к локально установленному плагину
+    out: ../pkg/proto                # Папка для вывода сгенерированных файлов
+    opt:
+      - paths=source_relative        # Сохраняет структуру папок относительно proto файлов
+
+  # Плагин для генерации gRPC сервисов и клиентов
+  - local: protoc-gen-go-grpc # Путь к плагину для gRPC кода
+    out: ../pkg/proto                # Папка для вывода gRPC файлов
+    opt:
+      - paths=source_relative        # Сохраняет структуру папок относительно proto файлов
+
+  - local: protoc-gen-validate
+    out: ../pkg/proto
+    opt:
+      - paths=source_relative
+      - lang=go
+
+  - local: protoc-gen-grpc-gateway
+    out: ../pkg/proto
+    opt:
+      - paths=source_relative
+
+  - local: protoc-gen-openapiv2
+    out: ../pkg/api/swagger
+    opt:
+      - allow_merge=true # Объединяет все Swagger определения в один файл вместо создания отдельного файла для каждого .proto
+      - merge_file_name=swagger.json # Задает имя объединенного файла Swagger (по умолчанию apidocs.swagger.json)
+      - json_names_for_fields=false # Отключает использование имен полей из JSON тегов, использует имена полей из proto

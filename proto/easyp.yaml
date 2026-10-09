@@ -1,0 +1,103 @@
+# Конфигурация EasyP для работы с protobuf файлами
+version: v1
+
+# Внешние protobuf-зависимости (аналог секции deps в buf.yaml, но тянутся прямо из git).
+# Без этой секции easyp не находит validate/validate.proto и google/api/annotations.proto
+# и падает с "Cannot import file".
+deps:
+  - github.com/envoyproxy/protoc-gen-validate@v1.3.3
+  - github.com/googleapis/googleapis
+  - github.com/grpc-ecosystem/grpc-gateway
+
+# Настройки линтера для проверки качества proto файлов.
+# ВНИМАНИЕ: ключ называется use (не rules), а имена правил у easyp свои —
+# они не совпадают с именами buf. При неверном ключе/имени секция молча игнорируется.
+linters:
+  default: STANDARD
+  enable:
+    # Структура пакетов
+    - DIRECTORY_SAME_PACKAGE
+    - PACKAGE_DEFINED
+    - PACKAGE_DIRECTORY_MATCH
+    - PACKAGE_SAME_DIRECTORY
+    - PACKAGE_LOWER_SNAKE_CASE
+    - PACKAGE_SAME_GO_PACKAGE
+    - PACKAGE_VERSION_SUFFIX
+
+    # Именование
+    - MESSAGE_PASCAL_CASE # Сообщения в PascalCase
+    - SERVICE_PASCAL_CASE # Сервисы в PascalCase
+    - RPC_PASCAL_CASE # RPC методы в PascalCase
+    - ENUM_PASCAL_CASE # Enum типы в PascalCase
+    - ENUM_VALUE_UPPER_SNAKE_CASE # Значения enum в UPPER_SNAKE_CASE
+    - FIELD_LOWER_SNAKE_CASE # Поля в snake_case
+    - ONEOF_LOWER_SNAKE_CASE # oneof в snake_case
+    - FILE_LOWER_SNAKE_CASE # Имена файлов в snake_case
+
+    # Enum'ы и импорты
+    - ENUM_FIRST_VALUE_ZERO
+    - ENUM_NO_ALLOW_ALIAS
+    - ENUM_VALUE_PREFIX
+    - ENUM_ZERO_VALUE_SUFFIX
+    - IMPORT_NO_PUBLIC
+    - IMPORT_NO_WEAK
+    - IMPORT_USED
+
+    # Комментарии (как COMMENT_ENUM / COMMENT_MESSAGE в buf.yaml)
+    - COMMENT_ENUM
+    - COMMENT_MESSAGE
+
+  # Суффикс нулевого значения enum. У easyp нет значения по умолчанию:
+  # без этой строки правило ENUM_ZERO_VALUE_SUFFIX ждет "EVENT_TYPE_" и падает.
+  enum_zero_value_suffix: UNSPECIFIED
+
+# Настройки генератора кода.
+# Набор плагинов держим в паритете с buf.gen.yaml: иначе после easyp-генерации
+# не будет validate/gateway/openapi кода и проект перестанет собираться.
+generate:
+  inputs:
+    - directory: tenant
+    - directory: user
+
+  plugins:
+    # Генерация базовых Go структур (messages, enums)
+    - name: go
+      version: v1.34.2
+      out: ../pkg/proto
+      opts:
+        paths: source_relative
+
+    # Генерация gRPC сервисов и клиентов
+    - name: go-grpc
+      version: v1.4.0
+      out: ../pkg/proto
+      opts:
+        paths: source_relative
+
+    # Генерация методов Validate() из правил validate.rules.
+    # Здесь именно validate-go, а не мультиязычный validate как в buf.gen.yaml:
+    # easyp передает опции через CodeGeneratorRequest.Parameter, и мультиязычный
+    # плагин в таком виде не видит lang=go и падает с "no files to generate".
+    - name: validate-go
+      out: ../pkg/proto
+      opts:
+        paths: source_relative
+
+    # Генерация REST-прокси (gRPC-Gateway)
+    - name: grpc-gateway
+      out: ../pkg/proto
+      opts:
+        paths: source_relative
+
+    # Генерация Swagger/OpenAPI спецификации
+    - name: openapiv2
+      out: ../pkg/api/swagger
+      opts:
+        allow_merge: "true"
+        merge_file_name: bb-core
+        json_names_for_fields: "false"
+        simple_operation_ids: true
+
+options:
+  go:
+    package_prefix: github.com/botbooker/bb-core/pkg/proto

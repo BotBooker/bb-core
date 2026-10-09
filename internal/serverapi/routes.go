@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+
+	"github.com/botbooker/bb-core/internal/repository/swagger"
 )
 
 // UserService — интерфейс сервиса пользователей для хендлера.
@@ -56,6 +58,9 @@ func (h *handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.healthHandler)
 	mux.HandleFunc("GET /users/me", h.getUserProfile)
+
+	// Swagger UI эндпоинты
+	mux.Handle("/api/swagger/", http.StripPrefix("/api/swagger", swagger.Routes("/api/swagger")))
 
 	return mux
 }

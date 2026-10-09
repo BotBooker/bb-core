@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestNewDIContainer(t *testing.T) {
+func TestDIContainer_NewDIContainer(t *testing.T) {
 	c := newDIContainer()
 	if c == nil {
 		t.Fatal("newDIContainer() returned nil")

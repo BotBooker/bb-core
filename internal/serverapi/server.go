@@ -11,6 +11,7 @@ import (
 
 	"github.com/botbooker/bb-core/internal/closer"
 	"github.com/botbooker/bb-core/internal/config"
+	"github.com/botbooker/bb-core/pkg/logger"
 )
 
 // ServerAPI — структура приложения.
@@ -22,6 +23,7 @@ type ServerAPI struct {
 
 // New создаёт приложение и инициализирует все зависимости через DI-контейнер.
 func New() *ServerAPI {
+	logger.InitAndSetDefault(config.AppConfig().LogLevel, logger.LogFormat(config.AppConfig().LogFormat))
 	a := &ServerAPI{
 		diContainer: newDIContainer(),
 	}
