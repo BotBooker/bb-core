@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestSetupOTelSDK(t *testing.T) {
+func TestObservability_SetupOTelSDK(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -25,7 +25,7 @@ func TestSetupOTelSDK(t *testing.T) {
 	}
 }
 
-func TestSetupOTelSDK_MultipleCalls(t *testing.T) {
+func TestObservability_MultipleCalls(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -60,7 +60,7 @@ func TestSetupOTelSDK_MultipleCalls(t *testing.T) {
 	}
 }
 
-func TestSetupOTelSDK_CancelContext(t *testing.T) {
+func TestObservability_CancelContext(t *testing.T) {
 	// Note: This test is skipped because the OTel SDK has a known race condition
 	// when shutting down with a cancelled context. The SDK tries to use a nil
 	// exporter after context cancellation, causing a panic.
@@ -85,7 +85,7 @@ func TestSetupOTelSDK_CancelContext(t *testing.T) {
 	}
 }
 
-func TestNewPropagator(t *testing.T) {
+func TestObservability_NewPropagator(t *testing.T) {
 	prop := newPropagator()
 	if prop == nil {
 		t.Fatal("newPropagator() returned nil")

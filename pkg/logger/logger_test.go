@@ -7,18 +7,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/botbooker/bb-core/internal/logger"
+	"github.com/botbooker/bb-core/pkg/logger"
 )
 
 func TestLogger_Init(t *testing.T) {
-	log := logger.Init(slog.LevelInfo)
+	log := logger.Init(slog.LevelInfo, "stdout")
 	if log == nil {
 		t.Fatal("Init должен вернуть не nil логгер")
 	}
 }
 
-func TestLogger_InitJSON(t *testing.T) {
-	log := logger.InitJSON(slog.LevelInfo)
+func TestLogger_Init_JSON(t *testing.T) {
+	log := logger.Init(slog.LevelInfo, "json")
 	if log == nil {
 		t.Fatal("InitJSON должен вернуть не nil логгер")
 	}
@@ -34,7 +34,7 @@ func TestLogger_Init_With_Different_Levels(t *testing.T) {
 
 	for _, level := range levels {
 		t.Run(level.String(), func(t *testing.T) {
-			log := logger.Init(level)
+			log := logger.Init(level, "stdout")
 			if log == nil {
 				t.Fatalf("Init(%s) вернул nil", level)
 			}
@@ -52,7 +52,7 @@ func TestLogger_InitJSON_With_Different_Levels(t *testing.T) {
 
 	for _, level := range levels {
 		t.Run(level.String(), func(t *testing.T) {
-			log := logger.InitJSON(level)
+			log := logger.Init(level, "json")
 			if log == nil {
 				t.Fatalf("InitJSON(%s) вернул nil", level)
 			}
@@ -83,7 +83,7 @@ func TestLogger_Level_Filtering(t *testing.T) {
 }
 
 func TestLogger_Init_Returns_TextHandler(t *testing.T) {
-	log := logger.Init(slog.LevelInfo)
+	log := logger.Init(slog.LevelInfo, "stdout")
 
 	// Проверяем, что логгер работает корректно
 	log.Info("test")
@@ -95,7 +95,7 @@ func TestLogger_Init_Returns_TextHandler(t *testing.T) {
 }
 
 func TestLogger_InitJSON_Returns_TextHandler(t *testing.T) {
-	log := logger.InitJSON(slog.LevelInfo)
+	log := logger.Init(slog.LevelInfo, "json")
 
 	// Проверяем, что логгер работает корректно
 	log.Info("test")
@@ -107,7 +107,7 @@ func TestLogger_InitJSON_Returns_TextHandler(t *testing.T) {
 }
 
 func TestLogger_InitAndSetDefault(t *testing.T) {
-	log := logger.InitAndSetDefault(slog.LevelInfo)
+	log := logger.InitAndSetDefault(slog.LevelInfo, "stdout")
 
 	// Проверяем, что логгер не nil
 	if log == nil {
@@ -121,12 +121,12 @@ func TestLogger_InitAndSetDefault(t *testing.T) {
 	}
 }
 
-func TestLogger_InitJSONAndSetDefault(t *testing.T) {
-	log := logger.InitJSONAndSetDefault(slog.LevelInfo)
+func TestLogger_InitAndSetDefault_JSON(t *testing.T) {
+	log := logger.InitAndSetDefault(slog.LevelInfo, "json")
 
 	// Проверяем, что логгер не nil
 	if log == nil {
-		t.Fatal("InitJSONAndSetDefault должен вернуть не nil логгер")
+		t.Fatal("InitAndSetDefault_JSON должен вернуть не nil логгер")
 	}
 
 	// Проверяем, что глобальный логгер установлен
@@ -146,7 +146,7 @@ func TestLogger_InitAndSetDefault_DifferentLevels(t *testing.T) {
 
 	for _, level := range levels {
 		t.Run(level.String(), func(t *testing.T) {
-			log := logger.InitAndSetDefault(level)
+			log := logger.InitAndSetDefault(level, "stdout")
 			if log == nil {
 				t.Fatalf("InitAndSetDefault(%s) вернул nil", level)
 			}
@@ -154,7 +154,7 @@ func TestLogger_InitAndSetDefault_DifferentLevels(t *testing.T) {
 	}
 }
 
-func TestLogger_InitJSONAndSetDefault_DifferentLevels(t *testing.T) {
+func TestLogger_InitAndSetDefault_JSON_DifferentLevels(t *testing.T) {
 	levels := []slog.Level{
 		slog.LevelDebug,
 		slog.LevelInfo,
@@ -164,9 +164,9 @@ func TestLogger_InitJSONAndSetDefault_DifferentLevels(t *testing.T) {
 
 	for _, level := range levels {
 		t.Run(level.String(), func(t *testing.T) {
-			log := logger.InitJSONAndSetDefault(level)
+			log := logger.InitAndSetDefault(level, "json")
 			if log == nil {
-				t.Fatalf("InitJSONAndSetDefault(%s) вернул nil", level)
+				t.Fatalf("InitAndSetDefault_JSON(%s) вернул nil", level)
 			}
 		})
 	}

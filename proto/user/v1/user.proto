@@ -1,0 +1,183 @@
+syntax = "proto3";
+
+// Package содержит API v1 для работы с сервисом BotBooker
+package user.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/botbooker/bb-core/pkg/proto/user/v1;user_v1";
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "API v1 для работы с сервисом BotBooker"
+    version: "1.0.0"
+  }
+  base_path: "/api/v1"
+  security_definitions: {
+    security: {
+      key: "BearerAuth"
+      value: {
+        type: TYPE_API_KEY
+        in: IN_HEADER
+        name: "Authorization"
+        description: "Введите JWT токен в формате: 'Bearer [token]'"
+      }
+    }
+  }
+  security: {
+    security_requirement: {
+      key: "BearerAuth"
+      value: {}
+    }
+  }
+};
+
+// Перечисление для указания пола пользователя
+enum Gender {
+  // Пол не указан
+  GENDER_UNSPECIFIED = 0;
+  // Мужской пол
+  GENDER_MALE = 1;
+  // Женский пол
+  GENDER_FEMALE = 2;
+}
+
+// Сервис для управления пользователями
+service UserService {
+  // Создать нового пользователя
+  rpc Create(UserServiceCreateRequest) returns (UserServiceCreateResponse) {
+    option (google.api.http) = {
+      post: "/users"
+      body: "*"
+    };
+  }
+
+  // Получить пользователя по UUID
+  rpc Get(UserServiceGetRequest) returns (UserServiceGetResponse) {
+    option (google.api.http) = {get: "/users/{uuid}"};
+  }
+
+  // Обновить данные пользователя
+  rpc Update(UserServiceUpdateRequest) returns (UserServiceUpdateResponse) {
+    option (google.api.http) = {
+      patch: "/users/{uuid}"
+      body: "*"
+    };
+  }
+
+  // Удалить пользователя
+  rpc Delete(UserServiceDeleteRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/users/{uuid}"};
+  }
+}
+
+// Модель пользователя
+message User {
+  // Уникальный идентификатор пользователя (UUIDv4)
+  string uuid = 1;
+  // Электронная почта
+  string email = 2;
+  // Имя пользователя
+  string first_name = 3;
+  // Фамилия пользователя
+  string last_name = 4;
+  // Отчество пользователя (при наличии)
+  string middle_name = 5;
+  // Номер телефона в международном формате
+  string phone_number = 6;
+  // Пол пользователя
+  Gender gender = 7;
+  // Дата рождения пользователя
+  google.protobuf.Timestamp birth_date = 8;
+  // Время создания профиля
+  google.protobuf.Timestamp created_at = 9;
+  // Время последнего обновления профиля
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// Запрос на создание пользователя
+message UserServiceCreateRequest {
+  // Email обязателен к заполнению и должен быть валидным адресом
+  string email = 1 [(validate.rules).string.email = true];
+
+  // Имя должно быть от 1 до 100 символов
+  string first_name = 2 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+
+  // Фамилия должна быть от 1 до 100 символов
+  string last_name = 3 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+
+  // Отчество (опционально, до 100 символов)
+  string middle_name = 4 [(validate.rules).string = {max_len: 100}];
+
+  // Номер телефона в формате E.164 (например, +79991234567)
+  string phone_number = 5 [(validate.rules).string.pattern = "^\\+[1-9]\\d{1,14}$"];
+
+  // Пол пользователя (по умолчанию UNSPECIFIED, если не передан)
+  Gender gender = 6;
+
+  // Дата рождения пользователя
+  google.protobuf.Timestamp birth_date = 7;
+}
+
+// Ответ с данными созданного пользователя
+message UserServiceCreateResponse {
+  // Созданный пользователь
+  User user = 1;
+}
+
+// Запрос на получение пользователя
+message UserServiceGetRequest {
+  // UUID пользователя обязателен и должен быть валидным UUID
+  string uuid = 1 [(validate.rules).string.uuid = true];
+}
+
+// Ответ с данными запрошенного пользователя
+message UserServiceGetResponse {
+  // Найденный пользователь
+  User user = 1;
+}
+
+// Запрос на обновление пользователя
+message UserServiceUpdateRequest {
+  // UUID обновляемого пользователя
+  string uuid = 1 [(validate.rules).string.uuid = true];
+
+  // Поля обернуты в wrappers для поддержки частичного обновления (PATCH)
+  google.protobuf.StringValue first_name = 2 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+  google.protobuf.StringValue last_name = 3 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+  google.protobuf.StringValue middle_name = 4 [(validate.rules).string = {max_len: 100}];
+  google.protobuf.StringValue phone_number = 5 [(validate.rules).string.pattern = "^\\+[1-9]\\d{1,14}$"];
+
+  // Ссылка на обертку для Enum, чтобы отличать "не передано" от "значение 0"
+  google.protobuf.Int32Value gender = 6;
+  // Новая дата рождения
+  google.protobuf.Timestamp birth_date = 7;
+}
+
+// Ответ с обновленными данными пользователя
+message UserServiceUpdateResponse {
+  // Обновленный пользователь
+  User user = 1;
+}
+
+// Запрос на удаление пользователя
+message UserServiceDeleteRequest {
+  // UUID удаляемого пользователя
+  string uuid = 1 [(validate.rules).string.uuid = true];
+}
