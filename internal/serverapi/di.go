@@ -2,17 +2,55 @@ package serverapi
 
 import (
 	"context"
-	"log/slog"
-	"os"
+	"fmt"
 
 	"github.com/botbooker/bb-core/internal/cache"
 	"github.com/botbooker/bb-core/internal/closer"
 	"github.com/botbooker/bb-core/internal/config"
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/database/postgres"
+	"github.com/botbooker/bb-core/internal/database/sqlite"
 	"github.com/botbooker/bb-core/internal/events"
 	"github.com/botbooker/bb-core/internal/repository"
 	"github.com/botbooker/bb-core/internal/service"
 )
+
+// newDatabase подключается к базе данных.
+//
+// Переменная, а не прямой вызов: unit-тесты DI подменяют подключение,
+// чтобы не ходить в настоящую базу данных.
+var newDatabase = newDatabaseByDSN
+
+// newPostgresDB и newSQLiteDB — конструкторы драйверов.
+// Подменяются в тестах, чтобы проверить выбор драйвера по DSN.
+var (
+	newPostgresDB = postgres.New
+	newSQLiteDB   = sqlite.New
+)
+
+// newDatabaseByDSN выбирает драйвер по строке подключения.
+// Отдельного поля с диалектом нет: он определяется из DSN, поэтому
+// нельзя случайно подключиться не тем драйвером.
+// Само подключение живёт в пакетах-драйверах: у них нет общей точки входа,
+// потому что драйверы зависят от database.DB, а не наоборот.
+func newDatabaseByDSN(ctx context.Context) (database.DB, error) {
+	cfg := config.DBConfig()
+
+	dialect, err := database.DialectFromDSN(cfg.DSN)
+	if err != nil {
+		return nil, err
+	}
+
+	switch dialect {
+	case database.DialectPostgres:
+		return newPostgresDB(ctx, *cfg)
+	case database.DialectSQLite:
+		return newSQLiteDB(ctx, *cfg)
+	default:
+		// Недостижимо: DialectFromDSN возвращает только константы выше.
+		return nil, fmt.Errorf("%w: %q", database.ErrUnsupportedDialect, dialect)
+	}
+}
 
 // diContainer — контейнер зависимостей с ленивой инициализацией.
 //
@@ -21,15 +59,9 @@ import (
 // closer.Add() вызывается прямо в геттере — одна строка, и ресурс
 // автоматически закроется при graceful shutdown в правильном LIFO-порядке.
 //
-// Почему порядок закрытия детерминирован при ленивой инициализации:
-// initDeps() вызывается в одной горутине. Ленивая инициализация — это
-// depth-first обход графа зависимостей. Порядок определяется графом:
-//
-//	Handler() → UserService() → UserRepo() → DB()              ← 1-й closer.Add
-//	                           → AuthService() → SessionRepo() → Cache()  ← 2-й closer.Add
-//
-// DB всегда создаётся раньше Cache (UserRepo запрашивает DB до того,
-// как SessionRepo запросит Cache). Граф не меняется → порядок не меняется.
+// БД подключается сразу в newDIContainer: без неё приложение работать не может,
+// поэтому ошибка возвращается вызывающему коду, а не приводится к os.Exit.
+// БД создаётся первой — значит закроется последней (LIFO): кэш закроется раньше БД.
 type diContainer struct {
 	// Инфраструктура
 	db       database.DB
@@ -50,29 +82,24 @@ type diContainer struct {
 	handler Handler
 }
 
-// newDIContainer создаёт новый пустой контейнер.
-func newDIContainer() *diContainer {
-	return &diContainer{}
-}
-
-// DB возвращает подключение к базе данных.
-// При создании — сразу регистрирует Close() в глобальном closer.
-// БД создаётся одной из первых — значит закроется одной из последних (LIFO).
-func (d *diContainer) DB() database.DB {
-	if d.db == nil {
-		db, err := database.New(config.AppConfig().DSN)
-		if err != nil {
-			slog.Error("failed to connect to the database", "err", err)
-			os.Exit(1)
-		}
-
-		closer.Add("database", func(_ context.Context) error {
-			return db.Close()
-		})
-
-		d.db = db
+// newDIContainer создаёт контейнер и подключается к базе данных.
+// Ошибка подключения возвращается сразу: приложению без БД работать нечем.
+func newDIContainer(ctx context.Context) (*diContainer, error) {
+	db, err := newDatabase(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("init database: %w", err)
 	}
 
+	// При создании — сразу регистрируем Close() в глобальном closer.
+	closer.Add("database", func(_ context.Context) error {
+		return db.Close()
+	})
+
+	return &diContainer{db: db}, nil
+}
+
+// DB возвращает подключение к базе данных, созданное вместе с контейнером.
+func (d *diContainer) DB() database.DB {
 	return d.db
 }
 

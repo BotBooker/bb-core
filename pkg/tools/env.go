@@ -2,7 +2,9 @@
 package tools
 
 import (
+	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -29,6 +31,21 @@ func GetEnvList(key string, defaultValue []string) []string {
 		if len(result) > 0 {
 			return result
 		}
+	}
+	return defaultValue
+}
+
+// GetEnvOrDefaultToInt32 возвращает значение переменной окружения,
+// приведённое к int32, или значение по умолчанию.
+// Если значение не является числом, возвращается значение по умолчанию.
+func GetEnvOrDefaultToInt32(key string, defaultValue int32) int32 {
+	if v := os.Getenv(key); v != "" {
+		val, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			slog.Error("failed to parse environment variable", "key", key, "value", v, "error", err)
+			return defaultValue
+		}
+		return int32(val)
 	}
 	return defaultValue
 }

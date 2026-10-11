@@ -2,6 +2,7 @@ package cache
 
 import (
 	"log/slog"
+	"strings"
 )
 
 // Cache — интерфейс подключения к кэшу.
@@ -18,8 +19,29 @@ type redisCache struct {
 
 // New создаёт подключение к кэшу.
 func New(addr string) Cache {
-	slog.Debug("connected to the cache", "addr", addr)
+	slog.Debug("connected to the cache", "addr", redactAddr(addr))
 	return &redisCache{addr: addr}
+}
+
+// redactAddr скрывает учётные данные из адреса подключения: в логах
+// не должно быть пароля (например, redis://default:secret@localhost:6379/0).
+//
+// Разбор строки намеренно простой: адрес — произвольная строка из конфигурации,
+// а не гарантированно корректный URL. Например, в redis://default:re#d@host/0
+// пароль содержит "#", из-за чего url.Parse считает остаток фрагментом
+// и не находит userinfo. Поэтому отбрасываем всё до последней "@".
+func redactAddr(addr string) string {
+	at := strings.LastIndex(addr, "@")
+	if at == -1 {
+		return addr
+	}
+
+	schemeEnd := strings.Index(addr, "://")
+	if schemeEnd == -1 {
+		return addr[at+1:]
+	}
+
+	return addr[:schemeEnd+3] + addr[at+1:]
 }
 
 // Get получает значение по ключу.

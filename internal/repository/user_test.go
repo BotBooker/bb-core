@@ -1,35 +1,37 @@
 package repository
 
 import (
+	"context"
+	"database/sql"
 	"testing"
 )
 
 // mockUserDB is a mock implementation of UserDB for testing.
 type mockUserDB struct {
-	queryFunc    func(query string) error
-	queryRowFunc func(query string) error
-	execFunc     func(query string) error
+	queryFunc    func(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	queryRowFunc func(ctx context.Context, query string, args ...any) *sql.Row
+	execFunc     func(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-func (m *mockUserDB) Query(query string) error {
+func (m *mockUserDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if m.queryFunc != nil {
-		return m.queryFunc(query)
+		return m.queryFunc(ctx, query, args...)
 	}
-	return nil
+	return nil, nil
 }
 
-func (m *mockUserDB) QueryRow(query string) error {
+func (m *mockUserDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	if m.queryRowFunc != nil {
-		return m.queryRowFunc(query)
+		return m.queryRowFunc(ctx, query, args...)
 	}
 	return nil
 }
 
-func (m *mockUserDB) Exec(query string) error {
+func (m *mockUserDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if m.execFunc != nil {
-		return m.execFunc(query)
+		return m.execFunc(ctx, query, args...)
 	}
-	return nil
+	return nil, nil
 }
 
 func TestNewUserRepo(t *testing.T) {

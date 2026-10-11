@@ -1,12 +1,19 @@
 package repository
 
-import "log/slog"
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+)
 
 // SessionDB — интерфейс базы данных, который нужен SessionRepo.
+//
+// Методы совпадают с методами database.DB, но объявлены узко: репозиторию
+// нужны только запросы и ручные транзакции.
 type SessionDB interface {
-	Query(query string) error
-	Exec(query string) error
-	BeginTx() error
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
 // SessionCache — интерфейс кэша, который нужен SessionRepo.

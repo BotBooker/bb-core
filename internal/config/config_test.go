@@ -122,9 +122,6 @@ func TestAppConfigFunction(t *testing.T) {
 	}
 
 	// Check that fields are populated
-	if cfg.DSN == "" {
-		t.Error("DSN should not be empty")
-	}
 	if cfg.RedisAddr == "" {
 		t.Error("RedisAddr should not be empty")
 	}
@@ -133,6 +130,27 @@ func TestAppConfigFunction(t *testing.T) {
 	}
 	if cfg.ClientIP == "" {
 		t.Error("ClientIP should not be empty")
+	}
+}
+
+func TestDBConfig(t *testing.T) {
+	// databaseConfig инициализируется на этапе старта пакета, поэтому здесь
+	// проверяются инварианты конфигурации, а не конкретные значения из окружения.
+	cfg := DBConfig()
+	if cfg == nil {
+		t.Fatal("DBConfig() returned nil")
+	}
+
+	if cfg.DSN == "" {
+		t.Error("DSN should not be empty")
+	}
+	if cfg.MaxDBConnect <= 0 {
+		t.Errorf("MaxDBConnect = %v, want positive value", cfg.MaxDBConnect)
+	}
+
+	// DBConfig should return the same instance (singleton pattern)
+	if DBConfig() != cfg {
+		t.Error("DBConfig() should return the same instance on multiple calls")
 	}
 }
 

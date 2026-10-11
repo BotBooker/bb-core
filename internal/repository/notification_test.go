@@ -1,35 +1,29 @@
 package repository
 
 import (
+	"context"
+	"database/sql"
 	"testing"
 )
 
 // mockNotificationDB is a mock implementation of NotificationDB for testing.
 type mockNotificationDB struct {
-	queryFunc      func(query string) error
-	execFunc       func(query string) error
-	bulkInsertFunc func(query string, args ...any) error
+	queryFunc func(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	execFunc  func(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-func (m *mockNotificationDB) Query(query string) error {
+func (m *mockNotificationDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if m.queryFunc != nil {
-		return m.queryFunc(query)
+		return m.queryFunc(ctx, query, args...)
 	}
-	return nil
+	return nil, nil
 }
 
-func (m *mockNotificationDB) Exec(query string) error {
+func (m *mockNotificationDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if m.execFunc != nil {
-		return m.execFunc(query)
+		return m.execFunc(ctx, query, args...)
 	}
-	return nil
-}
-
-func (m *mockNotificationDB) BulkInsert(query string, args ...any) error {
-	if m.bulkInsertFunc != nil {
-		return m.bulkInsertFunc(query, args...)
-	}
-	return nil
+	return nil, nil
 }
 
 func TestNewNotificationRepo(t *testing.T) {

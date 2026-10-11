@@ -182,3 +182,59 @@ func TestRedisCache_Close(t *testing.T) {
 		})
 	}
 }
+
+func TestRedactAddr(t *testing.T) {
+	tests := []struct {
+		name string
+		addr string
+		want string
+	}{
+		{
+			name: "url without credentials",
+			addr: "redis://localhost:6379/0",
+			want: "redis://localhost:6379/0",
+		},
+		{
+			name: "url with user and password",
+			addr: "redis://default:secret@localhost:6379/0",
+			want: "redis://localhost:6379/0",
+		},
+		{
+			name: "url with password only",
+			addr: "redis://:secret@localhost:6379/1",
+			want: "redis://localhost:6379/1",
+		},
+		{
+			name: "password with hash symbol",
+			addr: "redis://default:redis#password@localhost:6379/0",
+			want: "redis://localhost:6379/0",
+		},
+		{
+			name: "credentials without scheme",
+			addr: "user:pass@localhost:6379",
+			want: "localhost:6379",
+		},
+		{
+			name: "host and port without scheme",
+			addr: "localhost:6379",
+			want: "localhost:6379",
+		},
+		{
+			name: "empty address",
+			addr: "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := redactAddr(tt.addr)
+			if got != tt.want {
+				t.Errorf("redactAddr(%q) = %q, want %q", tt.addr, got, tt.want)
+			}
+			if tt.addr != "" && got == tt.addr && tt.addr != tt.want {
+				t.Error("redactAddr() returned the original address with credentials")
+			}
+		})
+	}
+}

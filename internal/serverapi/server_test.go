@@ -1,31 +1,53 @@
 package serverapi
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/botbooker/bb-core/internal/config"
 )
 
 func TestServerAPI_New(t *testing.T) {
-	// Save and restore env
-	originalHost := os.Getenv("SERVER_HOST")
-	originalPort := os.Getenv("SERVER_PORT")
-	defer func() {
-		os.Setenv("SERVER_HOST", originalHost)
-		os.Setenv("SERVER_PORT", originalPort)
-	}()
-	os.Setenv("SERVER_HOST", "localhost")
-	os.Setenv("SERVER_PORT", "8080")
+	withDatabase(t, &fakeDB{}, nil)
 
 	a := New()
 	if a == nil {
 		t.Fatal("New() returned nil")
 	}
+
+	// Зависимости создаются в initDeps: до его вызова контейнера ещё нет.
+	if a.diContainer != nil {
+		t.Error("diContainer should be nil before initDeps()")
+	}
+
+	if err := a.initDeps(context.Background()); err != nil {
+		t.Fatalf("initDeps() unexpected error = %v", err)
+	}
 	if a.diContainer == nil {
-		t.Error("diContainer should not be nil")
+		t.Error("diContainer should not be nil after initDeps()")
+	}
+	if a.httpServer == nil {
+		t.Error("httpServer should not be nil after initDeps()")
+	}
+}
+
+func TestServerAPI_InitDepsDatabaseError(t *testing.T) {
+	withDatabase(t, nil, errTest)
+
+	a := New()
+
+	err := a.initDeps(context.Background())
+	if !errors.Is(err, errTest) {
+		t.Errorf("initDeps() error = %v, want %v", err, errTest)
+	}
+	if a.diContainer != nil {
+		t.Error("diContainer should be nil when the database is unavailable")
+	}
+	if a.httpServer != nil {
+		t.Error("httpServer should not be created when the database is unavailable")
 	}
 }
 
@@ -43,19 +65,14 @@ func TestServerAPI_AppConfig(t *testing.T) {
 }
 
 func TestServerAPI_HandlerRoutes(t *testing.T) {
-	// Save and restore env
-	originalDSN := os.Getenv("DSN")
-	originalRedis := os.Getenv("REDIS_HOST")
-	defer func() {
-		os.Setenv("DSN", originalDSN)
-		os.Setenv("REDIS_HOST", originalRedis)
-	}()
-	os.Setenv("DSN", "postgres://test:5432/test")
-	os.Setenv("REDIS_HOST", "localhost:6379")
+	withDatabase(t, &fakeDB{}, nil)
 
 	a := New()
-	handler := a.diContainer.Handler()
-	routes := handler.Routes()
+	if err := a.initDeps(context.Background()); err != nil {
+		t.Fatalf("initDeps() unexpected error = %v", err)
+	}
+
+	routes := a.diContainer.Handler().Routes()
 
 	// Create a test server
 	srv := httptest.NewServer(routes)

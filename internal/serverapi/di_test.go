@@ -1,33 +1,209 @@
 package serverapi
 
 import (
-	"os"
+	"context"
+	"database/sql"
+	"errors"
 	"testing"
+
+	trm "github.com/avito-tech/go-transaction-manager/trm/v2"
+
+	"github.com/botbooker/bb-core/internal/config"
+	"github.com/botbooker/bb-core/internal/database"
 )
 
+// errTest — сентинельная ошибка для проверки проброса ошибок подключения.
+var errTest = errors.New("test error")
+
+// fakeDB — фейковое подключение к базе данных: тесты DI не ходят в настоящую БД.
+type fakeDB struct {
+	closeCalls int
+}
+
+var _ database.DB = (*fakeDB)(nil)
+
+func (f *fakeDB) BeginTx(_ context.Context, _ *sql.TxOptions) (*sql.Tx, error) {
+	return nil, nil
+}
+
+func (f *fakeDB) QueryContext(_ context.Context, _ string, _ ...any) (*sql.Rows, error) {
+	return nil, nil
+}
+
+func (f *fakeDB) QueryRowContext(_ context.Context, _ string, _ ...any) *sql.Row {
+	return nil
+}
+
+func (f *fakeDB) ExecContext(_ context.Context, _ string, _ ...any) (sql.Result, error) {
+	return nil, nil
+}
+
+func (f *fakeDB) PingContext(_ context.Context) error {
+	return nil
+}
+
+func (f *fakeDB) Close() error {
+	f.closeCalls++
+
+	return nil
+}
+
+func (f *fakeDB) TrManager() trm.Manager {
+	return nil
+}
+
+// withDatabase подменяет подключение к базе данных на время теста.
+func withDatabase(t *testing.T, db database.DB, dbErr error) {
+	t.Helper()
+
+	original := newDatabase
+	newDatabase = func(context.Context) (database.DB, error) { return db, dbErr }
+	t.Cleanup(func() { newDatabase = original })
+}
+
+// newTestContainer создаёт контейнер с фейковым подключением к базе данных.
+func newTestContainer(t *testing.T) *diContainer {
+	t.Helper()
+
+	withDatabase(t, &fakeDB{}, nil)
+
+	container, err := newDIContainer(context.Background())
+	if err != nil {
+		t.Fatalf("newDIContainer() unexpected error = %v", err)
+	}
+
+	return container
+}
+
 func TestDIContainer_NewDIContainer(t *testing.T) {
-	c := newDIContainer()
-	if c == nil {
-		t.Fatal("newDIContainer() returned nil")
+	t.Run("database is created together with container", func(t *testing.T) {
+		c := newTestContainer(t)
+
+		if c == nil {
+			t.Fatal("newDIContainer() returned nil")
+		}
+		if c.db == nil {
+			t.Error("db should be created together with the container")
+		}
+		if c.cache != nil {
+			t.Error("cache should be nil initially")
+		}
+		if c.eventBus != nil {
+			t.Error("eventBus should be nil initially")
+		}
+	})
+
+	t.Run("database error is returned", func(t *testing.T) {
+		withDatabase(t, nil, errTest)
+
+		container, err := newDIContainer(context.Background())
+
+		if !errors.Is(err, errTest) {
+			t.Errorf("newDIContainer() error = %v, want %v", err, errTest)
+		}
+		if container != nil {
+			t.Error("newDIContainer() returned non-nil container on error")
+		}
+	})
+}
+
+func TestNewDatabaseByDSN(t *testing.T) {
+	originalPostgres, originalSQLite := newPostgresDB, newSQLiteDB
+	originalDSN := config.DBConfig().DSN
+
+	var postgresCalled, sqliteCalled bool
+
+	t.Cleanup(func() {
+		newPostgresDB, newSQLiteDB = originalPostgres, originalSQLite
+		config.DBConfig().DSN = originalDSN
+	})
+
+	newPostgresDB = func(context.Context, config.DatabaseConfig) (database.DB, error) {
+		postgresCalled = true
+
+		return &fakeDB{}, nil
 	}
-	if c.db != nil {
-		t.Error("db should be nil initially")
+	newSQLiteDB = func(context.Context, config.DatabaseConfig) (database.DB, error) {
+		sqliteCalled = true
+
+		return &fakeDB{}, nil
 	}
-	if c.cache != nil {
-		t.Error("cache should be nil initially")
+
+	tests := []struct {
+		name         string
+		dsn          string
+		wantPostgres bool
+		wantSQLite   bool
+		wantErr      error
+	}{
+		{
+			name:         "postgres url",
+			dsn:          "postgres://user:pass@localhost:5432/demo",
+			wantPostgres: true,
+		},
+		{
+			name:         "postgres keyword value dsn",
+			dsn:          "host=localhost port=5432 dbname=demo",
+			wantPostgres: true,
+		},
+		{
+			name:       "sqlite file path",
+			dsn:        "/tmp/database.db",
+			wantSQLite: true,
+		},
+		{
+			name:       "sqlite dsn with scheme",
+			dsn:        "sqlite:/tmp/database.db",
+			wantSQLite: true,
+		},
+		{
+			name:    "empty dsn",
+			dsn:     "",
+			wantErr: database.ErrEmptyDSN,
+		},
+		{
+			name:    "unknown scheme",
+			dsn:     "mysql://localhost:3306/demo",
+			wantErr: database.ErrUnsupportedDialect,
+		},
+		{
+			name:    "unrecognized dsn",
+			dsn:     "database",
+			wantErr: database.ErrDialectNotDetected,
+		},
 	}
-	if c.eventBus != nil {
-		t.Error("eventBus should be nil initially")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			postgresCalled, sqliteCalled = false, false
+			config.DBConfig().DSN = tt.dsn
+
+			got, err := newDatabaseByDSN(context.Background())
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("newDatabaseByDSN() error = %v, want %v", err, tt.wantErr)
+				}
+				if got != nil {
+					t.Error("newDatabaseByDSN() returned non-nil DB on error")
+				}
+			} else if err != nil {
+				t.Fatalf("newDatabaseByDSN() unexpected error = %v", err)
+			}
+
+			if postgresCalled != tt.wantPostgres {
+				t.Errorf("postgres driver called = %v, want %v", postgresCalled, tt.wantPostgres)
+			}
+			if sqliteCalled != tt.wantSQLite {
+				t.Errorf("sqlite driver called = %v, want %v", sqliteCalled, tt.wantSQLite)
+			}
+		})
 	}
 }
 
 func TestDIContainer_DB(t *testing.T) {
-	// Save and restore env
-	originalDSN := os.Getenv("DSN")
-	defer os.Setenv("DSN", originalDSN)
-	os.Setenv("DSN", "postgres://test:5432/test")
+	c := newTestContainer(t)
 
-	c := newDIContainer()
 	db := c.DB()
 	if db == nil {
 		t.Fatal("DB() returned nil")
@@ -41,12 +217,7 @@ func TestDIContainer_DB(t *testing.T) {
 }
 
 func TestDIContainer_Cache(t *testing.T) {
-	// Save and restore env
-	originalRedis := os.Getenv("REDIS_HOST")
-	defer os.Setenv("REDIS_HOST", originalRedis)
-	os.Setenv("REDIS_HOST", "localhost:6379")
-
-	c := newDIContainer()
+	c := newTestContainer(t)
 	cache := c.Cache()
 	if cache == nil {
 		t.Fatal("Cache() returned nil")
@@ -60,7 +231,7 @@ func TestDIContainer_Cache(t *testing.T) {
 }
 
 func TestDIContainer_EventBus(t *testing.T) {
-	c := newDIContainer()
+	c := newTestContainer(t)
 	bus := c.EventBus()
 	if bus == nil {
 		t.Fatal("EventBus() returned nil")
@@ -74,7 +245,7 @@ func TestDIContainer_EventBus(t *testing.T) {
 }
 
 func TestDIContainer_UserRepo(t *testing.T) {
-	c := newDIContainer()
+	c := newTestContainer(t)
 	repo := c.UserRepo()
 	if repo == nil {
 		t.Fatal("UserRepo() returned nil")
@@ -88,7 +259,7 @@ func TestDIContainer_UserRepo(t *testing.T) {
 }
 
 func TestDIContainer_SessionRepo(t *testing.T) {
-	c := newDIContainer()
+	c := newTestContainer(t)
 	repo := c.SessionRepo()
 	if repo == nil {
 		t.Fatal("SessionRepo() returned nil")
@@ -102,7 +273,7 @@ func TestDIContainer_SessionRepo(t *testing.T) {
 }
 
 func TestDIContainer_NotificationRepo(t *testing.T) {
-	c := newDIContainer()
+	c := newTestContainer(t)
 	repo := c.NotificationRepo()
 	if repo == nil {
 		t.Fatal("NotificationRepo() returned nil")
@@ -116,7 +287,7 @@ func TestDIContainer_NotificationRepo(t *testing.T) {
 }
 
 func TestDIContainer_AuthService(t *testing.T) {
-	c := newDIContainer()
+	c := newTestContainer(t)
 	svc := c.AuthService()
 	if svc == nil {
 		t.Fatal("AuthService() returned nil")
@@ -130,7 +301,7 @@ func TestDIContainer_AuthService(t *testing.T) {
 }
 
 func TestDIContainer_UserService(t *testing.T) {
-	c := newDIContainer()
+	c := newTestContainer(t)
 	svc := c.UserService()
 	if svc == nil {
 		t.Fatal("UserService() returned nil")
@@ -144,7 +315,7 @@ func TestDIContainer_UserService(t *testing.T) {
 }
 
 func TestDIContainer_NotificationService(t *testing.T) {
-	c := newDIContainer()
+	c := newTestContainer(t)
 	svc := c.NotificationService()
 	if svc == nil {
 		t.Fatal("NotificationService() returned nil")
@@ -158,7 +329,7 @@ func TestDIContainer_NotificationService(t *testing.T) {
 }
 
 func TestDIContainer_Handler(t *testing.T) {
-	c := newDIContainer()
+	c := newTestContainer(t)
 	h := c.Handler()
 	if h == nil {
 		t.Fatal("Handler() returned nil")
@@ -172,17 +343,9 @@ func TestDIContainer_Handler(t *testing.T) {
 }
 
 func TestDIContainer_Integration(t *testing.T) {
-	// Save and restore env
-	originalDSN := os.Getenv("DSN")
-	originalRedis := os.Getenv("REDIS_HOST")
-	defer func() {
-		os.Setenv("DSN", originalDSN)
-		os.Setenv("REDIS_HOST", originalRedis)
-	}()
-	os.Setenv("DSN", "postgres://test:5432/test")
-	os.Setenv("REDIS_HOST", "localhost:6379")
-
-	c := newDIContainer()
+	// Контейнер создаётся с фейковым подключением к БД: кэш, репозитории,
+	// сервисы и хендлер собираются настоящие, без внешних зависимостей.
+	c := newTestContainer(t)
 
 	// Get all dependencies
 	db := c.DB()

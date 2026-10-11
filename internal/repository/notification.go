@@ -1,12 +1,19 @@
 package repository
 
-import "log/slog"
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+)
 
 // NotificationDB — интерфейс базы данных, который нужен NotificationRepo.
+//
+// Методы совпадают с методами database.DB, но объявлены узко: репозиторию
+// нужны только запросы. Массовая вставка выполняется через ExecContext
+// одним многострочным INSERT (или через транзакцию — TrManager).
 type NotificationDB interface {
-	Query(query string) error
-	Exec(query string) error
-	BulkInsert(query string, args ...any) error
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // NotificationRepo — интерфейс репозитория уведомлений.

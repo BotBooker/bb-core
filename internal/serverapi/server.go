@@ -3,6 +3,7 @@ package serverapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os/signal"
@@ -21,39 +22,58 @@ type ServerAPI struct {
 	httpServer  *http.Server
 }
 
-// New создаёт приложение и инициализирует все зависимости через DI-контейнер.
+// New создаёт приложение.
+// Зависимости инициализируются в Run(): так ошибка подключения к БД
+// возвращается вызывающему коду, а не завершает процесс из библиотеки.
 func New() *ServerAPI {
 	logger.InitAndSetDefault(config.AppConfig().LogLevel, logger.LogFormat(config.AppConfig().LogFormat))
-	a := &ServerAPI{
-		diContainer: newDIContainer(),
-	}
-	a.initDeps()
-	return a
+
+	return &ServerAPI{}
 }
 
 // initDeps последовательно вызывает функции инициализации.
-func (a *ServerAPI) initDeps() {
-	inits := []func(){
+func (a *ServerAPI) initDeps(ctx context.Context) error {
+	inits := []func(context.Context) error{
+		a.initDIContainer,
 		a.initHTTPServer,
 	}
 
 	for _, fn := range inits {
-		fn()
+		if err := fn(ctx); err != nil {
+			return err
+		}
 	}
+
+	return nil
+}
+
+// initDIContainer создаёт DI-контейнер: подключает БД и собирает граф зависимостей.
+func (a *ServerAPI) initDIContainer(ctx context.Context) error {
+	container, err := newDIContainer(ctx)
+	if err != nil {
+		return fmt.Errorf("init di container: %w", err)
+	}
+
+	a.diContainer = container
+
+	return nil
 }
 
 // initHTTPServer создаёт HTTP-сервер.
-func (a *ServerAPI) initHTTPServer() {
+func (a *ServerAPI) initHTTPServer(_ context.Context) error {
 	a.httpServer = &http.Server{
 		Addr:              config.AppConfig().HTTPAddr,
 		Handler:           a.diContainer.Handler().Routes(),
 		ReadHeaderTimeout: 3 * time.Second,
 	}
+
+	return nil
 }
 
 // Run запускает HTTP-сервер с graceful shutdown.
 //
 // Что происходит:
+//  0. initDeps инициализирует зависимости (в том числе подключение к БД)
 //  1. signal.NotifyContext перехватывает SIGINT (Ctrl+C) и SIGTERM (Kubernetes)
 //  2. HTTP-сервер запускается в отдельной горутине
 //  3. Main-горутина ждёт сигнал через <-ctx.Done()
@@ -64,6 +84,10 @@ func (a *ServerAPI) initHTTPServer() {
 //   - Первый Ctrl+C → graceful shutdown
 //   - stop() снимает custom handler после первого сигнала
 //   - Второй Ctrl+C → ОС убивает процесс мгновенно (для разработки, когда shutdown завис)
+//
+// Результат err не именованный: отложенная остановка OpenTelemetry логируется,
+// как и остальные ошибки на этапе shutdown, чтобы отсутствие коллектора
+// не превращало корректное завершение в код возврата 1.
 func (a *ServerAPI) Run() error {
 	// 1. Перехват сигналов.
 	// signal.NotifyContext создаёт канал с ёмкостью 1 (буферизованный).
@@ -79,12 +103,20 @@ func (a *ServerAPI) Run() error {
 	}
 	// Handle shutdown properly so nothing leaks.
 	defer func() {
-		err = errors.Join(err, otelShutdown(context.Background()))
+		if shutdownErr := otelShutdown(context.Background()); shutdownErr != nil {
+			slog.Error("failed to shutdown opentelemetry", "err", shutdownErr)
+		}
 	}()
+
+	// 2. Инициализация зависимостей: БД, кэш, репозитории, сервисы, роутинг.
+	// Ошибка подключения к БД возвращается наверх — процесс завершится с кодом 1.
+	if err := a.initDeps(ctx); err != nil {
+		return err
+	}
 
 	slog.Info("the server is running", "addr", config.AppConfig().HTTPAddr)
 
-	// 2. Запуск сервера в горутине.
+	// 3. Запуск сервера в горутине.
 	// ListenAndServe блокирует — поэтому запускаем в горутине, а main ждёт сигнал.
 	// http.ErrServerClosed — нормальное завершение (мы сами вызвали Shutdown), не ошибка.
 	go func() {
@@ -93,7 +125,7 @@ func (a *ServerAPI) Run() error {
 		}
 	}()
 
-	// 3. Ожидание сигнала.
+	// 4. Ожидание сигнала.
 	<-ctx.Done()
 	slog.Info("signal received, shutting down...")
 
@@ -101,7 +133,7 @@ func (a *ServerAPI) Run() error {
 	// Теперь второй Ctrl+C убьёт процесс мгновенно (дефолтное поведение ОС).
 	stop()
 
-	// 4. Graceful shutdown HTTP-сервера.
+	// 5. Graceful shutdown HTTP-сервера.
 	// Таймаут 15 секунд. Используем context.Background(), а не ctx — тот уже отменён.
 	//
 	// Что делает server.Shutdown внутри:
@@ -118,7 +150,7 @@ func (a *ServerAPI) Run() error {
 
 	slog.Info("server stopped")
 
-	// 5. Закрытие всех ресурсов через глобальный closer (LIFO).
+	// 6. Закрытие всех ресурсов через глобальный closer (LIFO).
 	// Отдельный контекст с таймаутом 10 секунд — свой бюджет для ресурсов.
 	// Суммарно: 15с (сервер) + 10с (ресурсы) = 25с из 30с Kubernetes grace period.
 	closerCtx, closerCancel := context.WithTimeout(context.Background(), 10*time.Second)
