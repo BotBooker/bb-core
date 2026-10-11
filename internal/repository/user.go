@@ -1,12 +1,19 @@
 package repository
 
-import "log/slog"
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+)
 
 // UserDB — интерфейс базы данных, который нужен UserRepo.
+//
+// Методы совпадают с методами database.DB, но объявлены узко: репозиторию
+// нужны только запросы, а менеджер транзакций и закрытие пула — нет.
 type UserDB interface {
-	Query(query string) error
-	QueryRow(query string) error
-	Exec(query string) error
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // UserRepo — интерфейс репозитория пользователей.

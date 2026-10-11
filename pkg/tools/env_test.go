@@ -190,3 +190,100 @@ func TestGetEnvList(t *testing.T) {
 		})
 	}
 }
+
+func TestGetEnvOrDefaultToInt32(t *testing.T) {
+	// Save original env
+	original := os.Getenv("TEST_INT")
+	defer os.Setenv("TEST_INT", original)
+
+	tests := []struct {
+		name         string
+		key          string
+		defaultValue int32
+		setup        func()
+		want         int32
+	}{
+		{
+			name:         "env var with valid number",
+			key:          "TEST_INT",
+			defaultValue: 10,
+			setup: func() {
+				os.Setenv("TEST_INT", "25")
+			},
+			want: 25,
+		},
+		{
+			name:         "env var with negative number",
+			key:          "TEST_INT",
+			defaultValue: 10,
+			setup: func() {
+				os.Setenv("TEST_INT", "-5")
+			},
+			want: -5,
+		},
+		{
+			name:         "env var with zero",
+			key:          "TEST_INT",
+			defaultValue: 10,
+			setup: func() {
+				os.Setenv("TEST_INT", "0")
+			},
+			want: 0,
+		},
+		{
+			name:         "env var does not exist",
+			key:          "NONEXISTENT_INT",
+			defaultValue: 10,
+			setup: func() {
+				os.Unsetenv("NONEXISTENT_INT")
+			},
+			want: 10,
+		},
+		{
+			name:         "env var empty string",
+			key:          "TEST_INT",
+			defaultValue: 10,
+			setup: func() {
+				os.Setenv("TEST_INT", "")
+			},
+			want: 10,
+		},
+		{
+			name:         "env var with non-numeric value",
+			key:          "TEST_INT",
+			defaultValue: 10,
+			setup: func() {
+				os.Setenv("TEST_INT", "many")
+			},
+			want: 10,
+		},
+		{
+			name:         "env var with float value",
+			key:          "TEST_INT",
+			defaultValue: 10,
+			setup: func() {
+				os.Setenv("TEST_INT", "1.5")
+			},
+			want: 10,
+		},
+		{
+			name:         "env var with int32 overflow",
+			key:          "TEST_INT",
+			defaultValue: 10,
+			setup: func() {
+				os.Setenv("TEST_INT", "9999999999999")
+			},
+			want: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup()
+			got := GetEnvOrDefaultToInt32(tt.key, tt.defaultValue)
+			if got != tt.want {
+				t.Errorf("GetEnvOrDefaultToInt32() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

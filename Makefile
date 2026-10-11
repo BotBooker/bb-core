@@ -113,7 +113,7 @@ build: ## Build for release
 
 .PHONY: clean
 clean: ## Clean all cache
-	@rm -f coverage.txt gotest-e2e.log
+	@rm -rf build/* coverage.txt gotest-e2e.log
 	@$(GO) clean -modcache
 
 .PHONY: run

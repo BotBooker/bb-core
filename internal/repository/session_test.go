@@ -1,35 +1,37 @@
 package repository
 
 import (
+	"context"
+	"database/sql"
 	"testing"
 )
 
 // mockSessionDB is a mock implementation of SessionDB for testing.
 type mockSessionDB struct {
-	queryFunc   func(query string) error
-	execFunc    func(query string) error
-	beginTxFunc func() error
+	queryFunc   func(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	execFunc    func(ctx context.Context, query string, args ...any) (sql.Result, error)
+	beginTxFunc func(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
-func (m *mockSessionDB) Query(query string) error {
+func (m *mockSessionDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if m.queryFunc != nil {
-		return m.queryFunc(query)
+		return m.queryFunc(ctx, query, args...)
 	}
-	return nil
+	return nil, nil
 }
 
-func (m *mockSessionDB) Exec(query string) error {
+func (m *mockSessionDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if m.execFunc != nil {
-		return m.execFunc(query)
+		return m.execFunc(ctx, query, args...)
 	}
-	return nil
+	return nil, nil
 }
 
-func (m *mockSessionDB) BeginTx() error {
+func (m *mockSessionDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
 	if m.beginTxFunc != nil {
-		return m.beginTxFunc()
+		return m.beginTxFunc(ctx, opts)
 	}
-	return nil
+	return nil, nil
 }
 
 // mockSessionCache is a mock implementation of SessionCache for testing.
