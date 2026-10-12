@@ -130,7 +130,14 @@ func (a *ServerAPI) Run() error {
 
 	// 2. Инициализация зависимостей: БД, кэш, репозитории, сервисы, роутинг.
 	// Ошибка подключения к БД возвращается наверх — процесс завершится с кодом 1.
-	if err := a.initDeps(ctx); err != nil {
+	//
+	// Сценарий 3: стартовый спан открывается до инициализации и закрывается
+	// (ниже) строго тогда, когда все компоненты готовы принимать трафик.
+	startupCtx, startupSpan := startStartupSpan(ctx)
+
+	if err := a.initDeps(startupCtx); err != nil {
+		startupSpan.End()
+
 		return err
 	}
 
@@ -156,23 +163,32 @@ func (a *ServerAPI) Run() error {
 		}
 	}()
 
+	// Все компоненты готовы принимать трафик — закрываем стартовый спан.
+	startupSpan.End()
+
 	// 4. Ожидание сигнала.
 	<-ctx.Done()
 	slog.Info("signal received, shutting down...")
+
+	// Сценарий 4: трасса graceful shutdown. Перехвачен SIGINT/SIGTERM — начинаем
+	// новую трассу с собственным TraceID и закрываем её перед выходом процесса,
+	// когда серверы остановлены, а ресурсы закрыты.
+	shutdownTraceCtx, shutdownSpan := startShutdownSpan(context.Background())
+	defer shutdownSpan.End()
 
 	// Паттерн "двойной Ctrl+C": снимаем custom handler.
 	// Теперь второй Ctrl+C убьёт процесс мгновенно (дефолтное поведение ОС).
 	stop()
 
 	// 5. Graceful shutdown HTTP-сервера.
-	// Таймаут 15 секунд. Используем context.Background(), а не ctx — тот уже отменён.
+	// Таймаут 15 секунд. Родитель — контекст трассы shutdown (ctx уже отменён).
 	//
 	// Что делает server.Shutdown внутри:
 	//   1) Закрывает listeners — новые TCP-соединения невозможны
 	//   2) Закрывает idle connections (keep-alive без активных запросов)
 	//   3) Ждёт активные connections — пока handler вернёт ответ
 	//   4) Если контекст истёк — возвращает ошибку, НО handlers продолжают работать в фоне
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(shutdownTraceCtx, 15*time.Second)
 	defer shutdownCancel()
 
 	if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
@@ -190,7 +206,7 @@ func (a *ServerAPI) Run() error {
 	// 7. Закрытие всех ресурсов через глобальный closer (LIFO).
 	// Отдельный контекст с таймаутом 10 секунд — свой бюджет для ресурсов.
 	// Суммарно: 15с (HTTP) + 5с (gRPC) + 10с (ресурсы) = 30с Kubernetes grace period.
-	closerCtx, closerCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	closerCtx, closerCancel := context.WithTimeout(shutdownTraceCtx, 10*time.Second)
 	defer closerCancel()
 
 	if err := closer.CloseAll(closerCtx); err != nil {

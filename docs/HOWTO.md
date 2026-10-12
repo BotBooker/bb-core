@@ -91,6 +91,20 @@ HTTP через gateway) и проверяют сценарий целиком: 
 
 ## Наблюдаемость
 
+## Логи в OTel Collector
+
+Структурированные логи приложения (`log/slog`) пишутся в stdout и, если задан
+адрес коллектора, дублируются в OpenTelemetry Collector по OTLP/gRPC:
+
+```sh
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://localhost:4317 ./build/api
+# или общий адрес для всех сигналов:
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 ./build/api
+```
+
+Без этих переменных экспорт логов выключен — приложение пишет только в stdout.
+Адрес по умолчанию — `localhost:4317`; схема `https` включает TLS.
+
 Логи пишутся структурированно через `log/slog` (`pkg/logger`) в stdout — в
 формате `LOG_FORMAT` (`json` по умолчанию, `plain` для разработки) и с уровнем
 `LOG_LEVEL`.
@@ -122,3 +136,89 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
   -v "$PWD/otel/customconfig.yaml:/etc/otelcol/config.yaml" \
   otel/opentelemetry-collector:latest
 ```
+
+## Трассы в OTel Collector
+
+Трассировка включается, только если задан адрес коллектора —
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` или общий `OTEL_EXPORTER_OTLP_ENDPOINT`.
+Если ни одной из переменных нет, провайдер трассировки не создаётся вовсе, и
+приложение не трогает сеть:
+
+```sh
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4317 ./build/api
+```
+
+Спаны пишутся по OTLP/gRPC (порт `4317` по умолчанию), W3C Trace Context
+пробрасывается через заголовки. Что и когда записывается:
+
+| Сценарий | Когда запускается | Как включается |
+| --- | --- | --- |
+| Force Trace | любой спан | `ENABLE_FORCE_TRACE=true` |
+| Context Propagation | входящий HTTP-запрос | заголовок `traceparent` (W3C) |
+| App Startup | старт приложения | новая трасса, спан `app.startup` |
+| App Shutdown | SIGINT / SIGTERM | новая трасса, спан `app.shutdown` |
+
+Стартовый спан закрывается, когда HTTP- и gRPC-серверы подняты и приложение
+готово принимать трафик. Завершающий спан открывается при перехвате сигнала и
+закрывается перед выходом процесса — после остановки серверов и закрытия
+ресурсов. Оба спана начинают собственную трассу с отдельным TraceID.
+
+Для локальной проверки подойдёт конфигурация `otel/customconfig.yaml` — приёмник
+OTLP и debug-экспортёр, который печатает полученные сигналы:
+
+```sh
+docker run --rm -p 4317:4317 -p 4318:4318 \
+  -v "$PWD/otel/customconfig.yaml:/etc/otelcol/config.yaml" \
+  otel/opentelemetry-collector:latest
+
+# в другом терминале — проверить сквозной путь «запрос → трасса в коллекторе»
+curl -s -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
+  localhost:8080/health
+```
+
+### Трассы
+
+Трассировка включается, только когда задан адрес OTel Collector для трасс.
+Переменные и их приоритет:
+
+| Переменная | Приоритет | Назначение |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | ниже | общий адрес коллектора для всех сигналов |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | выше | адрес коллектора для трасс |
+| `ENABLE_FORCE_TRACE` | - | `true` — записывать все спаны (форс-трассировка) |
+
+Если ни `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, ни `OTEL_EXPORTER_OTLP_ENDPOINT` не
+заданы, провайдер трассировки не создаётся вовсе: глобальный трейсер остаётся
+no-op, приложение не трогает сеть. Схема в адресе задаёт транспорт: `http://` —
+plaintext gRPC, `https://` — TLS, а адрес без схемы (`localhost:4317`) трактуется
+как `http`. Порт по умолчанию — `4317`.
+
+```sh
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4317 go run ./cmd/api
+```
+
+Спаны запускаются по четырём сценариям (`internal/serverapi/tracing.go`):
+
+| Сценарий | Что делает | Реализация |
+| --- | --- | --- |
+| Force Trace | записывает все спаны, независимо от входящего контекста | `ENABLE_FORCE_TRACE=true`, правило в `traceSampler` |
+| Context Propagation | продолжает входящую трассу по заголовку `traceparent` (W3C Trace Context) | `traceMiddleware`, `otel.GetTextMapPropagator().Extract()` |
+| App Startup | открывает спан `app.startup` в новой трассе и закрывает его, когда HTTP- и gRPC-серверы подняты | `startStartupSpan` в `ServerAPI.Run()` |
+| App Shutdown | перехватывает SIGINT/SIGTERM, открывает спан `app.shutdown` в новой трассе и закрывает его перед выходом процесса | `startShutdownSpan` в `ServerAPI.Run()` |
+
+Стартовый и завершающий спаны начинают собственную трассу: SDK генерирует
+отдельный TraceID, поэтому запуск и остановка сервиса видны в коллекторе
+самостоятельными трассами. Сэмплер не превращает каждый запрос без `traceparent`
+в новую трассу — такие корневые спаны отбрасываются, если не включён
+`ENABLE_FORCE_TRACE`.
+
+Сквозная проверка трассы:
+
+```sh
+curl -s -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
+  localhost:8080/health
+```
+
+Автотесты: `go test ./internal/serverapi/ -run 'TestSetupTraces|TestTrace' -v` —
+проверяют правила сэмплирования всех четырёх сценариев и выгрузку трасс в
+поддельный OTLP-коллектор.

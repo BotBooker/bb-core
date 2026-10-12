@@ -54,6 +54,10 @@ func NewHandler(authService AuthService, userServiceServer user_v1.UserServiceSe
 // Все ручки, кроме перечисленных в publicPaths, проходят через middleware
 // authenticate: аутентификация не «размазана» по хендлерам, поэтому забыть
 // проверить токен в новой ручке нельзя.
+//
+// Снаружи стоит traceMiddleware: он извлекает W3C Trace Context из заголовков
+// запроса и запускает серверный спан — трасса запроса начинается до
+// аутентификации и покрывает весь путь запроса.
 func (h *handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.healthHandler)
@@ -69,7 +73,7 @@ func (h *handler) Routes() http.Handler {
 	// Swagger UI эндпоинты
 	mux.Handle(SwaggerPrefix, http.StripPrefix("/api/swagger", swagger.Routes("/api/swagger")))
 
-	return h.authenticate(mux)
+	return traceMiddleware(h.authenticate(mux))
 }
 
 func (h *handler) healthHandler(w http.ResponseWriter, _ *http.Request) {
