@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 
@@ -95,6 +96,8 @@ func buildPoolConfig(cfg config.DatabaseConfig) (*pgxpool.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
 	}
+
+	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
 
 	// Значение из конфигурации может быть нулевым или отрицательным,
 	// поэтому подставляем размер пула по умолчанию.
