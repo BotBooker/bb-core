@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"google.golang.org/grpc"
 
 	"github.com/botbooker/bb-core/internal/closer"
 	"github.com/botbooker/bb-core/internal/config"
@@ -16,10 +19,13 @@ import (
 )
 
 // ServerAPI — структура приложения.
-// Содержит DI-контейнер и HTTP-сервер.
+// Содержит DI-контейнер, HTTP-сервер и gRPC-сервер.
 type ServerAPI struct {
 	diContainer *diContainer
 	httpServer  *http.Server
+	grpcServer  *grpc.Server
+	// grpcListener открывается в initGRPCServer и закрывается вместе с сервером.
+	grpcListener net.Listener
 }
 
 // New создаёт приложение.
@@ -36,6 +42,7 @@ func (a *ServerAPI) initDeps(ctx context.Context) error {
 	inits := []func(context.Context) error{
 		a.initDIContainer,
 		a.initHTTPServer,
+		a.initGRPCServer,
 	}
 
 	for _, fn := range inits {
@@ -61,9 +68,14 @@ func (a *ServerAPI) initDIContainer(ctx context.Context) error {
 
 // initHTTPServer создаёт HTTP-сервер.
 func (a *ServerAPI) initHTTPServer(_ context.Context) error {
+	handler, err := a.diContainer.Handler()
+	if err != nil {
+		return fmt.Errorf("init http handler: %w", err)
+	}
+
 	a.httpServer = &http.Server{
 		Addr:              config.AppConfig().HTTPAddr,
-		Handler:           a.diContainer.Handler().Routes(),
+		Handler:           handler.Routes(),
 		ReadHeaderTimeout: 3 * time.Second,
 	}
 
@@ -75,9 +87,9 @@ func (a *ServerAPI) initHTTPServer(_ context.Context) error {
 // Что происходит:
 //  0. initDeps инициализирует зависимости (в том числе подключение к БД)
 //  1. signal.NotifyContext перехватывает SIGINT (Ctrl+C) и SIGTERM (Kubernetes)
-//  2. HTTP-сервер запускается в отдельной горутине
+//  2. HTTP-сервер и gRPC-сервер запускаются каждый в своей горутине
 //  3. Main-горутина ждёт сигнал через <-ctx.Done()
-//  4. При сигнале: server.Shutdown дожидается текущих запросов
+//  4. При сигнале: server.Shutdown и GracefulStop дожидаются текущих запросов
 //  5. closer.CloseAll закрывает все ресурсы в обратном порядке (LIFO)
 //
 // Паттерн "двойной Ctrl+C":
@@ -114,14 +126,25 @@ func (a *ServerAPI) Run() error {
 		return err
 	}
 
-	slog.Info("the server is running", "addr", config.AppConfig().HTTPAddr)
+	slog.Info("the server is running",
+		"http_addr", config.AppConfig().HTTPAddr,
+		"grpc_addr", config.AppConfig().GRPCAddr,
+	)
 
-	// 3. Запуск сервера в горутине.
-	// ListenAndServe блокирует — поэтому запускаем в горутине, а main ждёт сигнал.
-	// http.ErrServerClosed — нормальное завершение (мы сами вызвали Shutdown), не ошибка.
+	// 3. Запуск серверов в горутинах.
+	// ListenAndServe и Serve блокируют — поэтому запускаем в горутинах,
+	// а main ждёт сигнал.
+	// http.ErrServerClosed и grpc.ErrServerStopped — нормальное завершение
+	// (остановку запросили мы сами), а не ошибка.
 	go func() {
 		if err := a.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("server error", "err", err)
+			slog.Error("http server error", "err", err)
+		}
+	}()
+
+	go func() {
+		if err := a.grpcServer.Serve(a.grpcListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			slog.Error("grpc server error", "err", err)
 		}
 	}()
 
@@ -148,11 +171,17 @@ func (a *ServerAPI) Run() error {
 		slog.Error("error while stopping the server", "err", err)
 	}
 
-	slog.Info("server stopped")
+	slog.Info("http server stopped")
 
-	// 6. Закрытие всех ресурсов через глобальный closer (LIFO).
+	// 6. Graceful shutdown gRPC-сервера: ждём завершения текущих вызовов
+	// (с ограничением по времени, см. stopGRPC).
+	a.stopGRPC()
+
+	slog.Info("grpc server stopped")
+
+	// 7. Закрытие всех ресурсов через глобальный closer (LIFO).
 	// Отдельный контекст с таймаутом 10 секунд — свой бюджет для ресурсов.
-	// Суммарно: 15с (сервер) + 10с (ресурсы) = 25с из 30с Kubernetes grace period.
+	// Суммарно: 15с (HTTP) + 5с (gRPC) + 10с (ресурсы) = 30с Kubernetes grace period.
 	closerCtx, closerCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer closerCancel()
 

@@ -34,3 +34,4 @@ bin/
 build/
 *.sarif
 *.lock
+tmp/

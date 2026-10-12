@@ -74,11 +74,11 @@ func (m *User) validate(all bool) error {
 	// no validation rules for Gender
 
 	if all {
-		switch v := interface{}(m.GetBirthDate()).(type) {
+		switch v := interface{}(m.GetBirthday()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, UserValidationError{
-					field:  "BirthDate",
+					field:  "Birthday",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -86,16 +86,16 @@ func (m *User) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, UserValidationError{
-					field:  "BirthDate",
+					field:  "Birthday",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetBirthDate()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetBirthday()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return UserValidationError{
-				field:  "BirthDate",
+				field:  "Birthday",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -304,25 +304,29 @@ func (m *UserServiceCreateRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if !_UserServiceCreateRequest_PhoneNumber_Pattern.MatchString(m.GetPhoneNumber()) {
-		err := UserServiceCreateRequestValidationError{
-			field:  "PhoneNumber",
-			reason: "value does not match regex pattern \"^\\\\+[1-9]\\\\d{1,14}$\"",
+	if m.GetPhoneNumber() != "" {
+
+		if !_UserServiceCreateRequest_PhoneNumber_Pattern.MatchString(m.GetPhoneNumber()) {
+			err := UserServiceCreateRequestValidationError{
+				field:  "PhoneNumber",
+				reason: "value does not match regex pattern \"^\\\\+[1-9]\\\\d{1,14}$\"",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
 		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
+
 	}
 
 	// no validation rules for Gender
 
 	if all {
-		switch v := interface{}(m.GetBirthDate()).(type) {
+		switch v := interface{}(m.GetBirthday()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, UserServiceCreateRequestValidationError{
-					field:  "BirthDate",
+					field:  "Birthday",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -330,16 +334,16 @@ func (m *UserServiceCreateRequest) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, UserServiceCreateRequestValidationError{
-					field:  "BirthDate",
+					field:  "Birthday",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetBirthDate()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetBirthday()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return UserServiceCreateRequestValidationError{
-				field:  "BirthDate",
+				field:  "Birthday",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -943,15 +947,19 @@ func (m *UserServiceUpdateRequest) validate(all bool) error {
 
 	if wrapper := m.GetPhoneNumber(); wrapper != nil {
 
-		if !_UserServiceUpdateRequest_PhoneNumber_Pattern.MatchString(wrapper.GetValue()) {
-			err := UserServiceUpdateRequestValidationError{
-				field:  "PhoneNumber",
-				reason: "value does not match regex pattern \"^\\\\+[1-9]\\\\d{1,14}$\"",
+		if wrapper.GetValue() != "" {
+
+			if !_UserServiceUpdateRequest_PhoneNumber_Pattern.MatchString(wrapper.GetValue()) {
+				err := UserServiceUpdateRequestValidationError{
+					field:  "PhoneNumber",
+					reason: "value does not match regex pattern \"^\\\\+[1-9]\\\\d{1,14}$\"",
+				}
+				if !all {
+					return err
+				}
+				errors = append(errors, err)
 			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
+
 		}
 
 	}
@@ -986,11 +994,11 @@ func (m *UserServiceUpdateRequest) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetBirthDate()).(type) {
+		switch v := interface{}(m.GetBirthday()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, UserServiceUpdateRequestValidationError{
-					field:  "BirthDate",
+					field:  "Birthday",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -998,16 +1006,16 @@ func (m *UserServiceUpdateRequest) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, UserServiceUpdateRequestValidationError{
-					field:  "BirthDate",
+					field:  "Birthday",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetBirthDate()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetBirthday()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return UserServiceUpdateRequestValidationError{
-				field:  "BirthDate",
+				field:  "Birthday",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}

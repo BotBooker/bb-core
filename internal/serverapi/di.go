@@ -3,6 +3,7 @@ package serverapi
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/botbooker/bb-core/internal/cache"
 	"github.com/botbooker/bb-core/internal/closer"
@@ -11,8 +12,10 @@ import (
 	"github.com/botbooker/bb-core/internal/database/postgres"
 	"github.com/botbooker/bb-core/internal/database/sqlite"
 	"github.com/botbooker/bb-core/internal/events"
+	"github.com/botbooker/bb-core/internal/jwt"
 	"github.com/botbooker/bb-core/internal/repository"
 	"github.com/botbooker/bb-core/internal/service"
+	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
 // newDatabase подключается к базе данных.
@@ -20,6 +23,31 @@ import (
 // Переменная, а не прямой вызов: unit-тесты DI подменяют подключение,
 // чтобы не ходить в настоящую базу данных.
 var newDatabase = newDatabaseByDSN
+
+// migrateDatabase применяет миграции к подключению.
+//
+// Переменная, а не прямой вызов: unit-тесты DI подменяют её так же, как
+// подключение, чтобы не ходить в настоящую базу данных.
+var migrateDatabase = applyMigrations
+
+// applyMigrations применяет миграции при старте, если это разрешено настройкой.
+// Диалект берётся из того же DSN, по которому выбирался драйвер: отдельного
+// поля с диалектом нет.
+func applyMigrations(ctx context.Context, db database.DB) error {
+	cfg := config.DBConfig()
+	if !cfg.MigrateOnStart {
+		slog.Debug("migrations on start are disabled")
+
+		return nil
+	}
+
+	dialect, err := database.DialectFromDSN(cfg.DSN)
+	if err != nil {
+		return err
+	}
+
+	return database.Migrate(ctx, db, dialect)
+}
 
 // newPostgresDB и newSQLiteDB — конструкторы драйверов.
 // Подменяются в тестах, чтобы проверить выбор драйвера по DSN.
@@ -67,10 +95,18 @@ type diContainer struct {
 	db       database.DB
 	cache    cache.Cache
 	eventBus events.EventBus
+	// tokenCodec подписывает и проверяет токены доступа. Создаётся вместе с
+	// контейнером: секрет подписи берётся из конфигурации, и ошибку его
+	// подготовки (crypto/rand) лучше увидеть на старте, а не при первом входе.
+	tokenCodec service.AuthTokenCodec
+	// dialect — диалект подключённой базы: репозитории подставляют по нему
+	// плейсхолдеры и кодируют время.
+	dialect string
 
 	// Репозитории
 	userRepo         repository.UserRepo
-	sessionRepo      repository.SessionRepo
+	tokenRepo        repository.TokenRepo
+	credentialRepo   repository.CredentialRepo
 	notificationRepo repository.NotificationRepo
 
 	// Сервисы
@@ -79,14 +115,34 @@ type diContainer struct {
 	notificationService service.NotificationService
 
 	// API
-	handler Handler
+	handler           Handler
+	userServiceServer user_v1.UserServiceServer
 }
 
-// newDIContainer создаёт контейнер и подключается к базе данных.
-// Ошибка подключения возвращается сразу: приложению без БД работать нечем.
+// newDIContainer создаёт контейнер, подключается к базе данных и применяет миграции.
+// Ошибка подключения или миграций возвращается сразу: приложению без БД работать нечем.
 func newDIContainer(ctx context.Context) (*diContainer, error) {
 	db, err := newDatabase(ctx)
 	if err != nil {
+		return nil, fmt.Errorf("init database: %w", err)
+	}
+
+	// Диалект берётся из того же DSN, по которому выбрано подключение:
+	// отдельного поля с диалектом нет, поэтому он не может «разойтись» с базой.
+	// Ошибка здесь недостижима после успешного подключения, но обрабатывается
+	// так же строго: молча работать «не тем» диалектом хуже, чем упасть.
+	dialect, err := database.DialectFromDSN(config.DBConfig().DSN)
+	if err != nil {
+		_ = db.Close()
+
+		return nil, fmt.Errorf("init database: %w", err)
+	}
+
+	// Миграции применяются до регистрации closer: если не удалось, пул
+	// закрываем сами, иначе соединение висело бы до конца процесса.
+	if err := migrateDatabase(ctx, db); err != nil {
+		_ = db.Close()
+
 		return nil, fmt.Errorf("init database: %w", err)
 	}
 
@@ -95,7 +151,16 @@ func newDIContainer(ctx context.Context) (*diContainer, error) {
 		return db.Close()
 	})
 
-	return &diContainer{db: db}, nil
+	// Подпись токенов настраивается здесь же: секрет из конфигурации, а ошибка
+	// его подготовки должна валить старт, а не выясняться при первом входе.
+	tokenCodec, err := jwt.NewSigner(config.Auth().JWTSecret, config.Auth().Issuer)
+	if err != nil {
+		_ = db.Close()
+
+		return nil, fmt.Errorf("init token signer: %w", err)
+	}
+
+	return &diContainer{db: db, dialect: dialect, tokenCodec: tokenCodec}, nil
 }
 
 // DB возвращает подключение к базе данных, созданное вместе с контейнером.
@@ -132,19 +197,28 @@ func (d *diContainer) Cache() cache.Cache {
 // UserRepo возвращает репозиторий пользователей.
 func (d *diContainer) UserRepo() repository.UserRepo {
 	if d.userRepo == nil {
-		d.userRepo = repository.NewUserRepo(d.DB())
+		d.userRepo = repository.NewUserRepo(d.DB(), d.dialect)
 	}
 
 	return d.userRepo
 }
 
-// SessionRepo возвращает репозиторий сессий.
-func (d *diContainer) SessionRepo() repository.SessionRepo {
-	if d.sessionRepo == nil {
-		d.sessionRepo = repository.NewSessionRepo(d.DB(), d.Cache())
+// TokenRepo возвращает репозиторий сессий (токенов доступа).
+func (d *diContainer) TokenRepo() repository.TokenRepo {
+	if d.tokenRepo == nil {
+		d.tokenRepo = repository.NewTokenRepo(d.DB(), d.dialect)
 	}
 
-	return d.sessionRepo
+	return d.tokenRepo
+}
+
+// CredentialRepo возвращает репозиторий учётных данных (хешей паролей).
+func (d *diContainer) CredentialRepo() repository.CredentialRepo {
+	if d.credentialRepo == nil {
+		d.credentialRepo = repository.NewCredentialRepo(d.DB(), d.dialect)
+	}
+
+	return d.credentialRepo
 }
 
 // NotificationRepo возвращает репозиторий уведомлений.
@@ -159,7 +233,14 @@ func (d *diContainer) NotificationRepo() repository.NotificationRepo {
 // AuthService возвращает сервис авторизации.
 func (d *diContainer) AuthService() service.AuthService {
 	if d.authService == nil {
-		d.authService = service.NewAuthService(d.UserRepo(), d.SessionRepo(), d.Cache(), d.EventBus())
+		d.authService = service.NewAuthService(
+			d.UserRepo(),
+			d.CredentialRepo(),
+			d.TokenRepo(),
+			d.tokenCodec,
+			d.EventBus(),
+			config.Auth().TokenTTL,
+		)
 	}
 
 	return d.authService
@@ -168,7 +249,7 @@ func (d *diContainer) AuthService() service.AuthService {
 // UserService возвращает сервис пользователей.
 func (d *diContainer) UserService() service.UserService {
 	if d.userService == nil {
-		d.userService = service.NewUserService(d.UserRepo(), d.AuthService(), d.EventBus())
+		d.userService = service.NewUserService(d.UserRepo(), d.EventBus())
 	}
 
 	return d.userService
@@ -184,14 +265,26 @@ func (d *diContainer) NotificationService() service.NotificationService {
 }
 
 // Handler возвращает HTTP-хендлер.
-func (d *diContainer) Handler() Handler {
+func (d *diContainer) Handler() (Handler, error) {
 	if d.handler == nil {
-		d.handler = NewHandler(
-			d.UserService(),
-			d.AuthService(),
-			d.NotificationService(),
-		)
+		handler, err := NewHandler(d.AuthService(), d.UserServiceServer())
+		if err != nil {
+			return nil, err
+		}
+
+		d.handler = handler
 	}
 
-	return d.handler
+	return d.handler, nil
+}
+
+// UserServiceServer возвращает адаптер proto-сервиса пользователей.
+// Один экземпляр обслуживает и gRPC, и grpc-gateway: поведение обоих
+// транспортов гарантированно одинаково.
+func (d *diContainer) UserServiceServer() user_v1.UserServiceServer {
+	if d.userServiceServer == nil {
+		d.userServiceServer = NewUserServiceServer(d.UserService())
+	}
+
+	return d.userServiceServer
 }

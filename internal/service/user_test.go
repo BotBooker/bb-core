@@ -1,71 +1,129 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
+
+	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/model"
 )
 
-// mockUserRepository is a mock implementation of UserRepository for testing.
-type mockUserRepository struct{}
-
-// mockUserAuthService is a mock implementation of UserAuthService for testing.
-type mockUserAuthService struct {
-	validateTokenFunc func(token string) bool
+// mockUserRepository — мок репозитория: тесты подменяют отдельные операции,
+// чтобы проверить и проброс результата, и то, что запись не выполнялась.
+type mockUserRepository struct {
+	createFunc  func(ctx context.Context, user *model.User) error
+	getByIDFunc func(ctx context.Context, id string) (*model.User, error)
+	updateFunc  func(ctx context.Context, user *model.User) error
+	deleteFunc  func(ctx context.Context, id string) error
 }
 
-func (m *mockUserAuthService) ValidateToken(token string) bool {
-	if m.validateTokenFunc != nil {
-		return m.validateTokenFunc(token)
+func (m *mockUserRepository) Create(ctx context.Context, user *model.User) error {
+	if m.createFunc != nil {
+		return m.createFunc(ctx, user)
 	}
-	return false
+
+	return nil
 }
 
-// mockUserEventPublisher is a mock implementation of UserEventPublisher for testing.
-type mockUserEventPublisher struct{}
+func (m *mockUserRepository) GetByID(ctx context.Context, id string) (*model.User, error) {
+	if m.getByIDFunc != nil {
+		return m.getByIDFunc(ctx, id)
+	}
 
-func (m *mockUserEventPublisher) Publish(event string) {}
+	return nil, database.ErrNotFound
+}
+
+func (m *mockUserRepository) Update(ctx context.Context, user *model.User) error {
+	if m.updateFunc != nil {
+		return m.updateFunc(ctx, user)
+	}
+
+	return nil
+}
+
+func (m *mockUserRepository) Delete(ctx context.Context, id string) error {
+	if m.deleteFunc != nil {
+		return m.deleteFunc(ctx, id)
+	}
+
+	return nil
+}
+
+// testPrincipal возвращает действующего пользователя с заданной ролью.
+//
+// Идентификатор отличается от идентификаторов записей в тестах: иначе проверка
+// прав проходила бы «сама собой» — из-за совпадения действующего пользователя
+// с целью операции.
+func testPrincipal(t *testing.T, role model.Role) *Principal {
+	t.Helper()
+
+	user := storedUser(t, "7c9e6679-7425-40de-944b-e07fc1f90ae7")
+	user.Role = role
+
+	return &Principal{User: user}
+}
+
+// mockUserEventPublisher запоминает опубликованные события: так проверяется,
+// что событие уходит только после успешной операции.
+type mockUserEventPublisher struct {
+	events []string
+}
+
+func (m *mockUserEventPublisher) Publish(event string) {
+	m.events = append(m.events, event)
+}
+
+// testCreateInput — валидный вход создания пользователя.
+func testCreateInput() model.CreateUserInput {
+	return model.CreateUserInput{
+		Email:       "ivan@example.com",
+		FirstName:   "Иван",
+		LastName:    "Иванов",
+		PhoneNumber: "+79990000001",
+		Gender:      model.GenderMale,
+	}
+}
+
+// newTestUserService создаёт сервис с моками и возвращает их для проверок.
+func newTestUserService(repo UserRepository) (UserService, *mockUserEventPublisher) {
+	events := &mockUserEventPublisher{}
+
+	return NewUserService(repo, events), events
+}
 
 func TestNewUserService(t *testing.T) {
 	tests := []struct {
-		name        string
-		userRepo    UserRepository
-		authService UserAuthService
-		events      UserEventPublisher
+		name     string
+		userRepo UserRepository
+		events   UserEventPublisher
 	}{
 		{
-			name:        "all valid dependencies",
-			userRepo:    &mockUserRepository{},
-			authService: &mockUserAuthService{},
-			events:      &mockUserEventPublisher{},
+			name:     "all valid dependencies",
+			userRepo: &mockUserRepository{},
+			events:   &mockUserEventPublisher{},
 		},
 		{
-			name:        "nil user repo",
-			userRepo:    nil,
-			authService: &mockUserAuthService{},
-			events:      &mockUserEventPublisher{},
+			name:     "nil user repo",
+			userRepo: nil,
+			events:   &mockUserEventPublisher{},
 		},
 		{
-			name:        "nil auth service",
-			userRepo:    &mockUserRepository{},
-			authService: nil,
-			events:      &mockUserEventPublisher{},
+			name:     "nil events",
+			userRepo: &mockUserRepository{},
+			events:   nil,
 		},
 		{
-			name:        "nil events",
-			userRepo:    &mockUserRepository{},
-			authService: &mockUserAuthService{},
-			events:      nil,
-		},
-		{
-			name:        "all nil",
-			userRepo:    nil,
-			authService: nil,
-			events:      nil,
+			name:     "all nil",
+			userRepo: nil,
+			events:   nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewUserService(tt.userRepo, tt.authService, tt.events)
+			got := NewUserService(tt.userRepo, tt.events)
 			if got == nil {
 				t.Error("NewUserService() returned nil")
 			}
@@ -73,114 +131,423 @@ func TestNewUserService(t *testing.T) {
 	}
 }
 
-func TestUserService_GetProfile(t *testing.T) {
+func TestUserService_Create(t *testing.T) {
+	t.Run("создаёт пользователя и публикует событие", func(t *testing.T) {
+		var stored *model.User
+
+		repo := &mockUserRepository{createFunc: func(_ context.Context, user *model.User) error {
+			stored = user
+
+			return nil
+		}}
+		svc, events := newTestUserService(repo)
+
+		user, err := svc.Create(context.Background(), testPrincipal(t, model.RoleOperator), testCreateInput())
+		if err != nil {
+			t.Fatalf("Create() unexpected error = %v", err)
+		}
+
+		// Идентификатор и роль проставляет модель, а не репозиторий.
+		if err := model.ValidateUUID(user.ID); err != nil {
+			t.Errorf("Create() вернул пользователя с невалидным UUID: %v", err)
+		}
+		if user.Role != model.RoleClient {
+			t.Errorf("Role = %q, want %q", user.Role, model.RoleClient)
+		}
+		if stored != user {
+			t.Error("Create() не передал созданного пользователя в репозиторий")
+		}
+		if len(events.events) != 1 || events.events[0] != EventUserCreated {
+			t.Errorf("события = %v, want [%s]", events.events, EventUserCreated)
+		}
+	})
+
+	t.Run("невалидный вход не доходит до репозитория", func(t *testing.T) {
+		called := false
+
+		repo := &mockUserRepository{createFunc: func(context.Context, *model.User) error {
+			called = true
+
+			return nil
+		}}
+		svc, events := newTestUserService(repo)
+
+		in := testCreateInput()
+		in.Email = "не-email"
+
+		_, err := svc.Create(context.Background(), testPrincipal(t, model.RoleAdmin), in)
+		if !errors.Is(err, model.ErrInvalidEmail) {
+			t.Errorf("Create() error = %v, want %v", err, model.ErrInvalidEmail)
+		}
+		if called {
+			t.Error("Create() вызвал репозиторий при невалидном входе")
+		}
+		if len(events.events) != 0 {
+			t.Errorf("события = %v, want пусто", events.events)
+		}
+	})
+
+	t.Run("пробрасывает конфликт уникальности", func(t *testing.T) {
+		repo := &mockUserRepository{createFunc: func(context.Context, *model.User) error {
+			return database.ErrDuplicate
+		}}
+		svc, events := newTestUserService(repo)
+
+		_, err := svc.Create(context.Background(), testPrincipal(t, model.RoleAdmin), testCreateInput())
+		if !errors.Is(err, database.ErrDuplicate) {
+			t.Errorf("Create() error = %v, want %v", err, database.ErrDuplicate)
+		}
+		if len(events.events) != 0 {
+			t.Errorf("события = %v, want пусто: операция не удалась", events.events)
+		}
+	})
+}
+
+// storedUser — пользователь, как его вернул бы репозиторий: валидный UUID,
+// роль client и заполненные поля.
+func storedUser(t *testing.T, id string) *model.User {
+	t.Helper()
+
+	user, err := model.NewUser(testCreateInput(), time.Now())
+	if err != nil {
+		t.Fatalf("model.NewUser() unexpected error = %v", err)
+	}
+
+	user.ID = id
+
+	return user
+}
+
+func TestUserService_Get(t *testing.T) {
+	const id = "3f4a1e2c-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
+
+	t.Run("возвращает пользователя", func(t *testing.T) {
+		want := storedUser(t, id)
+
+		repo := &mockUserRepository{getByIDFunc: func(_ context.Context, gotID string) (*model.User, error) {
+			if gotID != id {
+				t.Errorf("GetByID() id = %q, want %q", gotID, id)
+			}
+
+			return want, nil
+		}}
+		svc, _ := newTestUserService(repo)
+
+		got, err := svc.Get(context.Background(), testPrincipal(t, model.RoleOperator), id)
+		if err != nil {
+			t.Fatalf("Get() unexpected error = %v", err)
+		}
+		if got != want {
+			t.Error("Get() вернул не ту запись, что отдал репозиторий")
+		}
+	})
+
+	t.Run("пробрасывает «не найдено»", func(t *testing.T) {
+		repo := &mockUserRepository{getByIDFunc: func(context.Context, string) (*model.User, error) {
+			return nil, database.ErrNotFound
+		}}
+		svc, _ := newTestUserService(repo)
+
+		if _, err := svc.Get(context.Background(), testPrincipal(t, model.RoleOperator), id); !errors.Is(err, database.ErrNotFound) {
+			t.Errorf("Get() error = %v, want %v", err, database.ErrNotFound)
+		}
+	})
+
+	t.Run("невалидный UUID не доходит до репозитория", func(t *testing.T) {
+		called := false
+
+		repo := &mockUserRepository{getByIDFunc: func(context.Context, string) (*model.User, error) {
+			called = true
+
+			return nil, nil
+		}}
+		svc, _ := newTestUserService(repo)
+
+		if _, err := svc.Get(context.Background(), testPrincipal(t, model.RoleOperator), "не-uuid"); !errors.Is(err, model.ErrInvalidUUID) {
+			t.Errorf("Get() error = %v, want %v", err, model.ErrInvalidUUID)
+		}
+		if called {
+			t.Error("Get() вызвал репозиторий с невалидным UUID")
+		}
+	})
+}
+
+func TestUserService_Update(t *testing.T) {
+	const id = "3f4a1e2c-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
+
+	t.Run("применяет частичное обновление", func(t *testing.T) {
+		existing := storedUser(t, id)
+		firstName := "Пётр"
+
+		var stored *model.User
+
+		repo := &mockUserRepository{
+			getByIDFunc: func(context.Context, string) (*model.User, error) { return existing, nil },
+			updateFunc: func(_ context.Context, user *model.User) error {
+				stored = user
+
+				return nil
+			},
+		}
+		svc, events := newTestUserService(repo)
+
+		got, err := svc.Update(context.Background(), testPrincipal(t, model.RoleAdmin), id,
+			model.UpdateUserInput{FirstName: &firstName})
+		if err != nil {
+			t.Fatalf("Update() unexpected error = %v", err)
+		}
+		if got.FirstName != firstName {
+			t.Errorf("FirstName = %q, want %q", got.FirstName, firstName)
+		}
+		if got.Email != existing.Email || got.LastName != existing.LastName {
+			t.Error("Update() изменил поля, которых не было во входе")
+		}
+		if !got.UpdatedAt.After(got.CreatedAt) {
+			t.Errorf("UpdatedAt = %v, want позже CreatedAt %v", got.UpdatedAt, got.CreatedAt)
+		}
+		if stored != got {
+			t.Error("Update() передал в репозиторий не обновлённую запись")
+		}
+		if len(events.events) != 1 || events.events[0] != EventUserUpdated {
+			t.Errorf("события = %v, want [%s]", events.events, EventUserUpdated)
+		}
+	})
+
+	t.Run("невалидный вход не меняет запись", func(t *testing.T) {
+		updateCalled := false
+		empty := ""
+
+		repo := &mockUserRepository{
+			getByIDFunc: func(context.Context, string) (*model.User, error) { return storedUser(t, id), nil },
+			updateFunc: func(context.Context, *model.User) error {
+				updateCalled = true
+
+				return nil
+			},
+		}
+		svc, _ := newTestUserService(repo)
+
+		_, err := svc.Update(context.Background(), testPrincipal(t, model.RoleAdmin), id,
+			model.UpdateUserInput{FirstName: &empty})
+		if !errors.Is(err, model.ErrNameRequired) {
+			t.Errorf("Update() error = %v, want %v", err, model.ErrNameRequired)
+		}
+		if updateCalled {
+			t.Error("Update() записал в базу невалидное обновление")
+		}
+	})
+
+	t.Run("не найдено", func(t *testing.T) {
+		repo := &mockUserRepository{getByIDFunc: func(context.Context, string) (*model.User, error) {
+			return nil, database.ErrNotFound
+		}}
+		svc, _ := newTestUserService(repo)
+
+		_, err := svc.Update(context.Background(), testPrincipal(t, model.RoleAdmin), id, model.UpdateUserInput{})
+		if !errors.Is(err, database.ErrNotFound) {
+			t.Errorf("Update() error = %v, want %v", err, database.ErrNotFound)
+		}
+	})
+}
+
+func TestUserService_Delete(t *testing.T) {
+	const id = "3f4a1e2c-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
+
+	t.Run("удаляет и публикует событие", func(t *testing.T) {
+		var deletedID string
+
+		repo := &mockUserRepository{deleteFunc: func(_ context.Context, gotID string) error {
+			deletedID = gotID
+
+			return nil
+		}}
+		svc, events := newTestUserService(repo)
+
+		if err := svc.Delete(context.Background(), testPrincipal(t, model.RoleAdmin), id); err != nil {
+			t.Fatalf("Delete() unexpected error = %v", err)
+		}
+		if deletedID != id {
+			t.Errorf("Delete() id = %q, want %q", deletedID, id)
+		}
+		if len(events.events) != 1 || events.events[0] != EventUserDeleted {
+			t.Errorf("события = %v, want [%s]", events.events, EventUserDeleted)
+		}
+	})
+
+	t.Run("пробрасывает «не найдено»", func(t *testing.T) {
+		repo := &mockUserRepository{deleteFunc: func(context.Context, string) error {
+			return database.ErrNotFound
+		}}
+		svc, _ := newTestUserService(repo)
+
+		if err := svc.Delete(context.Background(), testPrincipal(t, model.RoleAdmin), id); !errors.Is(err, database.ErrNotFound) {
+			t.Errorf("Delete() error = %v, want %v", err, database.ErrNotFound)
+		}
+	})
+
+	t.Run("невалидный UUID не доходит до репозитория", func(t *testing.T) {
+		called := false
+
+		repo := &mockUserRepository{deleteFunc: func(context.Context, string) error {
+			called = true
+
+			return nil
+		}}
+		svc, _ := newTestUserService(repo)
+
+		if err := svc.Delete(context.Background(), testPrincipal(t, model.RoleAdmin), "не-uuid"); !errors.Is(err, model.ErrInvalidUUID) {
+			t.Errorf("Delete() error = %v, want %v", err, model.ErrInvalidUUID)
+		}
+		if called {
+			t.Error("Delete() вызвал репозиторий с невалидным UUID")
+		}
+	})
+}
+
+// TestUserService_Permissions проверяет ролевую модель: права решает сервис, а
+// не транспорт, поэтому одна таблица случаев покрывает и HTTP, и gRPC.
+func TestUserService_Permissions(t *testing.T) {
+	const id = "3f4a1e2c-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
+
+	// target — чужой профиль: действующий пользователь в тестах имеет другой UUID.
+	target := storedUser(t, id)
+
+	newRepo := func() *mockUserRepository {
+		return &mockUserRepository{
+			getByIDFunc: func(context.Context, string) (*model.User, error) { return target, nil },
+			createFunc:  func(context.Context, *model.User) error { return nil },
+			updateFunc:  func(context.Context, *model.User) error { return nil },
+			deleteFunc:  func(context.Context, string) error { return nil },
+		}
+	}
+
 	tests := []struct {
-		name        string
-		token       string
-		validateFn  func(token string) bool
-		wantProfile string
+		name    string
+		role    model.Role
+		wantErr error
 	}{
-		{
-			name:  "valid token returns profile",
-			token: "valid-token",
-			validateFn: func(token string) bool {
-				return token == "valid-token"
-			},
-			wantProfile: "user profile data",
-		},
-		{
-			name:  "invalid token returns unauthorized",
-			token: "invalid-token",
-			validateFn: func(token string) bool {
-				return false
-			},
-			wantProfile: "unauthorized",
-		},
-		{
-			name:  "empty token returns unauthorized",
-			token: "",
-			validateFn: func(token string) bool {
-				return false
-			},
-			wantProfile: "unauthorized",
-		},
-		{
-			name:  "special characters in valid token",
-			token: "token!@#$%^&*()",
-			validateFn: func(token string) bool {
-				return token == "token!@#$%^&*()"
-			},
-			wantProfile: "user profile data",
-		},
-		{
-			name:  "very long valid token",
-			token: "a-very-long-token-that-exceeds-normal-length-limits-for-tokens-to-test-boundary-conditions",
-			validateFn: func(token string) bool {
-				return token == "a-very-long-token-that-exceeds-normal-length-limits-for-tokens-to-test-boundary-conditions"
-			},
-			wantProfile: "user profile data",
-		},
-		{
-			name:  "very long invalid token",
-			token: "a-very-long-token-that-exceeds-normal-length-limits-for-tokens-to-test-boundary-conditions",
-			validateFn: func(token string) bool {
-				return false
-			},
-			wantProfile: "unauthorized",
-		},
+		{name: "клиент видит только свой профиль", role: model.RoleClient, wantErr: ErrForbidden},
+		{name: "оператор видит чужой профиль", role: model.RoleOperator},
+		{name: "администратор видит чужой профиль", role: model.RoleAdmin},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			authService := &mockUserAuthService{
-				validateTokenFunc: tt.validateFn,
-			}
-			svc := NewUserService(
-				&mockUserRepository{},
-				authService,
-				&mockUserEventPublisher{},
-			)
+		t.Run("Get: "+tt.name, func(t *testing.T) {
+			svc := NewUserService(newRepo(), &mockUserEventPublisher{})
 
-			got := svc.GetProfile(tt.token)
-			if got != tt.wantProfile {
-				t.Errorf("GetProfile() = %v, want %v", got, tt.wantProfile)
+			_, err := svc.Get(context.Background(), testPrincipal(t, tt.role), id)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Get() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+
+	tests = []struct {
+		name    string
+		role    model.Role
+		wantErr error
+	}{
+		{name: "клиент не заводит пользователей", role: model.RoleClient, wantErr: ErrForbidden},
+		{name: "оператор заводит пользователей", role: model.RoleOperator},
+		{name: "администратор заводит пользователей", role: model.RoleAdmin},
+	}
+
+	for _, tt := range tests {
+		t.Run("Create: "+tt.name, func(t *testing.T) {
+			svc := NewUserService(newRepo(), &mockUserEventPublisher{})
+
+			_, err := svc.Create(context.Background(), testPrincipal(t, tt.role), testCreateInput())
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Create() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+
+	tests = []struct {
+		name    string
+		role    model.Role
+		wantErr error
+	}{
+		{name: "клиент не правит чужой профиль", role: model.RoleClient, wantErr: ErrForbidden},
+		{name: "оператор не правит чужой профиль", role: model.RoleOperator, wantErr: ErrForbidden},
+		{name: "администратор правит чужой профиль", role: model.RoleAdmin},
+	}
+
+	for _, tt := range tests {
+		t.Run("Update: "+tt.name, func(t *testing.T) {
+			svc := NewUserService(newRepo(), &mockUserEventPublisher{})
+
+			_, err := svc.Update(context.Background(), testPrincipal(t, tt.role), id, model.UpdateUserInput{})
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Update() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+
+	tests = []struct {
+		name    string
+		role    model.Role
+		wantErr error
+	}{
+		{name: "клиент не удаляет", role: model.RoleClient, wantErr: ErrForbidden},
+		{name: "оператор не удаляет", role: model.RoleOperator, wantErr: ErrForbidden},
+		{name: "администратор удаляет", role: model.RoleAdmin},
+	}
+
+	for _, tt := range tests {
+		t.Run("Delete: "+tt.name, func(t *testing.T) {
+			svc := NewUserService(newRepo(), &mockUserEventPublisher{})
+
+			err := svc.Delete(context.Background(), testPrincipal(t, tt.role), id)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Delete() error = %v, want %v", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestUserService_GetProfile_NilAuthService(t *testing.T) {
-	// Test with nil auth service (should panic or handle gracefully)
-	// Since the code calls ValidateToken on authService, nil would cause panic
-	// This test documents the expected behavior
-	svc := NewUserService(
-		&mockUserRepository{},
-		nil,
-		&mockUserEventPublisher{},
-	)
+// TestUserService_OwnProfile разрешает изменять свой профиль: клиент и оператор
+// видят и правят себя без дополнительных прав.
+func TestUserService_OwnProfile(t *testing.T) {
+	for _, role := range []model.Role{model.RoleClient, model.RoleOperator, model.RoleAdmin} {
+		t.Run(string(role), func(t *testing.T) {
+			actor := testPrincipal(t, role)
 
-	// This should panic, but we can't easily test that without recover
-	// So we just verify the service can be created
-	if svc == nil {
-		t.Error("NewUserService() returned nil")
+			repo := &mockUserRepository{
+				getByIDFunc: func(context.Context, string) (*model.User, error) { return actor.User, nil },
+				updateFunc:  func(context.Context, *model.User) error { return nil },
+			}
+			svc := NewUserService(repo, &mockUserEventPublisher{})
+
+			if _, err := svc.Get(context.Background(), actor, actor.ID()); err != nil {
+				t.Errorf("Get() своего профиля unexpected error = %v", err)
+			}
+
+			if _, err := svc.Update(context.Background(), actor, actor.ID(), model.UpdateUserInput{}); err != nil {
+				t.Errorf("Update() своего профиля unexpected error = %v", err)
+			}
+		})
 	}
 }
 
-func TestUserService_GetProfile_EmptyTokenWithValidAuth(t *testing.T) {
-	authService := &mockUserAuthService{
-		validateTokenFunc: func(token string) bool {
-			// Even empty token could theoretically be valid
-			return token == ""
-		},
-	}
-	svc := NewUserService(
-		&mockUserRepository{},
-		authService,
-		&mockUserEventPublisher{},
-	)
+// TestUserService_NoPrincipal проверяет запрос без действующего пользователя:
+// сервис отвечает ErrUnauthorized, а не падает с разыменованием nil.
+func TestUserService_NoPrincipal(t *testing.T) {
+	svc := NewUserService(&mockUserRepository{}, &mockUserEventPublisher{})
 
-	result := svc.GetProfile("")
-	if result != "user profile data" {
-		t.Errorf("GetProfile() with empty valid token = %v, want 'user profile data'", result)
+	if _, err := svc.Create(context.Background(), nil, testCreateInput()); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("Create() error = %v, want %v", err, ErrUnauthorized)
+	}
+
+	if _, err := svc.Get(context.Background(), nil, testCreateInput().Email); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("Get() error = %v, want %v", err, ErrUnauthorized)
+	}
+
+	if _, err := svc.Update(context.Background(), nil, testCreateInput().Email, model.UpdateUserInput{}); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("Update() error = %v, want %v", err, ErrUnauthorized)
+	}
+
+	if err := svc.Delete(context.Background(), nil, testCreateInput().Email); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("Delete() error = %v, want %v", err, ErrUnauthorized)
 	}
 }

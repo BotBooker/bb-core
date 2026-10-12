@@ -4,6 +4,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,8 +15,10 @@ import (
 	"github.com/botbooker/bb-core/internal/config"
 	"github.com/botbooker/bb-core/internal/database"
 
-	// Регистрирует драйвер "sqlite" в database/sql.
-	_ "modernc.org/sqlite"
+	// Драйвер "sqlite": именованный импорт, потому что нужен NewConnector —
+	// через него включается проверка внешних ключей. Регистрацию драйвера в
+	// database/sql делает init() пакета, поэтому имя "sqlite" тоже доступно.
+	sqlitedriver "modernc.org/sqlite"
 )
 
 const (
@@ -43,10 +46,14 @@ type poolFactory func(ctx context.Context, cfg config.DatabaseConfig) (database.
 
 // defaultPoolFactory создаёт реальный пул соединений database/sql.
 func defaultPoolFactory(_ context.Context, cfg config.DatabaseConfig) (database.SQLDB, error) {
-	pool, err := sql.Open(DriverName, cfg.DSN)
+	connector, err := sqlitedriver.NewConnector(cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+
+	// Пул создаётся через коннектор, а не через sql.Open: только так каждое
+	// соединение получает PRAGMA foreign_keys (см. foreignKeysConnector).
+	pool := sql.OpenDB(foreignKeysConnector{inner: connector})
 
 	// Пулы ленивые: sql.Open не устанавливает соединение и не читает файл,
 	// поэтому настройки применяем сразу, а доступность проверяем в connect.
@@ -61,6 +68,64 @@ func defaultPoolFactory(_ context.Context, cfg config.DatabaseConfig) (database.
 	pool.SetMaxIdleConns(maxOpenConns)
 
 	return pool, nil
+}
+
+// foreignKeysPragma — прагма, включающая проверку внешних ключей в SQLite.
+const foreignKeysPragma = "PRAGMA foreign_keys = ON"
+
+// foreignKeysConnector включает проверку внешних ключей на каждом соединении.
+//
+// SQLite по умолчанию внешние ключи не проверяет (PRAGMA foreign_keys = OFF),
+// поэтому ON DELETE CASCADE из миграций молча не работал бы: удаление
+// пользователя оставляло бы его токены и учётные данные. Параметр DSN
+// (_pragma=foreign_keys(1)) решает задачу только в URI-форме — в обычном пути
+// ("/tmp/database.db", ":memory:") драйвер его не разбирает. Обёртка над
+// коннектором снимает эту разницу: прагма выполняется при открытии каждого
+// соединения и не зависит от вида DSN.
+type foreignKeysConnector struct {
+	inner driver.Connector
+}
+
+// Connect открывает соединение и включает на нём проверку внешних ключей.
+// Если прагма не применилась, соединение закрывается: без неё работа с базой
+// нарушила бы ссылочную целостность, а это хуже явной ошибки старта.
+func (c foreignKeysConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := enableForeignKeys(conn); err != nil {
+		_ = conn.Close()
+
+		return nil, err
+	}
+
+	return conn, nil
+}
+
+// Driver возвращает драйвер внутреннего коннектора.
+func (c foreignKeysConnector) Driver() driver.Driver {
+	return c.inner.Driver()
+}
+
+// enableForeignKeys включает проверку внешних ключей на одном соединении.
+func enableForeignKeys(conn driver.Conn) error {
+	statement, err := conn.Prepare(foreignKeysPragma)
+	if err != nil {
+		return fmt.Errorf("prepare %q: %w", foreignKeysPragma, err)
+	}
+
+	defer func() {
+		// Ошибку закрытия вернуть некуда: закрывает соединение вызывающий.
+		_ = statement.Close()
+	}()
+
+	if _, err := statement.Exec(nil); err != nil {
+		return fmt.Errorf("exec %q: %w", foreignKeysPragma, err)
+	}
+
+	return nil
 }
 
 // New создаёт подключение к SQLite: открывает пул соединений,

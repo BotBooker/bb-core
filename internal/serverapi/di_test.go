@@ -52,13 +52,18 @@ func (f *fakeDB) TrManager() trm.Manager {
 	return nil
 }
 
-// withDatabase подменяет подключение к базе данных на время теста.
+// withDatabase подменяет подключение к базе данных и применение миграций
+// на время теста.
 func withDatabase(t *testing.T, db database.DB, dbErr error) {
 	t.Helper()
 
-	original := newDatabase
+	originalDatabase, originalMigrate := newDatabase, migrateDatabase
 	newDatabase = func(context.Context) (database.DB, error) { return db, dbErr }
-	t.Cleanup(func() { newDatabase = original })
+	migrateDatabase = func(context.Context, database.DB) error { return nil }
+	t.Cleanup(func() {
+		newDatabase = originalDatabase
+		migrateDatabase = originalMigrate
+	})
 }
 
 // newTestContainer создаёт контейнер с фейковым подключением к базе данных.
@@ -103,6 +108,71 @@ func TestDIContainer_NewDIContainer(t *testing.T) {
 		}
 		if container != nil {
 			t.Error("newDIContainer() returned non-nil container on error")
+		}
+	})
+}
+
+// TestDIContainer_MigrationsError проверяет, что ошибка миграций не даёт
+// поднять приложение, а подключение при этом закрывается.
+func TestDIContainer_MigrationsError(t *testing.T) {
+	db := &fakeDB{}
+
+	originalDatabase, originalMigrate := newDatabase, migrateDatabase
+
+	newDatabase = func(context.Context) (database.DB, error) { return db, nil }
+	migrateDatabase = func(context.Context, database.DB) error { return errTest }
+
+	t.Cleanup(func() {
+		newDatabase, migrateDatabase = originalDatabase, originalMigrate
+	})
+
+	container, err := newDIContainer(context.Background())
+
+	if !errors.Is(err, errTest) {
+		t.Errorf("newDIContainer() error = %v, want %v", err, errTest)
+	}
+	if container != nil {
+		t.Error("newDIContainer() returned non-nil container on error")
+	}
+	if db.closeCalls != 1 {
+		t.Errorf("closeCalls = %d, want 1: при ошибке миграций пул закрывается", db.closeCalls)
+	}
+}
+
+// TestApplyMigrations проверяет гейт MIGRATE_ON_START и выбор диалекта по DSN.
+func TestApplyMigrations(t *testing.T) {
+	ctx := context.Background()
+	originalDSN, originalMigrateOnStart := config.DBConfig().DSN, config.DBConfig().MigrateOnStart
+
+	t.Cleanup(func() {
+		config.DBConfig().DSN = originalDSN
+		config.DBConfig().MigrateOnStart = originalMigrateOnStart
+	})
+
+	t.Run("миграции выключены настройкой", func(t *testing.T) {
+		config.DBConfig().MigrateOnStart = false
+		config.DBConfig().DSN = "mysql://localhost:3306/demo"
+
+		if err := applyMigrations(ctx, &fakeDB{}); err != nil {
+			t.Fatalf("applyMigrations() error = %v, want nil: DSN не должен читаться", err)
+		}
+	})
+
+	t.Run("неизвестный диалект", func(t *testing.T) {
+		config.DBConfig().MigrateOnStart = true
+		config.DBConfig().DSN = "mysql://localhost:3306/demo"
+
+		if err := applyMigrations(ctx, &fakeDB{}); !errors.Is(err, database.ErrUnsupportedDialect) {
+			t.Fatalf("applyMigrations() error = %v, want %v", err, database.ErrUnsupportedDialect)
+		}
+	})
+
+	t.Run("подключение без пула database/sql", func(t *testing.T) {
+		config.DBConfig().MigrateOnStart = true
+		config.DBConfig().DSN = "sqlite:/tmp/migrations-test.db"
+
+		if err := applyMigrations(ctx, &fakeDB{}); !errors.Is(err, database.ErrMigrationsUnavailable) {
+			t.Fatalf("applyMigrations() error = %v, want %v", err, database.ErrMigrationsUnavailable)
 		}
 	})
 }
@@ -258,17 +328,17 @@ func TestDIContainer_UserRepo(t *testing.T) {
 	}
 }
 
-func TestDIContainer_SessionRepo(t *testing.T) {
+func TestDIContainer_TokenRepo(t *testing.T) {
 	c := newTestContainer(t)
-	repo := c.SessionRepo()
+	repo := c.TokenRepo()
 	if repo == nil {
-		t.Fatal("SessionRepo() returned nil")
+		t.Fatal("TokenRepo() returned nil")
 	}
 
 	// Second call should return same instance
-	repo2 := c.SessionRepo()
+	repo2 := c.TokenRepo()
 	if repo != repo2 {
-		t.Error("SessionRepo() should return same instance on multiple calls")
+		t.Error("TokenRepo() should return same instance on multiple calls")
 	}
 }
 
@@ -330,15 +400,51 @@ func TestDIContainer_NotificationService(t *testing.T) {
 
 func TestDIContainer_Handler(t *testing.T) {
 	c := newTestContainer(t)
-	h := c.Handler()
+
+	h, err := c.Handler()
+	if err != nil {
+		t.Fatalf("Handler() unexpected error = %v", err)
+	}
 	if h == nil {
 		t.Fatal("Handler() returned nil")
 	}
 
 	// Second call should return same instance
-	h2 := c.Handler()
+	h2, err := c.Handler()
+	if err != nil {
+		t.Fatalf("Handler() unexpected error = %v", err)
+	}
 	if h != h2 {
 		t.Error("Handler() should return same instance on multiple calls")
+	}
+}
+
+func TestDIContainer_UserServiceServer(t *testing.T) {
+	c := newTestContainer(t)
+
+	server := c.UserServiceServer()
+	if server == nil {
+		t.Fatal("UserServiceServer() returned nil")
+	}
+
+	// Один адаптер обслуживает и gRPC, и grpc-gateway: поведение транспортов
+	// не может разойтись.
+	server2 := c.UserServiceServer()
+	if server != server2 {
+		t.Error("UserServiceServer() should return same instance on multiple calls")
+	}
+}
+
+func TestDIContainer_Dialect(t *testing.T) {
+	c := newTestContainer(t)
+
+	want, err := database.DialectFromDSN(config.DBConfig().DSN)
+	if err != nil {
+		t.Fatalf("DialectFromDSN() unexpected error = %v", err)
+	}
+
+	if c.dialect != want {
+		t.Errorf("dialect = %q, want %q", c.dialect, want)
 	}
 }
 
@@ -352,12 +458,16 @@ func TestDIContainer_Integration(t *testing.T) {
 	cache := c.Cache()
 	bus := c.EventBus()
 	userRepo := c.UserRepo()
-	sessionRepo := c.SessionRepo()
+	tokenRepo := c.TokenRepo()
 	notifRepo := c.NotificationRepo()
 	authSvc := c.AuthService()
 	userSvc := c.UserService()
 	notifSvc := c.NotificationService()
-	handler := c.Handler()
+	userServiceServer := c.UserServiceServer()
+	handler, err := c.Handler()
+	if err != nil {
+		t.Fatalf("Handler() unexpected error = %v", err)
+	}
 
 	if db == nil {
 		t.Error("DB is nil")
@@ -371,8 +481,8 @@ func TestDIContainer_Integration(t *testing.T) {
 	if userRepo == nil {
 		t.Error("UserRepo is nil")
 	}
-	if sessionRepo == nil {
-		t.Error("SessionRepo is nil")
+	if tokenRepo == nil {
+		t.Error("TokenRepo is nil")
 	}
 	if notifRepo == nil {
 		t.Error("NotificationRepo is nil")
@@ -385,6 +495,9 @@ func TestDIContainer_Integration(t *testing.T) {
 	}
 	if notifSvc == nil {
 		t.Error("NotificationService is nil")
+	}
+	if userServiceServer == nil {
+		t.Error("UserServiceServer is nil")
 	}
 	if handler == nil {
 		t.Error("Handler is nil")

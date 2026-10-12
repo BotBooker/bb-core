@@ -12,6 +12,7 @@ import (
 	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	_ "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2/options"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
+	date "google.golang.org/genproto/googleapis/type/date"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
@@ -100,7 +101,7 @@ type User struct {
 	// Пол пользователя
 	Gender Gender `protobuf:"varint,7,opt,name=gender,proto3,enum=user.v1.Gender" json:"gender,omitempty"`
 	// Дата рождения пользователя
-	BirthDate *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=birth_date,json=birthDate,proto3" json:"birth_date,omitempty"`
+	Birthday *date.Date `protobuf:"bytes,8,opt,name=birthday,proto3" json:"birthday,omitempty"`
 	// Время создания профиля
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Время последнего обновления профиля
@@ -188,9 +189,9 @@ func (x *User) GetGender() Gender {
 	return Gender_GENDER_UNSPECIFIED
 }
 
-func (x *User) GetBirthDate() *timestamppb.Timestamp {
+func (x *User) GetBirthday() *date.Date {
 	if x != nil {
-		return x.BirthDate
+		return x.Birthday
 	}
 	return nil
 }
@@ -220,12 +221,13 @@ type UserServiceCreateRequest struct {
 	LastName string `protobuf:"bytes,3,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
 	// Отчество (опционально, до 100 символов)
 	MiddleName string `protobuf:"bytes,4,opt,name=middle_name,json=middleName,proto3" json:"middle_name,omitempty"`
-	// Номер телефона в формате E.164 (например, +79991234567)
+	// Номер телефона в формате E.164 (например, +79991234567).
+	// Поле необязательное: пустое значение не проверяется (ignore_empty).
 	PhoneNumber string `protobuf:"bytes,5,opt,name=phone_number,json=phoneNumber,proto3" json:"phone_number,omitempty"`
 	// Пол пользователя (по умолчанию UNSPECIFIED, если не передан)
 	Gender Gender `protobuf:"varint,6,opt,name=gender,proto3,enum=user.v1.Gender" json:"gender,omitempty"`
 	// Дата рождения пользователя
-	BirthDate     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=birth_date,json=birthDate,proto3" json:"birth_date,omitempty"`
+	Birthday      *date.Date `protobuf:"bytes,7,opt,name=birthday,proto3" json:"birthday,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -302,9 +304,9 @@ func (x *UserServiceCreateRequest) GetGender() Gender {
 	return Gender_GENDER_UNSPECIFIED
 }
 
-func (x *UserServiceCreateRequest) GetBirthDate() *timestamppb.Timestamp {
+func (x *UserServiceCreateRequest) GetBirthday() *date.Date {
 	if x != nil {
-		return x.BirthDate
+		return x.Birthday
 	}
 	return nil
 }
@@ -460,7 +462,7 @@ type UserServiceUpdateRequest struct {
 	// Ссылка на обертку для Enum, чтобы отличать "не передано" от "значение 0"
 	Gender *wrapperspb.Int32Value `protobuf:"bytes,6,opt,name=gender,proto3" json:"gender,omitempty"`
 	// Новая дата рождения
-	BirthDate     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=birth_date,json=birthDate,proto3" json:"birth_date,omitempty"`
+	Birthday      *date.Date `protobuf:"bytes,7,opt,name=birthday,proto3" json:"birthday,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -537,9 +539,9 @@ func (x *UserServiceUpdateRequest) GetGender() *wrapperspb.Int32Value {
 	return nil
 }
 
-func (x *UserServiceUpdateRequest) GetBirthDate() *timestamppb.Timestamp {
+func (x *UserServiceUpdateRequest) GetBirthday() *date.Date {
 	if x != nil {
-		return x.BirthDate
+		return x.Birthday
 	}
 	return nil
 }
@@ -640,7 +642,7 @@ var File_user_v1_user_proto protoreflect.FileDescriptor
 
 const file_user_v1_user_proto_rawDesc = "" +
 	"\n" +
-	"\x12user/v1/user.proto\x12\auser.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a.protoc-gen-openapiv2/options/annotations.proto\x1a\x17validate/validate.proto\"\x8a\x03\n" +
+	"\x12user/v1/user.proto\x12\auser.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x16google/type/date.proto\x1a.protoc-gen-openapiv2/options/annotations.proto\x1a\x17validate/validate.proto\"\xfe\x02\n" +
 	"\x04User\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1d\n" +
@@ -650,42 +652,39 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\vmiddle_name\x18\x05 \x01(\tR\n" +
 	"middleName\x12!\n" +
 	"\fphone_number\x18\x06 \x01(\tR\vphoneNumber\x12'\n" +
-	"\x06gender\x18\a \x01(\x0e2\x0f.user.v1.GenderR\x06gender\x129\n" +
-	"\n" +
-	"birth_date\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tbirthDate\x129\n" +
+	"\x06gender\x18\a \x01(\x0e2\x0f.user.v1.GenderR\x06gender\x12-\n" +
+	"\bbirthday\x18\b \x01(\v2\x11.google.type.DateR\bbirthday\x129\n" +
 	"\n" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xd6\x02\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xcd\x02\n" +
 	"\x18UserServiceCreateRequest\x12\x1d\n" +
 	"\x05email\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\x05email\x12(\n" +
 	"\n" +
 	"first_name\x18\x02 \x01(\tB\t\xfaB\x06r\x04\x10\x01\x18dR\tfirstName\x12&\n" +
 	"\tlast_name\x18\x03 \x01(\tB\t\xfaB\x06r\x04\x10\x01\x18dR\blastName\x12(\n" +
 	"\vmiddle_name\x18\x04 \x01(\tB\a\xfaB\x04r\x02\x18dR\n" +
-	"middleName\x12;\n" +
-	"\fphone_number\x18\x05 \x01(\tB\x18\xfaB\x15r\x132\x11^\\+[1-9]\\d{1,14}$R\vphoneNumber\x12'\n" +
-	"\x06gender\x18\x06 \x01(\x0e2\x0f.user.v1.GenderR\x06gender\x129\n" +
-	"\n" +
-	"birth_date\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tbirthDate\">\n" +
+	"middleName\x12>\n" +
+	"\fphone_number\x18\x05 \x01(\tB\x1b\xfaB\x18r\x162\x11^\\+[1-9]\\d{1,14}$\xd0\x01\x01R\vphoneNumber\x12'\n" +
+	"\x06gender\x18\x06 \x01(\x0e2\x0f.user.v1.GenderR\x06gender\x12-\n" +
+	"\bbirthday\x18\a \x01(\v2\x11.google.type.DateR\bbirthday\">\n" +
 	"\x19UserServiceCreateResponse\x12!\n" +
 	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"5\n" +
 	"\x15UserServiceGetRequest\x12\x1c\n" +
 	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid\";\n" +
 	"\x16UserServiceGetResponse\x12!\n" +
-	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"\xd9\x03\n" +
+	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"\xd0\x03\n" +
 	"\x18UserServiceUpdateRequest\x12\x1c\n" +
 	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid\x12F\n" +
 	"\n" +
 	"first_name\x18\x02 \x01(\v2\x1c.google.protobuf.StringValueB\t\xfaB\x06r\x04\x10\x01\x18dR\tfirstName\x12D\n" +
 	"\tlast_name\x18\x03 \x01(\v2\x1c.google.protobuf.StringValueB\t\xfaB\x06r\x04\x10\x01\x18dR\blastName\x12F\n" +
 	"\vmiddle_name\x18\x04 \x01(\v2\x1c.google.protobuf.StringValueB\a\xfaB\x04r\x02\x18dR\n" +
-	"middleName\x12Y\n" +
-	"\fphone_number\x18\x05 \x01(\v2\x1c.google.protobuf.StringValueB\x18\xfaB\x15r\x132\x11^\\+[1-9]\\d{1,14}$R\vphoneNumber\x123\n" +
-	"\x06gender\x18\x06 \x01(\v2\x1b.google.protobuf.Int32ValueR\x06gender\x129\n" +
-	"\n" +
-	"birth_date\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tbirthDate\">\n" +
+	"middleName\x12\\\n" +
+	"\fphone_number\x18\x05 \x01(\v2\x1c.google.protobuf.StringValueB\x1b\xfaB\x18r\x162\x11^\\+[1-9]\\d{1,14}$\xd0\x01\x01R\vphoneNumber\x123\n" +
+	"\x06gender\x18\x06 \x01(\v2\x1b.google.protobuf.Int32ValueR\x06gender\x12-\n" +
+	"\bbirthday\x18\a \x01(\v2\x11.google.type.DateR\bbirthday\">\n" +
 	"\x19UserServiceUpdateResponse\x12!\n" +
 	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"8\n" +
 	"\x18UserServiceDeleteRequest\x12\x1c\n" +
@@ -731,26 +730,27 @@ var file_user_v1_user_proto_goTypes = []any{
 	(*UserServiceUpdateRequest)(nil),  // 6: user.v1.UserServiceUpdateRequest
 	(*UserServiceUpdateResponse)(nil), // 7: user.v1.UserServiceUpdateResponse
 	(*UserServiceDeleteRequest)(nil),  // 8: user.v1.UserServiceDeleteRequest
-	(*timestamppb.Timestamp)(nil),     // 9: google.protobuf.Timestamp
-	(*wrapperspb.StringValue)(nil),    // 10: google.protobuf.StringValue
-	(*wrapperspb.Int32Value)(nil),     // 11: google.protobuf.Int32Value
-	(*emptypb.Empty)(nil),             // 12: google.protobuf.Empty
+	(*date.Date)(nil),                 // 9: google.type.Date
+	(*timestamppb.Timestamp)(nil),     // 10: google.protobuf.Timestamp
+	(*wrapperspb.StringValue)(nil),    // 11: google.protobuf.StringValue
+	(*wrapperspb.Int32Value)(nil),     // 12: google.protobuf.Int32Value
+	(*emptypb.Empty)(nil),             // 13: google.protobuf.Empty
 }
 var file_user_v1_user_proto_depIdxs = []int32{
 	0,  // 0: user.v1.User.gender:type_name -> user.v1.Gender
-	9,  // 1: user.v1.User.birth_date:type_name -> google.protobuf.Timestamp
-	9,  // 2: user.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	9,  // 3: user.v1.User.updated_at:type_name -> google.protobuf.Timestamp
+	9,  // 1: user.v1.User.birthday:type_name -> google.type.Date
+	10, // 2: user.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	10, // 3: user.v1.User.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 4: user.v1.UserServiceCreateRequest.gender:type_name -> user.v1.Gender
-	9,  // 5: user.v1.UserServiceCreateRequest.birth_date:type_name -> google.protobuf.Timestamp
+	9,  // 5: user.v1.UserServiceCreateRequest.birthday:type_name -> google.type.Date
 	1,  // 6: user.v1.UserServiceCreateResponse.user:type_name -> user.v1.User
 	1,  // 7: user.v1.UserServiceGetResponse.user:type_name -> user.v1.User
-	10, // 8: user.v1.UserServiceUpdateRequest.first_name:type_name -> google.protobuf.StringValue
-	10, // 9: user.v1.UserServiceUpdateRequest.last_name:type_name -> google.protobuf.StringValue
-	10, // 10: user.v1.UserServiceUpdateRequest.middle_name:type_name -> google.protobuf.StringValue
-	10, // 11: user.v1.UserServiceUpdateRequest.phone_number:type_name -> google.protobuf.StringValue
-	11, // 12: user.v1.UserServiceUpdateRequest.gender:type_name -> google.protobuf.Int32Value
-	9,  // 13: user.v1.UserServiceUpdateRequest.birth_date:type_name -> google.protobuf.Timestamp
+	11, // 8: user.v1.UserServiceUpdateRequest.first_name:type_name -> google.protobuf.StringValue
+	11, // 9: user.v1.UserServiceUpdateRequest.last_name:type_name -> google.protobuf.StringValue
+	11, // 10: user.v1.UserServiceUpdateRequest.middle_name:type_name -> google.protobuf.StringValue
+	11, // 11: user.v1.UserServiceUpdateRequest.phone_number:type_name -> google.protobuf.StringValue
+	12, // 12: user.v1.UserServiceUpdateRequest.gender:type_name -> google.protobuf.Int32Value
+	9,  // 13: user.v1.UserServiceUpdateRequest.birthday:type_name -> google.type.Date
 	1,  // 14: user.v1.UserServiceUpdateResponse.user:type_name -> user.v1.User
 	2,  // 15: user.v1.UserService.Create:input_type -> user.v1.UserServiceCreateRequest
 	4,  // 16: user.v1.UserService.Get:input_type -> user.v1.UserServiceGetRequest
@@ -759,7 +759,7 @@ var file_user_v1_user_proto_depIdxs = []int32{
 	3,  // 19: user.v1.UserService.Create:output_type -> user.v1.UserServiceCreateResponse
 	5,  // 20: user.v1.UserService.Get:output_type -> user.v1.UserServiceGetResponse
 	7,  // 21: user.v1.UserService.Update:output_type -> user.v1.UserServiceUpdateResponse
-	12, // 22: user.v1.UserService.Delete:output_type -> google.protobuf.Empty
+	13, // 22: user.v1.UserService.Delete:output_type -> google.protobuf.Empty
 	19, // [19:23] is the sub-list for method output_type
 	15, // [15:19] is the sub-list for method input_type
 	15, // [15:15] is the sub-list for extension type_name

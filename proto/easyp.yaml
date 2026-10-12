@@ -56,7 +56,7 @@ linters:
 # не будет validate/gateway/openapi кода и проект перестанет собираться.
 generate:
   inputs:
-    - directory: tenant
+    # - directory: tenant
     - directory: user
 
   plugins:

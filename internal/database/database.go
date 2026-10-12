@@ -185,6 +185,21 @@ func New(pool SQLDB) (DB, error) {
 	return &db{pool: pool, trManager: trManager}, nil
 }
 
+// StdDB возвращает пул database/sql, лежащий под контрактом.
+//
+// Нужен инструментам, которые работают только с *sql.DB (например, миграциям).
+// Для фейковых пулов в тестах возвращает nil: реального database/sql под ними нет.
+func (d *db) StdDB() *sql.DB {
+	switch pool := d.pool.(type) {
+	case *sql.DB:
+		return pool
+	case interface{ StdDB() *sql.DB }:
+		return pool.StdDB()
+	default:
+		return nil
+	}
+}
+
 // TrManager возвращает менеджер транзакций.
 func (d *db) TrManager() trm.Manager {
 	return d.trManager

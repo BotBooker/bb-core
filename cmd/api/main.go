@@ -1,4 +1,5 @@
-// Package main реализует HTTP‑сервер API для сервиса бронирования BotBooker.
+// Package main реализует точку входа сервиса бронирования BotBooker:
+// HTTP-сервер (ручки приложения и grpc-gateway) и gRPC-сервер.
 package main
 
 import (

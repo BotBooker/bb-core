@@ -1,0 +1,214 @@
+package model
+
+import (
+	"crypto/pbkdf2"
+	"crypto/sha256"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestValidatePassword(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{name: "минимальная длина в символах", password: "пароль12", wantErr: false},
+		{name: "длинный пароль", password: strings.Repeat("a", PasswordMaxLen), wantErr: false},
+		{name: "пустой", password: "", wantErr: true},
+		{name: "короче минимума", password: "1234567", wantErr: true},
+		{name: "короче минимума в руках", password: "пароль1", wantErr: true},
+		{name: "длиннее максимума", password: strings.Repeat("a", PasswordMaxLen+1), wantErr: true},
+		{name: "максимум в байтах, но кириллицей", password: strings.Repeat("я", 130), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePassword(tt.password)
+
+			if tt.wantErr && !errors.Is(err, ErrInvalidPassword) {
+				t.Errorf("ValidatePassword() error = %v, want %v", err, ErrInvalidPassword)
+			}
+
+			if !tt.wantErr && err != nil {
+				t.Errorf("ValidatePassword() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
+func TestHashPassword(t *testing.T) {
+	const password = "correct horse battery staple"
+
+	hash, err := HashPassword(password)
+	if err != nil {
+		t.Fatalf("HashPassword() unexpected error = %v", err)
+	}
+
+	parts := strings.Split(hash, "$")
+	if len(parts) != 4 {
+		t.Fatalf("HashPassword() = %q, want 4 части, разделённые $", hash)
+	}
+
+	if parts[0] != hashAlgo {
+		t.Errorf("алгоритм = %q, want %q", parts[0], hashAlgo)
+	}
+
+	if parts[1] != "210000" {
+		t.Errorf("итерации = %q, want %q", parts[1], "210000")
+	}
+
+	if strings.Contains(hash, password) {
+		t.Errorf("хеш %q содержит открытый пароль", hash)
+	}
+
+	// Соль случайная: одинаковые пароли дают разные хеши.
+	second, err := HashPassword(password)
+	if err != nil {
+		t.Fatalf("HashPassword() unexpected error = %v", err)
+	}
+
+	if hash == second {
+		t.Error("два хеша одного пароля совпали: соль не случайна")
+	}
+
+	t.Run("пароль не проходит требования", func(t *testing.T) {
+		if _, err := HashPassword("short"); !errors.Is(err, ErrInvalidPassword) {
+			t.Errorf("HashPassword() error = %v, want %v", err, ErrInvalidPassword)
+		}
+	})
+}
+
+func TestVerifyPassword(t *testing.T) {
+	const password = "correct horse battery staple"
+
+	hash, err := HashPassword(password)
+	if err != nil {
+		t.Fatalf("HashPassword() unexpected error = %v", err)
+	}
+
+	t.Run("верный пароль", func(t *testing.T) {
+		if err := VerifyPassword(password, hash); err != nil {
+			t.Errorf("VerifyPassword() unexpected error = %v", err)
+		}
+	})
+
+	t.Run("неверный пароль", func(t *testing.T) {
+		err := VerifyPassword("correct horse battery stapl", hash)
+		if !errors.Is(err, ErrPasswordMismatch) {
+			t.Errorf("VerifyPassword() error = %v, want %v", err, ErrPasswordMismatch)
+		}
+	})
+
+	t.Run("параметры берутся из хеша", func(t *testing.T) {
+		// Хеш с малым числом итераций: проверка идёт по параметрам из хеша,
+		// а не по текущему значению по умолчанию.
+		salt := []byte("0123456789abcdef")
+
+		key, err := pbkdf2.Key(sha256.New, password, salt, 1000, passwordKeyLen)
+		if err != nil {
+			t.Fatalf("pbkdf2.Key() unexpected error = %v", err)
+		}
+
+		if err := VerifyPassword(password, encodePasswordHash(1000, salt, key)); err != nil {
+			t.Errorf("VerifyPassword() unexpected error = %v", err)
+		}
+	})
+}
+
+func TestVerifyPassword_InvalidHash(t *testing.T) {
+	tests := []struct {
+		name string
+		hash string
+	}{
+		{name: "пустой", hash: ""},
+		{name: "не хватает частей", hash: "pbkdf2_sha256$210000$c2FsdA"},
+		{name: "лишние части", hash: "pbkdf2_sha256$210000$c2FsdA$a2V5$extra"},
+		{name: "неизвестный алгоритм", hash: "bcrypt$210000$c2FsdA$a2V5"},
+		{name: "итерации не число", hash: "pbkdf2_sha256$many$c2FsdA$a2V5"},
+		{name: "итерации отрицательные", hash: "pbkdf2_sha256$-1$c2FsdA$a2V5"},
+		{name: "соль не base64", hash: "pbkdf2_sha256$210000$***$a2V5"},
+		{name: "пустая соль", hash: "pbkdf2_sha256$210000$$a2V5"},
+		{name: "ключ не base64", hash: "pbkdf2_sha256$210000$c2FsdA$***"},
+		{name: "пустой ключ", hash: "pbkdf2_sha256$210000$c2FsdA$"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := VerifyPassword("correct horse battery staple", tt.hash)
+			if !errors.Is(err, ErrInvalidPasswordHash) {
+				t.Errorf("VerifyPassword() error = %v, want %v", err, ErrInvalidPasswordHash)
+			}
+		})
+	}
+}
+
+func TestCredentials(t *testing.T) {
+	const (
+		password = "correct horse battery staple"
+		userID   = "3f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
+	)
+
+	now := time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC)
+
+	credentials, err := NewCredentials(userID, password, now)
+	if err != nil {
+		t.Fatalf("NewCredentials() unexpected error = %v", err)
+	}
+
+	if credentials.UserID != userID {
+		t.Errorf("UserID = %q, want %q", credentials.UserID, userID)
+	}
+	if !credentials.CreatedAt.Equal(now) || !credentials.UpdatedAt.Equal(now) {
+		t.Errorf("CreatedAt/UpdatedAt = %v/%v, want %v", credentials.CreatedAt, credentials.UpdatedAt, now)
+	}
+	if strings.Contains(credentials.Hash, password) {
+		t.Error("Hash содержит открытый пароль")
+	}
+
+	if err := credentials.Verify(password); err != nil {
+		t.Errorf("Verify() unexpected error = %v", err)
+	}
+
+	if err := credentials.Verify("another password"); !errors.Is(err, ErrPasswordMismatch) {
+		t.Errorf("Verify() error = %v, want %v", err, ErrPasswordMismatch)
+	}
+
+	t.Run("смена пароля", func(t *testing.T) {
+		before := credentials.Hash
+		later := now.Add(time.Hour)
+
+		if err := credentials.SetPassword("new correct horse", later); err != nil {
+			t.Fatalf("SetPassword() unexpected error = %v", err)
+		}
+
+		if credentials.Hash == before {
+			t.Error("хеш не изменился")
+		}
+		if !credentials.UpdatedAt.Equal(later) {
+			t.Errorf("UpdatedAt = %v, want %v", credentials.UpdatedAt, later)
+		}
+		if err := credentials.Verify("new correct horse"); err != nil {
+			t.Errorf("Verify() нового пароля unexpected error = %v", err)
+		}
+		if err := credentials.Verify(password); !errors.Is(err, ErrPasswordMismatch) {
+			t.Errorf("старый пароль принят: error = %v", err)
+		}
+	})
+
+	t.Run("отказы", func(t *testing.T) {
+		if _, err := NewCredentials("not-a-uuid", password, now); !errors.Is(err, ErrInvalidUUID) {
+			t.Errorf("NewCredentials() error = %v, want %v", err, ErrInvalidUUID)
+		}
+
+		if _, err := NewCredentials(userID, "short", now); !errors.Is(err, ErrInvalidPassword) {
+			t.Errorf("NewCredentials() error = %v, want %v", err, ErrInvalidPassword)
+		}
+
+		if err := credentials.SetPassword("short", now); !errors.Is(err, ErrInvalidPassword) {
+			t.Errorf("SetPassword() error = %v, want %v", err, ErrInvalidPassword)
+		}
+	})
+}

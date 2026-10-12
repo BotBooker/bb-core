@@ -6,10 +6,6 @@
   },
   "tags": [
     {
-      "name": "TenantService",
-      "description": "Сервис управления арендаторами (организациями/клиентами/тенант)"
-    },
-    {
       "name": "UserService",
       "description": "Сервис для управления пользователями"
     }
@@ -22,132 +18,6 @@
     "application/json"
   ],
   "paths": {
-    "/tenants": {
-      "get": {
-        "operationId": "ListTenants",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1ListTenantsResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "page_size",
-            "in": "query",
-            "required": false,
-            "type": "integer",
-            "format": "int32"
-          },
-          {
-            "name": "page_token",
-            "in": "query",
-            "required": false,
-            "type": "string"
-          }
-        ],
-        "tags": [
-          "TenantService"
-        ]
-      },
-      "post": {
-        "operationId": "CreateTenant",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1TenantResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/v1CreateTenantRequest"
-            }
-          }
-        ],
-        "tags": [
-          "TenantService"
-        ]
-      }
-    },
-    "/tenants/{uuid}": {
-      "get": {
-        "operationId": "GetTenant",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1TenantResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "uuid",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "tags": [
-          "TenantService"
-        ]
-      },
-      "delete": {
-        "operationId": "DeleteTenant",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "type": "object",
-              "properties": {}
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "uuid",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "tags": [
-          "TenantService"
-        ]
-      }
-    },
     "/users": {
       "post": {
         "summary": "Создать нового пользователя",
@@ -305,9 +175,8 @@
           "format": "int32",
           "title": "Ссылка на обертку для Enum, чтобы отличать \"не передано\" от \"значение 0\""
         },
-        "birth_date": {
-          "type": "string",
-          "format": "date-time",
+        "birthday": {
+          "$ref": "#/definitions/typeDate",
           "title": "Новая дата рождения"
         }
       },
@@ -341,23 +210,27 @@
         }
       }
     },
-    "v1CreateTenantRequest": {
+    "typeDate": {
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
+        "year": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Year of the date. Must be from 1 to 9999, or 0 to specify a date without\na year."
         },
-        "slug": {
-          "type": "string"
+        "month": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Month of a year. Must be from 1 to 12, or 0 to specify a year without a\nmonth and day."
         },
-        "metadata": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+        "day": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Day of a month. Must be from 1 to 31 and valid for the year and month, or 0\nto specify a year by itself or a year and month where the day isn't\nsignificant."
         }
       },
-      "title": "Запрос на создание нового тенанта"
+      "description": "* A full date, with non-zero year, month, and day values.\n* A month and day, with a zero year (for example, an anniversary).\n* A year on its own, with a zero month and a zero day.\n* A year and month, with a zero day (for example, a credit card expiration\n  date).\n\nRelated types:\n\n* [google.type.TimeOfDay][google.type.TimeOfDay]\n* [google.type.DateTime][google.type.DateTime]\n* [google.protobuf.Timestamp][google.protobuf.Timestamp]",
+      "title": "Represents a whole or partial calendar date, such as a birthday. The time of\nday and time zone are either specified elsewhere or are insignificant. The\ndate is relative to the Gregorian Calendar. This can represent one of the\nfollowing:"
     },
     "v1Gender": {
       "type": "string",
@@ -369,75 +242,6 @@
       "default": "GENDER_UNSPECIFIED",
       "description": "- GENDER_UNSPECIFIED: Пол не указан\n - GENDER_MALE: Мужской пол\n - GENDER_FEMALE: Женский пол",
       "title": "Перечисление для указания пола пользователя"
-    },
-    "v1ListTenantsResponse": {
-      "type": "object",
-      "properties": {
-        "tenants": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1Tenant"
-          }
-        },
-        "next_page_token": {
-          "type": "string"
-        }
-      },
-      "title": "Ответ со списком тенантов и токеном следующей страницы"
-    },
-    "v1Tenant": {
-      "type": "object",
-      "properties": {
-        "uuid": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "slug": {
-          "type": "string"
-        },
-        "status": {
-          "$ref": "#/definitions/v1TenantStatus"
-        },
-        "metadata": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
-          "title": "Произвольные параметры/настройки"
-        },
-        "created_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "updated_at": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "title": "Основная сущность арендатора"
-    },
-    "v1TenantResponse": {
-      "type": "object",
-      "properties": {
-        "tenant": {
-          "$ref": "#/definitions/v1Tenant"
-        }
-      },
-      "title": "Ответ, содержащий данные тенанта"
-    },
-    "v1TenantStatus": {
-      "type": "string",
-      "enum": [
-        "TENANT_STATUS_UNSPECIFIED",
-        "TENANT_STATUS_ACTIVE",
-        "TENANT_STATUS_SUSPENDED",
-        "TENANT_STATUS_DELETED"
-      ],
-      "default": "TENANT_STATUS_UNSPECIFIED",
-      "description": "Статус арендатора"
     },
     "v1User": {
       "type": "object",
@@ -470,9 +274,8 @@
           "$ref": "#/definitions/v1Gender",
           "title": "Пол пользователя"
         },
-        "birth_date": {
-          "type": "string",
-          "format": "date-time",
+        "birthday": {
+          "$ref": "#/definitions/typeDate",
           "title": "Дата рождения пользователя"
         },
         "created_at": {
@@ -509,15 +312,14 @@
         },
         "phone_number": {
           "type": "string",
-          "title": "Номер телефона в формате E.164 (например, +79991234567)"
+          "description": "Номер телефона в формате E.164 (например, +79991234567).\nПоле необязательное: пустое значение не проверяется (ignore_empty)."
         },
         "gender": {
           "$ref": "#/definitions/v1Gender",
           "title": "Пол пользователя (по умолчанию UNSPECIFIED, если не передан)"
         },
-        "birth_date": {
-          "type": "string",
-          "format": "date-time",
+        "birthday": {
+          "$ref": "#/definitions/typeDate",
           "title": "Дата рождения пользователя"
         }
       },
