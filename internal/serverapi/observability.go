@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 
@@ -15,7 +17,6 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/botbooker/bb-core/pkg/logger"
 )
@@ -28,6 +29,10 @@ const (
 	envLogsEndpoint = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
 	// envCommonEndpoint — общий адрес OTel Collector для всех сигналов.
 	envCommonEndpoint = "OTEL_EXPORTER_OTLP_ENDPOINT"
+
+	// defaultCollectorPort — порт OTLP/gRPC, на котором по умолчанию слушает
+	// OTel Collector.
+	defaultCollectorPort = "4317"
 )
 
 // setupOTelSDK bootstraps the OpenTelemetry pipeline.
@@ -52,25 +57,20 @@ func setupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	prop := newPropagator()
 	otel.SetTextMapPropagator(prop)
 
-	// Create trace exporter using environment variables
-	spanExporter, err := autoexport.NewSpanExporter(ctx)
-	if err != nil {
-		slog.Error("Create trace exporter", "error", err)
+	// Set up trace export to the OTel Collector. Трассировка включается, только
+	// если задан адрес коллектора (см. setupTraces): без него провайдер
+	// трассировки не создаётся вовсе и глобальный трейсер остаётся no-op.
+	traceShutdown, traceErr := setupTraces(ctx)
+	if traceErr != nil {
+		slog.Error("Create trace exporter", "error", traceErr)
+		err = errors.Join(err, traceErr)
 	}
-
-	// Create trace provider with the exporter
-	if !autoexport.IsNoneSpanExporter(spanExporter) {
-		tracerProvider := sdktrace.NewTracerProvider(
-			sdktrace.WithBatcher(spanExporter),
-		)
-		shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
-		otel.SetTracerProvider(tracerProvider)
-	}
+	shutdownFuncs = append(shutdownFuncs, traceShutdown)
 
 	// Create metric reader using environment variables
-	metricReader, err := autoexport.NewMetricReader(ctx)
-	if err != nil {
-		slog.Error("Create metric exporter", "error", err)
+	metricReader, metricErr := autoexport.NewMetricReader(ctx)
+	if metricErr != nil {
+		slog.Error("Create metric exporter", "error", metricErr)
 	}
 
 	// Create meter provider with the reader
@@ -143,16 +143,34 @@ func logsEndpoint() (endpoint string, enabled bool) {
 	return "", false
 }
 
-// logExporterOptions приводит адрес коллектора к виду, понятному OTLP-экспортёру.
-// Схема задаёт транспорт: "http" — plaintext gRPC, "https" — TLS. Адрес без
-// схемы (например, localhost:4317) трактуется как http, потому что локальный
-// OTel Collector по умолчанию слушает gRPC без TLS.
-func logExporterOptions(endpoint string) []otlploggrpc.Option {
+// normalizeEndpoint приводит адрес коллектора к URL, понятному OTLP-экспортёру.
+// Схема задаёт транспорт: "http" — plaintext gRPC, "https" — TLS. Адрес без схемы
+// (например, localhost:4317) трактуется как http, потому что локальный OTel
+// Collector по умолчанию слушает gRPC без TLS. Если порт не указан, подставляется
+// порт коллектора по умолчанию — 4317.
+func normalizeEndpoint(endpoint string) string {
 	if !strings.Contains(endpoint, "://") {
 		endpoint = "http://" + endpoint
 	}
 
-	return []otlploggrpc.Option{otlploggrpc.WithEndpointURL(endpoint)}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		// Разобрать адрес всё равно попробует экспортёр — он вернёт понятную
+		// ошибку создания, а мы не теряем исходное значение.
+		return endpoint
+	}
+
+	if parsed.Port() == "" {
+		parsed.Host = net.JoinHostPort(parsed.Hostname(), defaultCollectorPort)
+	}
+
+	return parsed.String()
+}
+
+// logExporterOptions приводит адрес коллектора к виду, понятному OTLP-экспортёру
+// логов (см. normalizeEndpoint).
+func logExporterOptions(endpoint string) []otlploggrpc.Option {
+	return []otlploggrpc.Option{otlploggrpc.WithEndpointURL(normalizeEndpoint(endpoint))}
 }
 
 func newPropagator() propagation.TextMapPropagator {
