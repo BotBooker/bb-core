@@ -1,82 +1,117 @@
 package serverapi
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/botbooker/bb-core/internal/model"
+	"github.com/botbooker/bb-core/internal/service"
 )
 
-// mockUserService is a mock implementation of UserService for testing.
-type mockUserService struct {
-	getProfileFunc func(token string) string
+// mockAuthService — мок сервиса авторизации для сборки хендлера: сам сервис
+// проверяется в тестах service, здесь важен только транспорт.
+type mockAuthService struct {
+	authenticateFunc func(ctx context.Context, token string) (*service.Principal, error)
+	loginFunc        func(ctx context.Context, email, password string) (*service.Session, error)
+	registerFunc     func(ctx context.Context, in model.RegisterInput) (*model.User, *service.Session, error)
+	logoutFunc       func(ctx context.Context, token string) error
 }
 
-func (m *mockUserService) GetProfile(token string) string {
-	if m.getProfileFunc != nil {
-		return m.getProfileFunc(token)
+func (m *mockAuthService) Authenticate(ctx context.Context, token string) (*service.Principal, error) {
+	if m.authenticateFunc != nil {
+		return m.authenticateFunc(ctx, token)
 	}
-	return ""
+
+	return nil, service.ErrUnauthorized
 }
 
-// mockAuthService is a mock implementation of AuthService for testing.
-type mockAuthService struct{}
+func (m *mockAuthService) Login(ctx context.Context, email, password string) (*service.Session, error) {
+	if m.loginFunc != nil {
+		return m.loginFunc(ctx, email, password)
+	}
 
-func (m *mockAuthService) ValidateToken(token string) bool {
-	return token == "valid-token"
+	return nil, service.ErrInvalidCredentials
 }
 
-// mockNotificationService is a mock implementation of NotificationService for testing.
-type mockNotificationService struct{}
+func (m *mockAuthService) Register(
+	ctx context.Context,
+	in model.RegisterInput,
+) (*model.User, *service.Session, error) {
+	if m.registerFunc != nil {
+		return m.registerFunc(ctx, in)
+	}
+
+	return nil, nil, service.ErrForbidden
+}
+
+func (m *mockAuthService) Logout(ctx context.Context, token string) error {
+	if m.logoutFunc != nil {
+		return m.logoutFunc(ctx, token)
+	}
+
+	return nil
+}
+
+// handlerTestUser — пользователь, которого «вернул» сервис авторизации.
+func handlerTestUser(t *testing.T) *model.User {
+	t.Helper()
+
+	user, err := model.NewUser(model.CreateUserInput{
+		Email:       "ivan@example.com",
+		FirstName:   "Иван",
+		LastName:    "Иванов",
+		PhoneNumber: "+79990000001",
+	}, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("model.NewUser() unexpected error = %v", err)
+	}
+
+	return user
+}
+
+// authenticatedHandler собирает хендлер, в котором любой непустой токен
+// считается действующим, а его владелец — пользователем user.
+func authenticatedHandler(t *testing.T, user *model.User) Handler {
+	t.Helper()
+
+	auth := &mockAuthService{authenticateFunc: func(_ context.Context, token string) (*service.Principal, error) {
+		if token == "" {
+			return nil, service.ErrUnauthorized
+		}
+
+		return &service.Principal{User: user}, nil
+	}}
+
+	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+	if err != nil {
+		t.Fatalf("NewHandler() unexpected error = %v", err)
+	}
+
+	return handler
+}
 
 func TestHandler_NewHandler(t *testing.T) {
 	tests := []struct {
-		name         string
-		userService  UserService
-		authService  AuthService
-		notifService NotificationService
-		wantNotNil   bool
+		name string
+		auth AuthService
 	}{
-		{
-			name:         "all valid services",
-			userService:  &mockUserService{},
-			authService:  &mockAuthService{},
-			notifService: &mockNotificationService{},
-			wantNotNil:   true,
-		},
-		{
-			name:         "nil user service",
-			userService:  nil,
-			authService:  &mockAuthService{},
-			notifService: &mockNotificationService{},
-			wantNotNil:   true,
-		},
-		{
-			name:         "nil auth service",
-			userService:  &mockUserService{},
-			authService:  nil,
-			notifService: &mockNotificationService{},
-			wantNotNil:   true,
-		},
-		{
-			name:         "nil notification service",
-			userService:  &mockUserService{},
-			authService:  &mockAuthService{},
-			notifService: nil,
-			wantNotNil:   true,
-		},
-		{
-			name:         "all nil services",
-			userService:  nil,
-			authService:  nil,
-			notifService: nil,
-			wantNotNil:   true,
-		},
+		{name: "с сервисом авторизации", auth: &mockAuthService{}},
+		{name: "без сервиса авторизации", auth: nil},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewHandler(tt.userService, tt.authService, tt.notifService)
-			if tt.wantNotNil && got == nil {
+			handler, err := NewHandler(tt.auth, NewUserServiceServer(&mockUserServiceAPI{}))
+			if err != nil {
+				t.Fatalf("NewHandler() unexpected error = %v", err)
+			}
+
+			if handler == nil {
 				t.Error("NewHandler() returned nil, expected non-nil Handler")
 			}
 		})
@@ -84,93 +119,223 @@ func TestHandler_NewHandler(t *testing.T) {
 }
 
 func TestHandler_Routes(t *testing.T) {
-	h := NewHandler(&mockUserService{}, &mockAuthService{}, &mockNotificationService{})
-	routes := h.Routes()
-	if routes == nil {
+	handler := authenticatedHandler(t, handlerTestUser(t))
+
+	if handler.Routes() == nil {
 		t.Fatal("Routes() returned nil http.Handler")
 	}
 }
 
 func TestHandler_healthHandler(t *testing.T) {
-	h := NewHandler(&mockUserService{}, &mockAuthService{}, &mockNotificationService{})
-	req := httptest.NewRequest("GET", "/health", nil)
-	w := httptest.NewRecorder()
+	handler := authenticatedHandler(t, handlerTestUser(t))
 
-	h.Routes().ServeHTTP(w, req)
+	// health открыт (см. publicPaths): пробы не должны требовать токена.
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
 
-	if w.Code != http.StatusOK {
-		t.Errorf("healthHandler returned wrong status code: got %v want %v", w.Code, http.StatusOK)
+	handler.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("healthHandler status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	expectedBody := "ok\n"
-	if w.Body.String() != expectedBody {
-		t.Errorf("healthHandler returned unexpected body: got %q want %q", w.Body.String(), expectedBody)
+	if body := rec.Body.String(); body != "ok\n" {
+		t.Errorf("healthHandler body = %q, want %q", body, "ok\n")
 	}
 }
 
-func TestHandler_getUserProfile(t *testing.T) {
+// TestHandler_Gateway проверяет ручки proto-сервиса через gateway: они
+// защищены, а коды gRPC переводятся в статусы HTTP.
+func TestHandler_Gateway(t *testing.T) {
+	handler := authenticatedHandler(t, handlerTestUser(t)).Routes()
+
 	tests := []struct {
-		name        string
-		authHeader  string
-		mockProfile string
-		wantStatus  int
-		wantProfile string
+		name       string
+		method     string
+		path       string
+		token      string
+		wantStatus int
 	}{
 		{
-			name:        "valid token",
-			authHeader:  "valid-token",
-			mockProfile: "user profile data",
-			wantStatus:  http.StatusOK,
-			wantProfile: "user profile data",
+			name:       "Get без токена — 401",
+			method:     http.MethodGet,
+			path:       "/api/v1/users/11111111-1111-4111-8111-111111111111",
+			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:        "invalid token",
-			authHeader:  "invalid-token",
-			mockProfile: "unauthorized",
-			wantStatus:  http.StatusOK,
-			wantProfile: "unauthorized",
+			name:       "Get отсутствующего пользователя — 404",
+			method:     http.MethodGet,
+			path:       "/api/v1/users/11111111-1111-4111-8111-111111111111",
+			token:      "access-token",
+			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:        "empty token",
-			authHeader:  "",
-			mockProfile: "unauthorized",
-			wantStatus:  http.StatusOK,
-			wantProfile: "unauthorized",
+			name:       "Get с невалидным UUID — 400",
+			method:     http.MethodGet,
+			path:       "/api/v1/users/not-a-uuid",
+			token:      "access-token",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:        "no authorization header",
-			authHeader:  "",
-			mockProfile: "unauthorized",
-			wantStatus:  http.StatusOK,
-			wantProfile: "unauthorized",
+			name:       "Create без токена — 401",
+			method:     http.MethodPost,
+			path:       "/api/v1/users",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "неизвестная ручка — 404",
+			method:     http.MethodGet,
+			path:       "/api/v1/unknown",
+			token:      "access-token",
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockUserSvc := &mockUserService{
-				getProfileFunc: func(token string) string {
-					return tt.mockProfile
-				},
-			}
-			h := NewHandler(mockUserSvc, &mockAuthService{}, &mockNotificationService{})
-
-			req := httptest.NewRequest("GET", "/users/me", nil)
-			if tt.authHeader != "" {
-				req.Header.Set("Authorization", tt.authHeader)
-			}
-			w := httptest.NewRecorder()
-
-			h.Routes().ServeHTTP(w, req)
-
-			if w.Code != tt.wantStatus {
-				t.Errorf("getUserProfile returned wrong status code: got %v want %v", w.Code, tt.wantStatus)
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.token != "" {
+				req.Header.Set(AuthorizationHeader, "Bearer "+tt.token)
 			}
 
-			contentType := w.Header().Get("Content-Type")
-			expectedContentType := "application/json; charset=utf-8"
-			if contentType != expectedContentType {
-				t.Errorf("getUserProfile returned wrong content type: got %q want %q", contentType, expectedContentType)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("%s %s = %d, want %d (body = %s)",
+					tt.method, tt.path, rec.Code, tt.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestHandler_getCurrentUser проверяет GET /users/me: профиль отдаётся в том же
+// формате, что и ручки gateway (protojson), и только с действующим токеном.
+func TestHandler_getCurrentUser(t *testing.T) {
+	user := handlerTestUser(t)
+	handler := authenticatedHandler(t, user).Routes()
+
+	t.Run("без токена — 401", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/users/me", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("с токеном — профиль пользователя", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/users/me", nil)
+		req.Header.Set(AuthorizationHeader, "Bearer access-token")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d (body = %s)", rec.Code, http.StatusOK, rec.Body.String())
+		}
+
+		if contentType := rec.Header().Get("Content-Type"); contentType != "application/json; charset=utf-8" {
+			t.Errorf("Content-Type = %q, want %q", contentType, "application/json; charset=utf-8")
+		}
+
+		body := rec.Body.String()
+
+		for _, want := range []string{user.ID, user.Email, user.FirstName, user.LastName} {
+			if !strings.Contains(body, want) {
+				t.Errorf("тело ответа %q не содержит %q", body, want)
+			}
+		}
+	})
+}
+
+// TestHandler_PublicPaths проверяет, что открытые ручки доступны без токена, а
+// защищённые — отвечают 401.
+func TestHandler_PublicPaths(t *testing.T) {
+	handler := authenticatedHandler(t, handlerTestUser(t)).Routes()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{name: "health открыт", method: http.MethodGet, path: "/health", wantStatus: http.StatusOK},
+		{name: "вход открыт", method: http.MethodPost, path: "/auth/login", wantStatus: http.StatusUnauthorized},
+		{name: "регистрация открыта", method: http.MethodPost, path: "/auth/register", wantStatus: http.StatusForbidden},
+		// swagger без токена отдаёт сам UI (файл swagger-ui.html из pkg/api):
+		// index.html в статике нет, а http.FileServer на путь, оканчивающийся
+		// на /index.html, отвечает 301-редиректом — проверяем реальную страницу.
+		{name: "swagger открыт", method: http.MethodGet, path: "/api/swagger/swagger-ui.html", wantStatus: http.StatusOK},
+		{name: "профиль защищён", method: http.MethodGet, path: "/users/me", wantStatus: http.StatusUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader("{}"))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			// Открытые ручки доходят до своих хендлеров (и отвечают их кодами),
+			// защищённые — нет: middleware отвечает 401 без токена.
+			if rec.Code != tt.wantStatus {
+				t.Errorf("%s %s = %d, want %d (body = %s)",
+					tt.method, tt.path, rec.Code, tt.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestHandler_AuthenticateError проверяет ответ middleware, когда сервис
+// авторизации отказывает: 401 с фиксированным текстом, без деталей причины.
+func TestHandler_AuthenticateError(t *testing.T) {
+	tests := []struct {
+		name       string
+		authErr    error
+		wantStatus int
+		wantBody   string
+	}{
+		{name: "нет токена", authErr: nil, wantStatus: http.StatusUnauthorized, wantBody: unauthorizedMessage},
+		{name: "отказ сервиса", authErr: service.ErrUnauthorized, wantStatus: http.StatusUnauthorized, wantBody: unauthorizedMessage},
+		{name: "ошибка базы", authErr: errors.New("database is down"), wantStatus: http.StatusInternalServerError, wantBody: internalErrorMessage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auth := &mockAuthService{authenticateFunc: func(_ context.Context, token string) (*service.Principal, error) {
+				if tt.authErr == nil {
+					if token == "" {
+						return nil, service.ErrUnauthorized
+					}
+
+					return &service.Principal{User: handlerTestUser(t)}, nil
+				}
+
+				return nil, tt.authErr
+			}}
+
+			handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+			if err != nil {
+				t.Fatalf("NewHandler() unexpected error = %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/users/me", nil)
+			if tt.authErr != nil {
+				req.Header.Set(AuthorizationHeader, "Bearer access-token")
+			}
+
+			rec := httptest.NewRecorder()
+			handler.Routes().ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+
+			if !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Errorf("body = %q, want содержит %q", rec.Body.String(), tt.wantBody)
 			}
 		})
 	}

@@ -7,6 +7,7 @@ import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
+import "google/type/date.proto";
 import "protoc-gen-openapiv2/options/annotations.proto";
 import "validate/validate.proto";
 
@@ -92,7 +93,7 @@ message User {
   // Пол пользователя
   Gender gender = 7;
   // Дата рождения пользователя
-  google.protobuf.Timestamp birth_date = 8;
+  google.type.Date birthday = 8;
   // Время создания профиля
   google.protobuf.Timestamp created_at = 9;
   // Время последнего обновления профиля
@@ -119,14 +120,18 @@ message UserServiceCreateRequest {
   // Отчество (опционально, до 100 символов)
   string middle_name = 4 [(validate.rules).string = {max_len: 100}];
 
-  // Номер телефона в формате E.164 (например, +79991234567)
-  string phone_number = 5 [(validate.rules).string.pattern = "^\\+[1-9]\\d{1,14}$"];
+  // Номер телефона в формате E.164 (например, +79991234567).
+  // Поле необязательное: пустое значение не проверяется (ignore_empty).
+  string phone_number = 5 [(validate.rules).string = {
+    pattern: "^\\+[1-9]\\d{1,14}$"
+    ignore_empty: true
+  }];
 
   // Пол пользователя (по умолчанию UNSPECIFIED, если не передан)
   Gender gender = 6;
 
   // Дата рождения пользователя
-  google.protobuf.Timestamp birth_date = 7;
+  google.type.Date birthday = 7;
 }
 
 // Ответ с данными созданного пользователя
@@ -162,12 +167,15 @@ message UserServiceUpdateRequest {
     max_len: 100
   }];
   google.protobuf.StringValue middle_name = 4 [(validate.rules).string = {max_len: 100}];
-  google.protobuf.StringValue phone_number = 5 [(validate.rules).string.pattern = "^\\+[1-9]\\d{1,14}$"];
+  google.protobuf.StringValue phone_number = 5 [(validate.rules).string = {
+    pattern: "^\\+[1-9]\\d{1,14}$"
+    ignore_empty: true
+  }];
 
   // Ссылка на обертку для Enum, чтобы отличать "не передано" от "значение 0"
   google.protobuf.Int32Value gender = 6;
   // Новая дата рождения
-  google.protobuf.Timestamp birth_date = 7;
+  google.type.Date birthday = 7;
 }
 
 // Ответ с обновленными данными пользователя

@@ -287,3 +287,101 @@ func TestGetEnvOrDefaultToInt32(t *testing.T) {
 		})
 	}
 }
+
+func TestGetEnvOrDefaultToBool(t *testing.T) {
+	// Save original env
+	original := os.Getenv("TEST_BOOL")
+	defer os.Setenv("TEST_BOOL", original)
+
+	tests := []struct {
+		name         string
+		key          string
+		defaultValue bool
+		setup        func()
+		want         bool
+	}{
+		{
+			name:         "env var true",
+			key:          "TEST_BOOL",
+			defaultValue: false,
+			setup: func() {
+				os.Setenv("TEST_BOOL", "true")
+			},
+			want: true,
+		},
+		{
+			name:         "env var 1",
+			key:          "TEST_BOOL",
+			defaultValue: false,
+			setup: func() {
+				os.Setenv("TEST_BOOL", "1")
+			},
+			want: true,
+		},
+		{
+			name:         "env var false overrides default true",
+			key:          "TEST_BOOL",
+			defaultValue: true,
+			setup: func() {
+				os.Setenv("TEST_BOOL", "false")
+			},
+			want: false,
+		},
+		{
+			name:         "env var 0",
+			key:          "TEST_BOOL",
+			defaultValue: true,
+			setup: func() {
+				os.Setenv("TEST_BOOL", "0")
+			},
+			want: false,
+		},
+		{
+			name:         "env var with upper case",
+			key:          "TEST_BOOL",
+			defaultValue: false,
+			setup: func() {
+				os.Setenv("TEST_BOOL", "TRUE")
+			},
+			want: true,
+		},
+		{
+			name:         "env var does not exist",
+			key:          "NONEXISTENT_BOOL",
+			defaultValue: true,
+			setup: func() {
+				os.Unsetenv("NONEXISTENT_BOOL")
+			},
+			want: true,
+		},
+		{
+			name:         "env var empty string",
+			key:          "TEST_BOOL",
+			defaultValue: true,
+			setup: func() {
+				os.Setenv("TEST_BOOL", "")
+			},
+			want: true,
+		},
+		{
+			name:         "env var with non-boolean value",
+			key:          "TEST_BOOL",
+			defaultValue: true,
+			setup: func() {
+				os.Setenv("TEST_BOOL", "yes")
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup()
+
+			got := GetEnvOrDefaultToBool(tt.key, tt.defaultValue)
+			if got != tt.want {
+				t.Errorf("GetEnvOrDefaultToBool(%q, %v) = %v, want %v", tt.key, tt.defaultValue, got, tt.want)
+			}
+		})
+	}
+}

@@ -510,3 +510,67 @@ func TestNormalizeDSN(t *testing.T) {
 		})
 	}
 }
+
+// TestNewEnablesForeignKeys проверяет, что соединение открывается с включённой
+// проверкой внешних ключей: у SQLite она выключена по умолчанию, и без неё
+// ON DELETE CASCADE из миграций молча не работал бы.
+func TestNewEnablesForeignKeys(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := New(ctx, config.DatabaseConfig{DSN: memoryDSN})
+	if err != nil {
+		t.Fatalf("New() unexpected error = %v", err)
+	}
+
+	t.Cleanup(func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Errorf("Close() error = %v", closeErr)
+		}
+	})
+
+	var enabled int
+	if err := db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled); err != nil {
+		t.Fatalf("PRAGMA foreign_keys: %v", err)
+	}
+
+	if enabled != 1 {
+		t.Errorf("PRAGMA foreign_keys = %d, want 1", enabled)
+	}
+
+	statements := []string{
+		"CREATE TABLE parent (id TEXT PRIMARY KEY)",
+		"CREATE TABLE child (id TEXT PRIMARY KEY, parent_id TEXT NOT NULL" +
+			" REFERENCES parent (id) ON DELETE CASCADE)",
+	}
+
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("ExecContext(%q): %v", statement, err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, "INSERT INTO child (id, parent_id) VALUES ('c1', 'missing')"); err == nil {
+		t.Error("вставка ребёнка без родителя: ошибки нет, want нарушение внешнего ключа")
+	}
+
+	if _, err := db.ExecContext(ctx, "INSERT INTO parent (id) VALUES ('p1')"); err != nil {
+		t.Fatalf("insert parent: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, "INSERT INTO child (id, parent_id) VALUES ('c1', 'p1')"); err != nil {
+		t.Fatalf("insert child: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, "DELETE FROM parent WHERE id = 'p1'"); err != nil {
+		t.Fatalf("delete parent: %v", err)
+	}
+
+	var children int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM child").Scan(&children); err != nil {
+		t.Fatalf("count child: %v", err)
+	}
+
+	if children != 0 {
+		t.Errorf("child rows после удаления родителя = %d, want 0 (ON DELETE CASCADE)", children)
+	}
+}

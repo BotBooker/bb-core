@@ -1,28 +1,19 @@
 package serverapi
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+
 	"github.com/botbooker/bb-core/internal/repository/swagger"
+	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
-// UserService — интерфейс сервиса пользователей для хендлера.
-type UserService interface {
-	GetProfile(token string) string
-}
-
-// AuthService — интерфейс сервиса авторизации для хендлера.
-type AuthService any
-
-// методы, которые хендлер использует из сервиса авторизации
-
-// NotificationService — интерфейс сервиса уведомлений для хендлера.
-type NotificationService any
-
-// методы, которые хендлер использует из сервиса уведомлений
+// SwaggerPrefix — префикс ручек Swagger UI и спецификации.
+const SwaggerPrefix = "/api/swagger/"
 
 // Handler — интерфейс обработчика HTTP-запросов.
 type Handler interface {
@@ -34,53 +25,57 @@ type Handler interface {
 // Ничего не знает про http.Server, порт или lifecycle —
 // это ответственность app-слоя.
 type handler struct {
-	userService         UserService
-	authService         AuthService
-	notificationService NotificationService
+	authService AuthService
+	// gateway — HTTP-транспорт proto-сервисов: те же ручки, что и в gRPC.
+	gateway *runtime.ServeMux
 }
 
 // NewHandler создаёт обработчик HTTP-запросов.
-func NewHandler(
-	userService UserService,
-	authService AuthService,
-	notificationService NotificationService,
-) Handler {
-	return &handler{
-		userService:         userService,
-		authService:         authService,
-		notificationService: notificationService,
+//
+// userServiceServer — адаптер proto-сервиса. grpc-gateway вызывает его
+// напрямую, в процессе приложения: HTTP-ручки работают, не требуя сетевого
+// обращения к gRPC-порту (и падения одного порта не ломают другой).
+//
+// Ошибка возможна только при конфликте маршрутов gateway — это ошибка сборки
+// приложения, поэтому возвращается наверх, а не игнорируется.
+func NewHandler(authService AuthService, userServiceServer user_v1.UserServiceServer) (Handler, error) {
+	gateway := runtime.NewServeMux()
+
+	if err := user_v1.RegisterUserServiceHandlerServer(context.Background(), gateway, userServiceServer); err != nil {
+		return nil, fmt.Errorf("register user service gateway: %w", err)
 	}
+
+	return &handler{authService: authService, gateway: gateway}, nil
 }
 
 // Routes возвращает маршрутизатор со всеми зарегистрированными хендлерами.
 // App-слой использует этот http.Handler при создании http.Server.
+//
+// Все ручки, кроме перечисленных в publicPaths, проходят через middleware
+// authenticate: аутентификация не «размазана» по хендлерам, поэтому забыть
+// проверить токен в новой ручке нельзя.
 func (h *handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.healthHandler)
-	mux.HandleFunc("GET /users/me", h.getUserProfile)
+	mux.HandleFunc("GET /users/me", h.getCurrentUser)
+	mux.HandleFunc("POST /auth/register", h.registerHandler)
+	mux.HandleFunc("POST /auth/login", h.loginHandler)
+	mux.HandleFunc("POST /auth/logout", h.logoutHandler)
+
+	// Ручки proto-сервиса: POST /api/v1/users, GET|PATCH|DELETE /api/v1/users/{uuid}.
+	// StripPrefix снимает префикс: в proto пути заданы от корня (/users).
+	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", h.gateway))
 
 	// Swagger UI эндпоинты
-	mux.Handle("/api/swagger/", http.StripPrefix("/api/swagger", swagger.Routes("/api/swagger")))
+	mux.Handle(SwaggerPrefix, http.StripPrefix("/api/swagger", swagger.Routes("/api/swagger")))
 
-	return mux
+	return h.authenticate(mux)
 }
 
 func (h *handler) healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := fmt.Fprintln(w, "ok"); err != nil {
-		slog.Error("failed to write response", "err", err)
-	}
-}
-
-func (h *handler) getUserProfile(w http.ResponseWriter, r *http.Request) {
-	token := r.Header.Get("Authorization")
-	profile := h.userService.GetProfile(token)
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-
-	if err := json.NewEncoder(w).Encode(profile); err != nil {
 		slog.Error("failed to write response", "err", err)
 	}
 }

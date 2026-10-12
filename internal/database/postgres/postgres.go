@@ -42,6 +42,12 @@ type facade struct {
 	pool *pgxpool.Pool
 }
 
+// StdDB возвращает пул database/sql фасада.
+// Нужен тем, кто работает только с *sql.DB: миграции (goose) и инструменты.
+func (f *facade) StdDB() *sql.DB {
+	return f.DB
+}
+
 // Close закрывает фасад и пул соединений pgx.
 func (f *facade) Close() error {
 	err := f.DB.Close()

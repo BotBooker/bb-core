@@ -4,7 +4,7 @@ CURRENT_DATE := $(shell date +%FT%T)
 GO ?= go
 GO_IMPORT_PATH ?= $(shell go list ./...)
 GO_LD_FLAGS := -X "main.version=$(shell git describe --tags 2>/dev/null || echo dev) built at $(CURRENT_DATE) on $(shell hostname) with $(shell go version)"
-GO_TEST_FOLDERS  ?= $(shell go list -f '{{ .Dir }}' ./... | grep -vE 'pkg/proto|pkg/api')
+GO_TEST_FOLDERS  ?= $(shell go list -f '{{ .Dir }}' ./... | grep -vE 'pkg/proto|pkg/api|migrations')
 GO_TEST_ARGS ?= "-v"
 GO_VERSION=$(shell $(GO) version | cut -c 14- | cut -d' ' -f1 | cut -d'.' -f2)
 GOBIN = $(shell go env GOPATH)/bin
@@ -32,7 +32,7 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*##"; printf ""} /^[a-zA-Z_0-9\/-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 .PHONY: test
-test: ## Run tests to verify code functionality.
+test: ## Run tests to verify code functionality
 test: tools
 	@echo "Running tests with coverage report...";
 	@set -eu;\
@@ -41,7 +41,7 @@ test: tools
 		-coverprofile=coverage.txt -covermode=atomic 2>&1 | tee ./gotest-e2e.log | gotestfmt
 
 .PHONY: coverage
-coverage: ## Percentage of test coverage. If coverage <80%, output signal 1.
+coverage: ## Percentage of test coverage. If coverage <80%, output signal 1
 ifeq ($(COVERAGE_OUT), 0)
 coverage: test
 else
@@ -51,12 +51,16 @@ endif
 	echo "coverage at: $${PERCENT}"; \
 	echo $${PERCENT} | sed 's/%//' | xargs -I {} sh -c 'echo "{} < 80" | bc -l | grep -q 1 && exit 1 || exit 0'
 
+.PHONY: tc
+tc: ## Run the test and then check the coverage
+tc: test coverage
+
 .PHONY: fmt
-fmt: ## Ensure consistent code formatting.
+fmt: ## Ensure consistent code formatting
 	@$(GOFMT) -w $(GOFILES)
 
 .PHONY: fmt-check
-fmt-check: ## format (check only).
+fmt-check: ## format (check only)
 	@diff=$$($(GOFMT) -d $(GOFILES)); \
 	if [ -n "$$diff" ]; then \
 		echo "Please run 'make fmt' and commit the result:"; \
@@ -65,11 +69,11 @@ fmt-check: ## format (check only).
 	fi;
 
 .PHONY: vet
-vet: ## Examine packages and report suspicious constructs if any.
+vet: ## Examine packages and report suspicious constructs if any
 	@$(GO) vet $(VETPACKAGES)
 
 .PHONY: lint
-lint: ## Inspect source code for stylistic errors or potential bugs.
+lint: ## Inspect source code for stylistic errors or potential bugs
 lint: tools
 	@golangci-lint run --fix
 
@@ -79,11 +83,11 @@ go-check: tools
 	@govulncheck $(GOVULNCHECK_OPTS) ./...
 
 .PHONY: misspell
-misspell: ## Correct commonly misspelled English words in source code.
+misspell: ## Correct commonly misspelled English words in source code
 	misspell -w $(GOFILES)
 
 .PHONY: misspell-check
-misspell-check: ## misspell (check only).
+misspell-check: ## misspell (check only)
 	misspell -error $(GOFILES)
 
 TOOLS = buf easyp gofumpt goimports golangci-lint goose gotestfmt govulncheck grpcurl misspell protoc-gen-go protoc-gen-go-grpc protoc-gen-grpc-gateway protoc-gen-openapiv2 protoc-gen-validate protoc-gen-validate-go
@@ -152,3 +156,11 @@ proto/easyp-deps: ## Скачивает protobuf-зависимости, объ�
 .PHONY: proto/easyp-gen
 proto/easyp-gen: ## Генерирует Go код из proto через easyp
 	$(MAKE) -C proto easyp-gen
+
+.PHONY: migrate-up
+migrate-up: ## Применить миграции вручную (DSN из окружения или .env)
+	$(GO) run ./cmd/migrate up
+
+.PHONY: migrate-down
+migrate-down: ## Откатить последнюю применённую миграцию
+	$(GO) run ./cmd/migrate down
