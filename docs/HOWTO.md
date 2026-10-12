@@ -88,3 +88,37 @@ grpcurl -plaintext -d '{"uuid": "7c3ca7c0-ec6f-42d5-a77e-6ca55c037ae3"}' \
 поднимают приложение целиком (SQLite во временном файле, gRPC-сервер по сети и
 HTTP через gateway) и проверяют сценарий целиком: create → get → update → delete,
 конфликт уникальности и отсутствующие записи.
+
+## Наблюдаемость
+
+Логи пишутся структурированно через `log/slog` (`pkg/logger`) в stdout — в
+формате `LOG_FORMAT` (`json` по умолчанию, `plain` для разработки) и с уровнем
+`LOG_LEVEL`.
+
+Если задан адрес OTel Collector, те же записи дополнительно уходят в него по
+OTLP/gRPC, а вывод в stdout сохраняется: глобальный логгер собирается веером из
+двух обработчиков (`pkg/logger.MultiHandler`). Переменные:
+
+| Переменная | Приоритет | Назначение |
+| --- | --- | --- |
+| `OTEL_SERVICE_NAME` | - | назначить resource attribute service.name |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | ниже | общий адрес коллектора для всех сигналов |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | выше | адрес коллектора для логов |
+
+Экспорт включается, только когда задана хотя бы одна из них. Схема в адресе
+задаёт транспорт: `http://` — plaintext gRPC, `https://` — TLS, а адрес без схемы
+(`localhost:4317`) трактуется как `http`. Без этих переменных приложение не
+трогает сеть и пишет логи только в stdout.
+
+```sh
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://localhost:4317 go run ./cmd/api
+```
+
+Для локальной проверки подойдёт конфигурация `otel/customconfig.yaml` — приёмник
+OTLP и debug-экспортёр, который печатает полученные записи:
+
+```sh
+docker run --rm -p 4317:4317 -p 4318:4318 \
+  -v "$PWD/otel/customconfig.yaml:/etc/otelcol/config.yaml" \
+  otel/opentelemetry-collector:latest
+```

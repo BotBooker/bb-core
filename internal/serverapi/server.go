@@ -99,7 +99,9 @@ func (a *ServerAPI) initHTTPServer(_ context.Context) error {
 //
 // Результат err не именованный: отложенная остановка OpenTelemetry логируется,
 // как и остальные ошибки на этапе shutdown, чтобы отсутствие коллектора
-// не превращало корректное завершение в код возврата 1.
+// не превращало корректное завершение в код возврата 1. На выгрузку телеметрии
+// отводится отдельный бюджет по времени: OTLP-экспортёры повторяют попытки
+// до минуты, и недоступный коллектор не должен задерживать выход.
 func (a *ServerAPI) Run() error {
 	// 1. Перехват сигналов.
 	// signal.NotifyContext создаёт канал с ёмкостью 1 (буферизованный).
@@ -115,7 +117,13 @@ func (a *ServerAPI) Run() error {
 	}
 	// Handle shutdown properly so nothing leaks.
 	defer func() {
-		if shutdownErr := otelShutdown(context.Background()); shutdownErr != nil {
+		// Бюджет на выгрузку телеметрии: у OTLP-экспортёров retry может ждать
+		// коллектор до минуты, а процесс не должен висеть при завершении, если
+		// коллектор недоступен.
+		otelCtx, otelCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer otelCancel()
+
+		if shutdownErr := otelShutdown(otelCtx); shutdownErr != nil {
 			slog.Error("failed to shutdown opentelemetry", "err", shutdownErr)
 		}
 	}()

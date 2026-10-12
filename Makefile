@@ -72,10 +72,12 @@ fmt-check: ## format (check only)
 vet: ## Examine packages and report suspicious constructs if any
 	@$(GO) vet $(VETPACKAGES)
 
+# HOWTO: brew install bearer/tap/bearer
 .PHONY: lint
 lint: ## Inspect source code for stylistic errors or potential bugs
 lint: tools
 	@golangci-lint run --fix
+	@bearer s .
 
 .PHONY: go-check
 go-check: ## To check for dependency vulnerabilities in Go
