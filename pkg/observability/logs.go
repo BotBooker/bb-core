@@ -29,10 +29,7 @@ const (
 func setupLogs(ctx context.Context) (func(context.Context) error, error) {
 	endpoint, enabled := logsEndpoint()
 	if !enabled {
-		slog.Debug("otlp logs export disabled: collector endpoint is not set",
-			"logs_endpoint_env", envLogsEndpoint,
-			"common_endpoint_env", envCommonEndpoint,
-		)
+		slog.Debug("otlp logs export disabled")
 
 		return func(context.Context) error { return nil }, nil
 	}

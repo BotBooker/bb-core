@@ -28,10 +28,7 @@ const (
 func setupMetrics(ctx context.Context) (func(context.Context) error, error) {
 	endpoint, enabled := metricsEndpoint()
 	if !enabled {
-		slog.Debug("otlp metrics export disabled: collector endpoint is not set",
-			"metrics_endpoint_env", envMetricsEndpoint,
-			"common_endpoint_env", envCommonEndpoint,
-		)
+		slog.Debug("otlp metrics export disabled")
 
 		return func(context.Context) error { return nil }, nil
 	}

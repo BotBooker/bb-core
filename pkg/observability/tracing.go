@@ -39,10 +39,7 @@ const (
 func setupTraces(ctx context.Context) (func(context.Context) error, error) {
 	endpoint, enabled := tracesEndpoint()
 	if !enabled {
-		slog.Debug("otlp traces export disabled: collector endpoint is not set",
-			"traces_endpoint_env", envTracesEndpoint,
-			"common_endpoint_env", envCommonEndpoint,
-		)
+		slog.Debug("otlp traces export disabled")
 
 		return func(context.Context) error { return nil }, nil
 	}
