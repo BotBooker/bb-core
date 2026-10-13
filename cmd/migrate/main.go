@@ -98,7 +98,7 @@ func parseCommand(args []string) (string, error) {
 
 // openDatabase открывает подключение драйвером диалекта.
 //
-// Выбор драйвера повторяет internal/serverapi, но без HTTP-слоя: CLI раскатывает
+// Выбор драйвера повторяет internal/servers, но без HTTP-слоя: CLI раскатывает
 // миграции отдельным процессом и не должен тянуть транспортные зависимости.
 func openDatabase(ctx context.Context, cfg config.DatabaseConfig, dialect string) (database.DB, error) {
 	switch dialect {

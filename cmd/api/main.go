@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/botbooker/bb-core/internal/serverapi"
+	"github.com/botbooker/bb-core/internal/servers"
 )
 
 // runner — минимальный интерфейс сервера, необходимый точке входа.
@@ -17,10 +17,10 @@ type runner interface {
 }
 
 // newServerAPI — фабрика сервера. Это переменная, а не прямой вызов
-// serverapi.New, чтобы тесты могли подставить фейковую реализацию
+// servers.New, чтобы тесты могли подставить фейковую реализацию
 // без запуска реального сетевого сервера.
 var newServerAPI = func() runner {
-	return serverapi.New()
+	return servers.New()
 }
 
 // osExit — обёртка над os.Exit. Это переменная, а не прямой вызов os.Exit,
