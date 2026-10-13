@@ -232,3 +232,39 @@ curl -s -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
 Автотесты: `go test ./internal/serverapi/ -run 'TestSetupTraces|TestTrace' -v` —
 проверяют правила сэмплирования всех четырёх сценариев и выгрузку трасс в
 поддельный OTLP-коллектор.
+
+### Метрики
+
+Метрики включаются, только если задан адрес коллектора —
+`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` или общий `OTEL_EXPORTER_OTLP_ENDPOINT`.
+Если ни одной из переменных нет, провайдер метрик не создаётся вовсе: глобальный
+`otel.GetMeterProvider()` остаётся no-op, приложение не трогает сеть:
+
+```sh
+OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://localhost:4317 ./build/api
+```
+
+| Переменная | Приоритет | Назначение |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | ниже | общий адрес коллектора для всех сигналов |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | выше | адрес коллектора для метрик |
+
+Метрики уходят по OTLP/gRPC (порт `4317` по умолчанию): измерения собираются
+периодическим reader'ом раз в минуту, а на остановке приложения делается
+финальный сбор и выгрузка, поэтому данные не теряются при graceful shutdown.
+Схема в адресе задаёт транспорт: `http://` — plaintext gRPC, `https://` — TLS, а
+адрес без схемы (`localhost:4317`) трактуется как `http`.
+
+Для локальной проверки подойдёт конфигурация `otel/customconfig.yaml` — приёмник
+OTLP и debug-экспортёр, который печатает полученные сигналы:
+
+```sh
+docker run --rm -p 4317:4317 -p 4318:4318 \
+  -v "$PWD/otel/customconfig.yaml:/etc/otelcol/config.yaml" \
+  otel/opentelemetry-collector:latest
+```
+
+Реализация — `internal/serverapi/metrics.go` (`setupMetrics`). Автотесты:
+`go test ./internal/serverapi/ -run 'TestSetupMetrics|TestMetricsEndpoint' -v` —
+проверяют включение экспорта по переменным окружения и выгрузку метрик в
+поддельный OTLP-коллектор.
