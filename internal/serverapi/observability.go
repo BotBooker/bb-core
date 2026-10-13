@@ -173,6 +173,8 @@ func logExporterOptions(endpoint string) []otlploggrpc.Option {
 	return []otlploggrpc.Option{otlploggrpc.WithEndpointURL(normalizeEndpoint(endpoint))}
 }
 
+// глобальный пропогатор.
+// стандарт W3C Trace Context
 func newPropagator() propagation.TextMapPropagator {
 	return propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},

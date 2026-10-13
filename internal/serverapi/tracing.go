@@ -10,6 +10,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -194,14 +195,33 @@ func forceSample() attribute.KeyValue {
 // ниже по стеку.
 func traceMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// 1. Извлекаем контекст трассировки из заголовков запроса
 		ctx := otel.GetTextMapPropagator().Extract(req.Context(), propagation.HeaderCarrier(req.Header))
 
+		// 2. Стартуем серверный спан
 		ctx, span := tracer().Start(ctx, req.Method+" "+req.URL.Path,
 			trace.WithSpanKind(trace.SpanKindServer),
 		)
 		defer span.End()
 
-		next.ServeHTTP(w, req.WithContext(ctx))
+		// 3. Оборачиваем оригинальный response writer в наш интерцептор
+		interceptor := &responseWriterInterceptor{ResponseWriter: w}
+
+		// 4. Передаем управление следующему обработчику
+		next.ServeHTTP(interceptor, req.WithContext(ctx))
+
+		// 5. Если в обработчиках статус не был установлен явно — это был успешный ответ 200 OK
+		if interceptor.statusCode == 0 {
+			interceptor.statusCode = http.StatusOK
+		}
+
+		// 6. Записываем стандартный тег OpenTelemetry для HTTP статуса
+		span.SetAttributes(attribute.Int("http.response.status_code", interceptor.statusCode))
+
+		// 7. Если статус 5xx (ошибка сервера), красим спан в Jaeger в красный цвет
+		if interceptor.statusCode >= 500 {
+			span.SetStatus(codes.Error, "HTTP server error")
+		}
 	})
 }
 
@@ -231,4 +251,89 @@ func startShutdownSpan(ctx context.Context) (context.Context, trace.Span) {
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(forceSample()),
 	)
+}
+
+// For TraceSpan
+// traceConfig хранит внутренние настройки для создания спана
+type traceConfig struct {
+	tracerName string
+	tags       []attribute.KeyValue
+}
+
+// TraceOption определяет функцию для изменения конфигурации спана
+type TraceOption func(*traceConfig)
+
+// responseWriterInterceptor — это обертка над стандартным http.ResponseWriter,
+// которая запоминает HTTP статус-код ответа.
+type responseWriterInterceptor struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *responseWriterInterceptor) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *responseWriterInterceptor) Write(b []byte) (int, error) {
+	// Если WriteHeader не был вызван явно, net/http автоматически выставляет 200 OK
+	if w.statusCode == 0 {
+		w.statusCode = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// WithTracerName задает кастомное имя компонента
+func WithTracerName(name string) TraceOption {
+	return func(c *traceConfig) {
+		c.tracerName = name
+	}
+}
+
+// WithTags добавляет теги к спану
+func WithTags(tags ...attribute.KeyValue) TraceOption {
+	return func(c *traceConfig) {
+		c.tags = append(c.tags, tags...)
+	}
+}
+
+// TraceSpan оборачивает выполнение кода в спан OpenTelemetry.
+// Все аргументы после operationName являются НЕОБЯЗАТЕЛЬНЫМИ.
+// Пример:
+// И теги, и имя трейсера в любом порядке
+// func saveInvoice(ctx context.Context, id int) {
+// 	ctx, end := TraceSpan(ctx, "save-to-db",
+// 		WithTracerName("database-client"),
+// 		WithTags(
+// 			attribute.Int("invoice.id", id),
+// 			attribute.String("db.table", "invoices"),
+// 		),
+// 	)
+// 	defer end()
+// }
+
+func TraceSpan(ctx context.Context, operationName string, opts ...TraceOption) (context.Context, func()) {
+	// Настройки по умолчанию
+	cfg := traceConfig{
+		tracerName: "runBackground",
+	}
+
+	// Применяем переданные опции (если они есть)
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	// Формируем опции для OpenTelemetry
+	var otelOpts []trace.SpanStartOption
+	if len(cfg.tags) > 0 {
+		otelOpts = append(otelOpts, trace.WithAttributes(cfg.tags...))
+	}
+
+	// Стартуем спан
+	tracer := otel.Tracer(cfg.tracerName)
+	newCtx, span := tracer.Start(ctx, operationName, otelOpts...)
+
+	return newCtx, func() {
+		span.End()
+	}
 }

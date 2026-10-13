@@ -110,7 +110,7 @@ func TestServerAPI_HandlerRoutes(t *testing.T) {
 		t.Fatalf("initDeps() unexpected error = %v", err)
 	}
 
-	handler, err := a.diContainer.Handler()
+	handler, err := a.diContainer.Handler(context.Background())
 	if err != nil {
 		t.Fatalf("Handler() unexpected error = %v", err)
 	}
