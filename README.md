@@ -7,7 +7,7 @@ Backend‑часть сервиса BotBooker — платформы для бр
 ## Запуск
 
 Точка входа `cmd/api` поднимает HTTP- и gRPC-серверы с одним и тем же API
-(`internal/serverapi`): gRPC отдаёт proto-сервисы, HTTP — grpc-gateway поверх них.
+(`internal/servers`): gRPC отдаёт proto-сервисы, HTTP — grpc-gateway поверх них.
 
 ```sh
 DSN=sqlite:/tmp/database.db go run ./cmd/api   # миграции применятся при старте

@@ -84,7 +84,7 @@ grpcurl -plaintext -d '{"uuid": "7c3ca7c0-ec6f-42d5-a77e-6ca55c037ae3"}' \
   localhost:50051 user.v1.UserService/Get
 ```
 
-Автотесты транспорта: `go test ./internal/serverapi/ -run TestSmoke -v` —
+Автотесты транспорта: `go test ./internal/servers/ -run TestSmoke -v` —
 поднимают приложение целиком (SQLite во временном файле, gRPC-сервер по сети и
 HTTP через gateway) и проверяют сценарий целиком: create → get → update → delete,
 конфликт уникальности и отсутствующие записи.
@@ -206,9 +206,9 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
 
 HTTP-middleware стоит между трассировкой и аутентификацией, а gRPC-интерцептор —
 снаружи проверки токена, поэтому в лог попадают и отклонённые запросы (`401`,
-`Unauthenticated`). Реализация — `internal/serverapi/accesslog.go`
+`Unauthenticated`). Реализация — `internal/servers/accesslog.go`
 (`logMiddleware`, `NewLogInterceptor`). Автотесты:
-`go test ./internal/serverapi/ -run 'TestLogMiddleware|TestNewLogInterceptor|TestIsServicePath' -v`.
+`go test ./internal/servers/ -run 'TestLogMiddleware|TestNewLogInterceptor|TestIsServicePath' -v`.
 
 
 ### Трассировка
@@ -273,7 +273,7 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4317 go run ./cmd/api
 она поднимает провайдеры всех трёх сигналов и возвращает функцию остановки.
 Спаны запускаются по четырём сценариям — SDK, сэмплер и пропагатор живут в
 `pkg/observability/tracing.go`, HTTP-middleware и спаны жизненного цикла — в
-`internal/serverapi/tracing.go`:
+`internal/servers/tracing.go`:
 
 | Сценарий | Что делает | Реализация |
 | --- | --- | --- |
@@ -295,7 +295,7 @@ curl -s -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
   localhost:8080/health
 ```
 
-Автотесты: `go test ./pkg/observability/ ./internal/serverapi/ -run
+Автотесты: `go test ./pkg/observability/ ./internal/servers/ -run
 'TestSetupTraces|TestTrace|TestStartupAndShutdown' -v` — проверяют правила
 сэмплирования всех четырёх сценариев, работу HTTP-middleware и выгрузку трасс в
 поддельный OTLP-коллектор.
