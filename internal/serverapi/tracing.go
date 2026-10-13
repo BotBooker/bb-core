@@ -90,10 +90,16 @@ func startShutdownSpan(ctx context.Context) (context.Context, trace.Span) {
 }
 
 // responseWriterInterceptor — это обертка над стандартным http.ResponseWriter,
-// которая запоминает HTTP статус-код ответа.
+// которая запоминает HTTP статус-код и размер тела ответа.
+//
+// Одна и та же обёртка используется и трассировкой (статус нужен для тега спана
+// http.response.status_code), и access-логом (статус и число байт — поля записи).
+// Вложенные обёртки не мешают друг другу: Write и WriteHeader прозрачно
+// пробрасываются во writer ниже.
 type responseWriterInterceptor struct {
 	http.ResponseWriter
 	statusCode int
+	bytes      int
 }
 
 func (w *responseWriterInterceptor) WriteHeader(statusCode int) {
@@ -106,5 +112,11 @@ func (w *responseWriterInterceptor) Write(b []byte) (int, error) {
 	if w.statusCode == 0 {
 		w.statusCode = http.StatusOK
 	}
-	return w.ResponseWriter.Write(b)
+
+	// Размер считаем по фактически записанным байтам: writer ниже может
+	// отбросить часть записи, но для access-лога это и есть отправленное тело.
+	written, err := w.ResponseWriter.Write(b)
+	w.bytes += written
+
+	return written, err
 }
