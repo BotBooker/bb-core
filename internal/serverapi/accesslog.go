@@ -76,10 +76,13 @@ func logMiddleware(next http.Handler) http.Handler {
 		userAgent := strings.ReplaceAll(r.UserAgent(), "\n", "")
 		userAgent = strings.ReplaceAll(userAgent, "\r", "")
 
+		path := strings.ReplaceAll(r.URL.Path, "\n", "")
+		path = strings.ReplaceAll(path, "\r", "")
+
 		slog.Log(r.Context(), requestLogLevel(isServicePath(r.URL.Path)), httpRequestMessage,
 			logFieldProtocol, protocolHTTP,
 			logFieldMethod, r.Method,
-			logFieldPath, r.URL.Path,
+			logFieldPath, path,
 			logFieldStatus, interceptor.statusCode,
 			logFieldBytes, interceptor.bytes,
 			logFieldRemoteAddr, r.RemoteAddr,
