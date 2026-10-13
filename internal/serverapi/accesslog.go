@@ -73,6 +73,9 @@ func logMiddleware(next http.Handler) http.Handler {
 			interceptor.statusCode = http.StatusOK
 		}
 
+		userAgent := strings.ReplaceAll(r.UserAgent(), "\n", "")
+		userAgent = strings.ReplaceAll(userAgent, "\r", "")
+
 		slog.Log(r.Context(), requestLogLevel(isServicePath(r.URL.Path)), httpRequestMessage,
 			logFieldProtocol, protocolHTTP,
 			logFieldMethod, r.Method,
@@ -80,7 +83,7 @@ func logMiddleware(next http.Handler) http.Handler {
 			logFieldStatus, interceptor.statusCode,
 			logFieldBytes, interceptor.bytes,
 			logFieldRemoteAddr, r.RemoteAddr,
-			logFieldUserAgent, r.UserAgent(),
+			logFieldUserAgent, userAgent,
 			logFieldDuration, time.Since(start),
 		)
 	})
