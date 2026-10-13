@@ -11,12 +11,10 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
-	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/botbooker/bb-core/pkg/logger"
 )
@@ -38,7 +36,11 @@ const (
 // setupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 func setupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
-	var shutdownFuncs []func(context.Context) error
+	// shutdownFuncs собирает функции очистки — по одной на сигнал (трассировка,
+	// метрики, логи): все три добавляются всегда, независимо от ошибок создания
+	// экспортёра, поэтому ёмкость слайса известна заранее.
+	shutdownFuncs := make([]func(context.Context) error, 0, 3)
+
 	var err error
 
 	// shutdown calls cleanup functions registered via shutdownFuncs.
@@ -67,20 +69,15 @@ func setupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	}
 	shutdownFuncs = append(shutdownFuncs, traceShutdown)
 
-	// Create metric reader using environment variables
-	metricReader, metricErr := autoexport.NewMetricReader(ctx)
+	// Set up metrics export to the OTel Collector. Метрики включаются, только
+	// если задан адрес коллектора (см. setupMetrics): без него провайдер метрик
+	// не создаётся вовсе и глобальный meter provider остаётся no-op.
+	metricShutdown, metricErr := setupMetrics(ctx)
 	if metricErr != nil {
 		slog.Error("Create metric exporter", "error", metricErr)
+		err = errors.Join(err, metricErr)
 	}
-
-	// Create meter provider with the reader
-	if !autoexport.IsNoneMetricReader(metricReader) {
-		meterProvider := sdkmetric.NewMeterProvider(
-			sdkmetric.WithReader(metricReader),
-		)
-		shutdownFuncs = append(shutdownFuncs, meterProvider.Shutdown)
-		otel.SetMeterProvider(meterProvider)
-	}
+	shutdownFuncs = append(shutdownFuncs, metricShutdown)
 
 	// Set up log export to the OTel Collector and bridge slog to OpenTelemetry.
 	// Логи уходят в коллектор только когда задан его адрес, см. setupLogs.

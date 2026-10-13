@@ -20,6 +20,7 @@ DSN=sqlite:/tmp/database.db go run ./cmd/api   # миграции применя
 | `DSN` | — | подключение к БД; диалект (postgres/sqlite) определяется по DSN |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | адрес OTel Collector для всех сигналов |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | — | адрес OTel Collector для логов |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | — | адрес OTel Collector для метрик |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | — | адрес OTel Collector для трасс |
 | `ENABLE_FORCE_TRACE` | `false` | `true` — записывать все трассы (форс-трассировка) |
 
