@@ -16,6 +16,7 @@ import (
 	"github.com/botbooker/bb-core/internal/closer"
 	"github.com/botbooker/bb-core/internal/config"
 	"github.com/botbooker/bb-core/pkg/logger"
+	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // ServerAPI — структура приложения.
@@ -56,7 +57,7 @@ func (a *ServerAPI) initDeps(ctx context.Context) error {
 
 // initDIContainer создаёт DI-контейнер: подключает БД и собирает граф зависимостей.
 func (a *ServerAPI) initDIContainer(ctx context.Context) error {
-	traceCtx, spanEnd := TraceSpan(ctx, "initDIContainer")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "initDIContainer")
 	defer spanEnd()
 
 	container, err := newDIContainer(traceCtx)
@@ -71,7 +72,7 @@ func (a *ServerAPI) initDIContainer(ctx context.Context) error {
 
 // initHTTPServer создаёт HTTP-сервер.
 func (a *ServerAPI) initHTTPServer(ctx context.Context) error {
-	traceCtx, spanEnd := TraceSpan(ctx, "initHTTPServer")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "initHTTPServer")
 	defer spanEnd()
 
 	handler, err := a.diContainer.Handler(traceCtx)
@@ -117,7 +118,7 @@ func (a *ServerAPI) Run() error {
 	defer stop()
 
 	// Set up OpenTelemetry.
-	otelShutdown, err := setupOTelSDK(ctx)
+	otelShutdown, err := observability.SetupOTelSDK(ctx)
 	if err != nil {
 		return err
 	}

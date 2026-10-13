@@ -1,4 +1,4 @@
-package serverapi
+package observability
 
 import (
 	"context"
@@ -68,9 +68,9 @@ func startLogCollector(t *testing.T) (*otelLogReceiver, string) {
 	return receiver, listener.Addr().String()
 }
 
-// TestObservability_SetupLogs_ExportsToCollector — сквозная проверка: логи
-// приложения уходят в OTel Collector по OTLP/gRPC, когда задан адрес коллектора.
-func TestObservability_SetupLogs_ExportsToCollector(t *testing.T) {
+// TestSetupLogs_ExportsToCollector — сквозная проверка: логи приложения уходят в
+// OTel Collector по OTLP/gRPC, когда задан адрес коллектора.
+func TestSetupLogs_ExportsToCollector(t *testing.T) {
 	receiver, addr := startLogCollector(t)
 
 	t.Setenv(envLogsEndpoint, "")

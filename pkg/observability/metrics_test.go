@@ -1,4 +1,4 @@
-package serverapi
+package observability
 
 import (
 	"context"
