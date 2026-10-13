@@ -10,6 +10,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	"github.com/botbooker/bb-core/pkg/tools"
 )
 
 // Поля записей access-лога. Имена общие у обоих транспортов (кроме status/code
@@ -73,11 +75,8 @@ func logMiddleware(next http.Handler) http.Handler {
 			interceptor.statusCode = http.StatusOK
 		}
 
-		userAgent := strings.ReplaceAll(r.UserAgent(), "\n", "")
-		userAgent = strings.ReplaceAll(userAgent, "\r", "")
-
-		path := strings.ReplaceAll(r.URL.Path, "\n", "")
-		path = strings.ReplaceAll(path, "\r", "")
+		userAgent := tools.SanitizeString(r.UserAgent())
+		path := tools.SanitizeString(r.URL.Path)
 
 		slog.Log(r.Context(), requestLogLevel(isServicePath(r.URL.Path)), httpRequestMessage,
 			logFieldProtocol, protocolHTTP,
