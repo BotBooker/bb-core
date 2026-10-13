@@ -15,6 +15,7 @@ import (
 	"github.com/botbooker/bb-core/internal/jwt"
 	"github.com/botbooker/bb-core/internal/repository"
 	"github.com/botbooker/bb-core/internal/service"
+	"github.com/botbooker/bb-core/pkg/observability"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
@@ -34,7 +35,7 @@ var migrateDatabase = applyMigrations
 // Диалект берётся из того же DSN, по которому выбирался драйвер: отдельного
 // поля с диалектом нет.
 func applyMigrations(ctx context.Context, db database.DB) error {
-	traceCtx, spanEnd := TraceSpan(ctx, "applyMigrations")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "applyMigrations")
 	defer spanEnd()
 
 	cfg := config.DBConfig()
@@ -65,7 +66,7 @@ var (
 // Само подключение живёт в пакетах-драйверах: у них нет общей точки входа,
 // потому что драйверы зависят от database.DB, а не наоборот.
 func newDatabaseByDSN(ctx context.Context) (database.DB, error) {
-	traceCtx, spanEnd := TraceSpan(ctx, "newDatabaseByDSN")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "newDatabaseByDSN")
 	defer spanEnd()
 
 	cfg := config.DBConfig()
@@ -128,7 +129,7 @@ type diContainer struct {
 // newDIContainer создаёт контейнер, подключается к базе данных и применяет миграции.
 // Ошибка подключения или миграций возвращается сразу: приложению без БД работать нечем.
 func newDIContainer(ctx context.Context) (*diContainer, error) {
-	traceCtx, spanEnd := TraceSpan(ctx, "newDIContainer")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "newDIContainer")
 	defer spanEnd()
 
 	db, err := newDatabase(traceCtx)
@@ -179,7 +180,7 @@ func (d *diContainer) DB() database.DB {
 
 // EventBus возвращает шину событий.
 func (d *diContainer) EventBus(ctx context.Context) events.EventBus {
-	_, spanEnd := TraceSpan(ctx, "EventBus")
+	_, spanEnd := observability.TraceSpan(ctx, "EventBus")
 	defer spanEnd()
 
 	if d.eventBus == nil {
@@ -193,7 +194,7 @@ func (d *diContainer) EventBus(ctx context.Context) events.EventBus {
 // При создании — сразу регистрирует Close() в глобальном closer.
 // Кэш создаётся после БД — значит закроется раньше БД (LIFO).
 func (d *diContainer) Cache(ctx context.Context) cache.Cache {
-	_, spanEnd := TraceSpan(ctx, "Cache")
+	_, spanEnd := observability.TraceSpan(ctx, "Cache")
 	defer spanEnd()
 
 	if d.cache == nil {
@@ -211,7 +212,7 @@ func (d *diContainer) Cache(ctx context.Context) cache.Cache {
 
 // UserRepo возвращает репозиторий пользователей.
 func (d *diContainer) UserRepo(ctx context.Context) repository.UserRepo {
-	_, spanEnd := TraceSpan(ctx, "UserRepo")
+	_, spanEnd := observability.TraceSpan(ctx, "UserRepo")
 	defer spanEnd()
 
 	if d.userRepo == nil {
@@ -223,7 +224,7 @@ func (d *diContainer) UserRepo(ctx context.Context) repository.UserRepo {
 
 // TokenRepo возвращает репозиторий сессий (токенов доступа).
 func (d *diContainer) TokenRepo(ctx context.Context) repository.TokenRepo {
-	_, spanEnd := TraceSpan(ctx, "TokenRepo")
+	_, spanEnd := observability.TraceSpan(ctx, "TokenRepo")
 	defer spanEnd()
 
 	if d.tokenRepo == nil {
@@ -235,7 +236,7 @@ func (d *diContainer) TokenRepo(ctx context.Context) repository.TokenRepo {
 
 // CredentialRepo возвращает репозиторий учётных данных (хешей паролей).
 func (d *diContainer) CredentialRepo(ctx context.Context) repository.CredentialRepo {
-	_, spanEnd := TraceSpan(ctx, "CredentialRepo")
+	_, spanEnd := observability.TraceSpan(ctx, "CredentialRepo")
 	defer spanEnd()
 
 	if d.credentialRepo == nil {
@@ -247,7 +248,7 @@ func (d *diContainer) CredentialRepo(ctx context.Context) repository.CredentialR
 
 // NotificationRepo возвращает репозиторий уведомлений.
 func (d *diContainer) NotificationRepo(ctx context.Context) repository.NotificationRepo {
-	_, spanEnd := TraceSpan(ctx, "NotificationRepo")
+	_, spanEnd := observability.TraceSpan(ctx, "NotificationRepo")
 	defer spanEnd()
 
 	if d.notificationRepo == nil {
@@ -259,7 +260,7 @@ func (d *diContainer) NotificationRepo(ctx context.Context) repository.Notificat
 
 // AuthService возвращает сервис авторизации.
 func (d *diContainer) AuthService(ctx context.Context) service.AuthService {
-	traceCtx, spanEnd := TraceSpan(ctx, "AuthService")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "AuthService")
 	defer spanEnd()
 
 	if d.authService == nil {
@@ -278,7 +279,7 @@ func (d *diContainer) AuthService(ctx context.Context) service.AuthService {
 
 // UserService возвращает сервис пользователей.
 func (d *diContainer) UserService(ctx context.Context) service.UserService {
-	traceCtx, spanEnd := TraceSpan(ctx, "UserService")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "UserService")
 	defer spanEnd()
 
 	if d.userService == nil {
@@ -290,7 +291,7 @@ func (d *diContainer) UserService(ctx context.Context) service.UserService {
 
 // NotificationService возвращает сервис уведомлений.
 func (d *diContainer) NotificationService(ctx context.Context) service.NotificationService {
-	traceCtx, spanEnd := TraceSpan(ctx, "NotificationService")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "NotificationService")
 	defer spanEnd()
 
 	if d.notificationService == nil {
@@ -318,7 +319,7 @@ func (d *diContainer) Handler(ctx context.Context) (Handler, error) {
 // Один экземпляр обслуживает и gRPC, и grpc-gateway: поведение обоих
 // транспортов гарантированно одинаково.
 func (d *diContainer) UserServiceServer(ctx context.Context) user_v1.UserServiceServer {
-	traceCtx, spanEnd := TraceSpan(ctx, "UserServiceServer")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "UserServiceServer")
 	defer spanEnd()
 
 	if d.userServiceServer == nil {

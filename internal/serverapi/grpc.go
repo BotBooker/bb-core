@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/botbooker/bb-core/internal/config"
+	"github.com/botbooker/bb-core/pkg/observability"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
@@ -31,7 +32,7 @@ const grpcStopTimeout = 5 * time.Second
 // Слушатель открывается на этапе инициализации: занятый порт должен валить
 // старт приложения, а не выясняться после успешного запуска HTTP-сервера.
 func (a *ServerAPI) initGRPCServer(ctx context.Context) error {
-	traceCtx, spanEnd := TraceSpan(ctx, "initGRPCServer")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "initGRPCServer")
 	defer spanEnd()
 
 	listener, err := listenGRPC("tcp", config.AppConfig().GRPCAddr)

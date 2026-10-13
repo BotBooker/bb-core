@@ -149,6 +149,13 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
   otel/opentelemetry-collector:latest
 ```
 
+Реализация — `pkg/observability/logs.go` (`setupLogs`): OTel-провайдер логов
+подключается к глобальному логгеру через `logger.SetOTelHandler`, вывод в stdout
+сохраняется. Автотесты:
+`go test ./pkg/observability/ -run 'TestSetupLogs|TestLogsEndpoint' -v` —
+проверяют включение экспорта по переменным окружения и отправку записей в
+поддельный OTLP-коллектор.
+
 ### Трассировка
 
 Трассировка включается, только если задан адрес коллектора —
@@ -207,11 +214,15 @@ plaintext gRPC, `https://` — TLS, а адрес без схемы (`localhost:
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4317 go run ./cmd/api
 ```
 
-Спаны запускаются по четырём сценариям (`internal/serverapi/tracing.go`):
+Точка входа — `observability.SetupOTelSDK` (`pkg/observability/observability.go`):
+она поднимает провайдеры всех трёх сигналов и возвращает функцию остановки.
+Спаны запускаются по четырём сценариям — SDK, сэмплер и пропагатор живут в
+`pkg/observability/tracing.go`, HTTP-middleware и спаны жизненного цикла — в
+`internal/serverapi/tracing.go`:
 
 | Сценарий | Что делает | Реализация |
 | --- | --- | --- |
-| Force Trace | записывает все спаны, независимо от входящего контекста | `ENABLE_FORCE_TRACE=true`, правило в `traceSampler` |
+| Force Trace | записывает все спаны, независимо от входящего контекста | `ENABLE_FORCE_TRACE=true`, правило в `traceSampler` (`pkg/observability`) |
 | Context Propagation | продолжает входящую трассу по заголовку `traceparent` (W3C Trace Context) | `traceMiddleware`, `otel.GetTextMapPropagator().Extract()` |
 | App Startup | открывает спан `app.startup` в новой трассе и закрывает его, когда HTTP- и gRPC-серверы подняты | `startStartupSpan` в `ServerAPI.Run()` |
 | App Shutdown | перехватывает SIGINT/SIGTERM, открывает спан `app.shutdown` в новой трассе и закрывает его перед выходом процесса | `startShutdownSpan` в `ServerAPI.Run()` |
@@ -229,8 +240,9 @@ curl -s -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
   localhost:8080/health
 ```
 
-Автотесты: `go test ./internal/serverapi/ -run 'TestSetupTraces|TestTrace' -v` —
-проверяют правила сэмплирования всех четырёх сценариев и выгрузку трасс в
+Автотесты: `go test ./pkg/observability/ ./internal/serverapi/ -run
+'TestSetupTraces|TestTrace|TestStartupAndShutdown' -v` — проверяют правила
+сэмплирования всех четырёх сценариев, работу HTTP-middleware и выгрузку трасс в
 поддельный OTLP-коллектор.
 
 ### Метрики
@@ -264,7 +276,7 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
   otel/opentelemetry-collector:latest
 ```
 
-Реализация — `internal/serverapi/metrics.go` (`setupMetrics`). Автотесты:
-`go test ./internal/serverapi/ -run 'TestSetupMetrics|TestMetricsEndpoint' -v` —
+Реализация — `pkg/observability/metrics.go` (`setupMetrics`). Автотесты:
+`go test ./pkg/observability/ -run 'TestSetupMetrics|TestMetricsEndpoint' -v` —
 проверяют включение экспорта по переменным окружения и выгрузку метрик в
 поддельный OTLP-коллектор.
