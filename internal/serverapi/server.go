@@ -56,7 +56,10 @@ func (a *ServerAPI) initDeps(ctx context.Context) error {
 
 // initDIContainer создаёт DI-контейнер: подключает БД и собирает граф зависимостей.
 func (a *ServerAPI) initDIContainer(ctx context.Context) error {
-	container, err := newDIContainer(ctx)
+	traceCtx, spanEnd := TraceSpan(ctx, "initDIContainer")
+	defer spanEnd()
+
+	container, err := newDIContainer(traceCtx)
 	if err != nil {
 		return fmt.Errorf("init di container: %w", err)
 	}
@@ -67,8 +70,11 @@ func (a *ServerAPI) initDIContainer(ctx context.Context) error {
 }
 
 // initHTTPServer создаёт HTTP-сервер.
-func (a *ServerAPI) initHTTPServer(_ context.Context) error {
-	handler, err := a.diContainer.Handler()
+func (a *ServerAPI) initHTTPServer(ctx context.Context) error {
+	traceCtx, spanEnd := TraceSpan(ctx, "initHTTPServer")
+	defer spanEnd()
+
+	handler, err := a.diContainer.Handler(traceCtx)
 	if err != nil {
 		return fmt.Errorf("init http handler: %w", err)
 	}

@@ -34,6 +34,9 @@ var migrateDatabase = applyMigrations
 // Диалект берётся из того же DSN, по которому выбирался драйвер: отдельного
 // поля с диалектом нет.
 func applyMigrations(ctx context.Context, db database.DB) error {
+	traceCtx, spanEnd := TraceSpan(ctx, "applyMigrations")
+	defer spanEnd()
+
 	cfg := config.DBConfig()
 	if !cfg.MigrateOnStart {
 		slog.Debug("migrations on start are disabled")
@@ -46,7 +49,7 @@ func applyMigrations(ctx context.Context, db database.DB) error {
 		return err
 	}
 
-	return database.Migrate(ctx, db, dialect)
+	return database.Migrate(traceCtx, db, dialect)
 }
 
 // newPostgresDB и newSQLiteDB — конструкторы драйверов.
@@ -62,6 +65,9 @@ var (
 // Само подключение живёт в пакетах-драйверах: у них нет общей точки входа,
 // потому что драйверы зависят от database.DB, а не наоборот.
 func newDatabaseByDSN(ctx context.Context) (database.DB, error) {
+	traceCtx, spanEnd := TraceSpan(ctx, "newDatabaseByDSN")
+	defer spanEnd()
+
 	cfg := config.DBConfig()
 
 	dialect, err := database.DialectFromDSN(cfg.DSN)
@@ -71,9 +77,9 @@ func newDatabaseByDSN(ctx context.Context) (database.DB, error) {
 
 	switch dialect {
 	case database.DialectPostgres:
-		return newPostgresDB(ctx, *cfg)
+		return newPostgresDB(traceCtx, *cfg)
 	case database.DialectSQLite:
-		return newSQLiteDB(ctx, *cfg)
+		return newSQLiteDB(traceCtx, *cfg)
 	default:
 		// Недостижимо: DialectFromDSN возвращает только константы выше.
 		return nil, fmt.Errorf("%w: %q", database.ErrUnsupportedDialect, dialect)
@@ -122,7 +128,10 @@ type diContainer struct {
 // newDIContainer создаёт контейнер, подключается к базе данных и применяет миграции.
 // Ошибка подключения или миграций возвращается сразу: приложению без БД работать нечем.
 func newDIContainer(ctx context.Context) (*diContainer, error) {
-	db, err := newDatabase(ctx)
+	traceCtx, spanEnd := TraceSpan(ctx, "newDIContainer")
+	defer spanEnd()
+
+	db, err := newDatabase(traceCtx)
 	if err != nil {
 		return nil, fmt.Errorf("init database: %w", err)
 	}
@@ -169,7 +178,10 @@ func (d *diContainer) DB() database.DB {
 }
 
 // EventBus возвращает шину событий.
-func (d *diContainer) EventBus() events.EventBus {
+func (d *diContainer) EventBus(ctx context.Context) events.EventBus {
+	_, spanEnd := TraceSpan(ctx, "EventBus")
+	defer spanEnd()
+
 	if d.eventBus == nil {
 		d.eventBus = events.NewEventBus()
 	}
@@ -180,7 +192,10 @@ func (d *diContainer) EventBus() events.EventBus {
 // Cache возвращает подключение к кэшу.
 // При создании — сразу регистрирует Close() в глобальном closer.
 // Кэш создаётся после БД — значит закроется раньше БД (LIFO).
-func (d *diContainer) Cache() cache.Cache {
+func (d *diContainer) Cache(ctx context.Context) cache.Cache {
+	_, spanEnd := TraceSpan(ctx, "Cache")
+	defer spanEnd()
+
 	if d.cache == nil {
 		c := cache.New(config.AppConfig().RedisAddr)
 
@@ -195,7 +210,10 @@ func (d *diContainer) Cache() cache.Cache {
 }
 
 // UserRepo возвращает репозиторий пользователей.
-func (d *diContainer) UserRepo() repository.UserRepo {
+func (d *diContainer) UserRepo(ctx context.Context) repository.UserRepo {
+	_, spanEnd := TraceSpan(ctx, "UserRepo")
+	defer spanEnd()
+
 	if d.userRepo == nil {
 		d.userRepo = repository.NewUserRepo(d.DB(), d.dialect)
 	}
@@ -204,7 +222,10 @@ func (d *diContainer) UserRepo() repository.UserRepo {
 }
 
 // TokenRepo возвращает репозиторий сессий (токенов доступа).
-func (d *diContainer) TokenRepo() repository.TokenRepo {
+func (d *diContainer) TokenRepo(ctx context.Context) repository.TokenRepo {
+	_, spanEnd := TraceSpan(ctx, "TokenRepo")
+	defer spanEnd()
+
 	if d.tokenRepo == nil {
 		d.tokenRepo = repository.NewTokenRepo(d.DB(), d.dialect)
 	}
@@ -213,7 +234,10 @@ func (d *diContainer) TokenRepo() repository.TokenRepo {
 }
 
 // CredentialRepo возвращает репозиторий учётных данных (хешей паролей).
-func (d *diContainer) CredentialRepo() repository.CredentialRepo {
+func (d *diContainer) CredentialRepo(ctx context.Context) repository.CredentialRepo {
+	_, spanEnd := TraceSpan(ctx, "CredentialRepo")
+	defer spanEnd()
+
 	if d.credentialRepo == nil {
 		d.credentialRepo = repository.NewCredentialRepo(d.DB(), d.dialect)
 	}
@@ -222,7 +246,10 @@ func (d *diContainer) CredentialRepo() repository.CredentialRepo {
 }
 
 // NotificationRepo возвращает репозиторий уведомлений.
-func (d *diContainer) NotificationRepo() repository.NotificationRepo {
+func (d *diContainer) NotificationRepo(ctx context.Context) repository.NotificationRepo {
+	_, spanEnd := TraceSpan(ctx, "NotificationRepo")
+	defer spanEnd()
+
 	if d.notificationRepo == nil {
 		d.notificationRepo = repository.NewNotificationRepo(d.DB())
 	}
@@ -231,14 +258,17 @@ func (d *diContainer) NotificationRepo() repository.NotificationRepo {
 }
 
 // AuthService возвращает сервис авторизации.
-func (d *diContainer) AuthService() service.AuthService {
+func (d *diContainer) AuthService(ctx context.Context) service.AuthService {
+	traceCtx, spanEnd := TraceSpan(ctx, "AuthService")
+	defer spanEnd()
+
 	if d.authService == nil {
 		d.authService = service.NewAuthService(
-			d.UserRepo(),
-			d.CredentialRepo(),
-			d.TokenRepo(),
+			d.UserRepo(traceCtx),
+			d.CredentialRepo(traceCtx),
+			d.TokenRepo(traceCtx),
 			d.tokenCodec,
-			d.EventBus(),
+			d.EventBus(traceCtx),
 			config.Auth().TokenTTL,
 		)
 	}
@@ -247,27 +277,33 @@ func (d *diContainer) AuthService() service.AuthService {
 }
 
 // UserService возвращает сервис пользователей.
-func (d *diContainer) UserService() service.UserService {
+func (d *diContainer) UserService(ctx context.Context) service.UserService {
+	traceCtx, spanEnd := TraceSpan(ctx, "UserService")
+	defer spanEnd()
+
 	if d.userService == nil {
-		d.userService = service.NewUserService(d.UserRepo(), d.EventBus())
+		d.userService = service.NewUserService(d.UserRepo(traceCtx), d.EventBus(traceCtx))
 	}
 
 	return d.userService
 }
 
 // NotificationService возвращает сервис уведомлений.
-func (d *diContainer) NotificationService() service.NotificationService {
+func (d *diContainer) NotificationService(ctx context.Context) service.NotificationService {
+	traceCtx, spanEnd := TraceSpan(ctx, "NotificationService")
+	defer spanEnd()
+
 	if d.notificationService == nil {
-		d.notificationService = service.NewNotificationService(d.NotificationRepo(), d.UserService(), d.EventBus())
+		d.notificationService = service.NewNotificationService(d.NotificationRepo(traceCtx), d.UserService(traceCtx), d.EventBus(traceCtx))
 	}
 
 	return d.notificationService
 }
 
 // Handler возвращает HTTP-хендлер.
-func (d *diContainer) Handler() (Handler, error) {
+func (d *diContainer) Handler(ctx context.Context) (Handler, error) {
 	if d.handler == nil {
-		handler, err := NewHandler(d.AuthService(), d.UserServiceServer())
+		handler, err := NewHandler(d.AuthService(ctx), d.UserServiceServer(ctx))
 		if err != nil {
 			return nil, err
 		}
@@ -281,9 +317,12 @@ func (d *diContainer) Handler() (Handler, error) {
 // UserServiceServer возвращает адаптер proto-сервиса пользователей.
 // Один экземпляр обслуживает и gRPC, и grpc-gateway: поведение обоих
 // транспортов гарантированно одинаково.
-func (d *diContainer) UserServiceServer() user_v1.UserServiceServer {
+func (d *diContainer) UserServiceServer(ctx context.Context) user_v1.UserServiceServer {
+	traceCtx, spanEnd := TraceSpan(ctx, "UserServiceServer")
+	defer spanEnd()
+
 	if d.userServiceServer == nil {
-		d.userServiceServer = NewUserServiceServer(d.UserService())
+		d.userServiceServer = NewUserServiceServer(d.UserService(traceCtx))
 	}
 
 	return d.userServiceServer

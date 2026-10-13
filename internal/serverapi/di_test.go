@@ -287,121 +287,138 @@ func TestDIContainer_DB(t *testing.T) {
 }
 
 func TestDIContainer_Cache(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
-	cache := c.Cache()
+
+	cache := c.Cache(ctx)
 	if cache == nil {
 		t.Fatal("Cache() returned nil")
 	}
 
 	// Second call should return same instance
-	cache2 := c.Cache()
+	cache2 := c.Cache(ctx)
 	if cache != cache2 {
 		t.Error("Cache() should return same instance on multiple calls")
 	}
 }
 
 func TestDIContainer_EventBus(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
-	bus := c.EventBus()
+
+	bus := c.EventBus(ctx)
 	if bus == nil {
 		t.Fatal("EventBus() returned nil")
 	}
 
 	// Second call should return same instance
-	bus2 := c.EventBus()
+	bus2 := c.EventBus(ctx)
 	if bus != bus2 {
 		t.Error("EventBus() should return same instance on multiple calls")
 	}
 }
 
 func TestDIContainer_UserRepo(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
-	repo := c.UserRepo()
+
+	repo := c.UserRepo(ctx)
 	if repo == nil {
 		t.Fatal("UserRepo() returned nil")
 	}
 
 	// Second call should return same instance
-	repo2 := c.UserRepo()
+	repo2 := c.UserRepo(ctx)
 	if repo != repo2 {
 		t.Error("UserRepo() should return same instance on multiple calls")
 	}
 }
 
 func TestDIContainer_TokenRepo(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
-	repo := c.TokenRepo()
+
+	repo := c.TokenRepo(ctx)
 	if repo == nil {
 		t.Fatal("TokenRepo() returned nil")
 	}
 
 	// Second call should return same instance
-	repo2 := c.TokenRepo()
+	repo2 := c.TokenRepo(ctx)
 	if repo != repo2 {
 		t.Error("TokenRepo() should return same instance on multiple calls")
 	}
 }
 
 func TestDIContainer_NotificationRepo(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
-	repo := c.NotificationRepo()
+
+	repo := c.NotificationRepo(ctx)
 	if repo == nil {
 		t.Fatal("NotificationRepo() returned nil")
 	}
 
 	// Second call should return same instance
-	repo2 := c.NotificationRepo()
+	repo2 := c.NotificationRepo(ctx)
 	if repo != repo2 {
 		t.Error("NotificationRepo() should return same instance on multiple calls")
 	}
 }
 
 func TestDIContainer_AuthService(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
-	svc := c.AuthService()
+
+	svc := c.AuthService(ctx)
 	if svc == nil {
 		t.Fatal("AuthService() returned nil")
 	}
 
 	// Second call should return same instance
-	svc2 := c.AuthService()
+	svc2 := c.AuthService(ctx)
 	if svc != svc2 {
 		t.Error("AuthService() should return same instance on multiple calls")
 	}
 }
 
 func TestDIContainer_UserService(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
-	svc := c.UserService()
+
+	svc := c.UserService(ctx)
 	if svc == nil {
 		t.Fatal("UserService() returned nil")
 	}
 
 	// Second call should return same instance
-	svc2 := c.UserService()
+	svc2 := c.UserService(ctx)
 	if svc != svc2 {
 		t.Error("UserService() should return same instance on multiple calls")
 	}
 }
 
 func TestDIContainer_NotificationService(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
-	svc := c.NotificationService()
+
+	svc := c.NotificationService(ctx)
 	if svc == nil {
 		t.Fatal("NotificationService() returned nil")
 	}
 
 	// Second call should return same instance
-	svc2 := c.NotificationService()
+	svc2 := c.NotificationService(ctx)
 	if svc != svc2 {
 		t.Error("NotificationService() should return same instance on multiple calls")
 	}
 }
 
 func TestDIContainer_Handler(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
 
-	h, err := c.Handler()
+	h, err := c.Handler(ctx)
 	if err != nil {
 		t.Fatalf("Handler() unexpected error = %v", err)
 	}
@@ -410,7 +427,7 @@ func TestDIContainer_Handler(t *testing.T) {
 	}
 
 	// Second call should return same instance
-	h2, err := c.Handler()
+	h2, err := c.Handler(ctx)
 	if err != nil {
 		t.Fatalf("Handler() unexpected error = %v", err)
 	}
@@ -420,16 +437,17 @@ func TestDIContainer_Handler(t *testing.T) {
 }
 
 func TestDIContainer_UserServiceServer(t *testing.T) {
+	ctx := context.Background()
 	c := newTestContainer(t)
 
-	server := c.UserServiceServer()
+	server := c.UserServiceServer(ctx)
 	if server == nil {
 		t.Fatal("UserServiceServer() returned nil")
 	}
 
 	// Один адаптер обслуживает и gRPC, и grpc-gateway: поведение транспортов
 	// не может разойтись.
-	server2 := c.UserServiceServer()
+	server2 := c.UserServiceServer(ctx)
 	if server != server2 {
 		t.Error("UserServiceServer() should return same instance on multiple calls")
 	}
@@ -452,19 +470,20 @@ func TestDIContainer_Integration(t *testing.T) {
 	// Контейнер создаётся с фейковым подключением к БД: кэш, репозитории,
 	// сервисы и хендлер собираются настоящие, без внешних зависимостей.
 	c := newTestContainer(t)
+	ctx := context.Background()
 
 	// Get all dependencies
 	db := c.DB()
-	cache := c.Cache()
-	bus := c.EventBus()
-	userRepo := c.UserRepo()
-	tokenRepo := c.TokenRepo()
-	notifRepo := c.NotificationRepo()
-	authSvc := c.AuthService()
-	userSvc := c.UserService()
-	notifSvc := c.NotificationService()
-	userServiceServer := c.UserServiceServer()
-	handler, err := c.Handler()
+	cache := c.Cache(ctx)
+	bus := c.EventBus(ctx)
+	userRepo := c.UserRepo(ctx)
+	tokenRepo := c.TokenRepo(ctx)
+	notifRepo := c.NotificationRepo(ctx)
+	authSvc := c.AuthService(ctx)
+	userSvc := c.UserService(ctx)
+	notifSvc := c.NotificationService(ctx)
+	userServiceServer := c.UserServiceServer(ctx)
+	handler, err := c.Handler(ctx)
 	if err != nil {
 		t.Fatalf("Handler() unexpected error = %v", err)
 	}

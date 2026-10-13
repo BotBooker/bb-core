@@ -91,7 +91,19 @@ HTTP через gateway) и проверяют сценарий целиком: 
 
 ## Наблюдаемость
 
-## Логи в OTel Collector
+### Минимальная инфраструктура (Docker)
+
+```sh
+docker run -d --name jaeger \
+  -e COLLECTOR_OTLP_ENABLED=true \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  jaegertracing/all-in-one:latest
+```
+
+* [Web UI](http://localhost:16686)
+
+### Логи
 
 Структурированные логи приложения (`log/slog`) пишутся в stdout и, если задан
 адрес коллектора, дублируются в OpenTelemetry Collector по OTLP/gRPC:
@@ -137,7 +149,7 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
   otel/opentelemetry-collector:latest
 ```
 
-## Трассы в OTel Collector
+### Трассировка
 
 Трассировка включается, только если задан адрес коллектора —
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` или общий `OTEL_EXPORTER_OTLP_ENDPOINT`.
@@ -175,8 +187,6 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
 curl -s -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
   localhost:8080/health
 ```
-
-### Трассы
 
 Трассировка включается, только когда задан адрес OTel Collector для трасс.
 Переменные и их приоритет:

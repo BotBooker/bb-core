@@ -30,14 +30,17 @@ const grpcStopTimeout = 5 * time.Second
 //
 // Слушатель открывается на этапе инициализации: занятый порт должен валить
 // старт приложения, а не выясняться после успешного запуска HTTP-сервера.
-func (a *ServerAPI) initGRPCServer(_ context.Context) error {
+func (a *ServerAPI) initGRPCServer(ctx context.Context) error {
+	traceCtx, spanEnd := TraceSpan(ctx, "initGRPCServer")
+	defer spanEnd()
+
 	listener, err := listenGRPC("tcp", config.AppConfig().GRPCAddr)
 	if err != nil {
 		return fmt.Errorf("listen grpc: %w", err)
 	}
 
 	a.grpcListener = listener
-	a.grpcServer = newGRPCServer(a.diContainer.UserServiceServer(), a.diContainer.AuthService())
+	a.grpcServer = newGRPCServer(a.diContainer.UserServiceServer(traceCtx), a.diContainer.AuthService(traceCtx))
 
 	return nil
 }
