@@ -15,6 +15,11 @@ import (
 // SwaggerPrefix — префикс ручек Swagger UI и спецификации.
 const SwaggerPrefix = "/api/swagger/"
 
+// healthPath — ручка готовности приложения. Вынесена константой: её использует
+// и роутинг, и список открытых путей (см. isPublicPath), и выбор уровня записи
+// access-лога для служебных ручек (см. isServicePath).
+const healthPath = "/health"
+
 // Handler — интерфейс обработчика HTTP-запросов.
 type Handler interface {
 	Routes() http.Handler
@@ -58,9 +63,13 @@ func NewHandler(authService AuthService, userServiceServer user_v1.UserServiceSe
 // Снаружи стоит traceMiddleware: он извлекает W3C Trace Context из заголовков
 // запроса и запускает серверный спан — трасса запроса начинается до
 // аутентификации и покрывает весь путь запроса.
+//
+// logMiddleware стоит между трассировкой и аутентификацией: запись access-лога
+// попадает в span-context (trace_id/span_id добавляет TraceHandler) и видит
+// статус отказа 401/403, который выставляет authenticate.
 func (h *handler) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", h.healthHandler)
+	mux.HandleFunc("GET "+healthPath, h.healthHandler)
 	mux.HandleFunc("GET /users/me", h.getCurrentUser)
 	mux.HandleFunc("POST /auth/register", h.registerHandler)
 	mux.HandleFunc("POST /auth/login", h.loginHandler)
@@ -73,7 +82,7 @@ func (h *handler) Routes() http.Handler {
 	// Swagger UI эндпоинты
 	mux.Handle(SwaggerPrefix, http.StripPrefix("/api/swagger", swagger.Routes("/api/swagger")))
 
-	return traceMiddleware(h.authenticate(mux))
+	return traceMiddleware(logMiddleware(h.authenticate(mux)))
 }
 
 func (h *handler) healthHandler(w http.ResponseWriter, _ *http.Request) {

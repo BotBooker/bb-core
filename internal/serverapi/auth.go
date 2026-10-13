@@ -236,7 +236,7 @@ func parseBearer(value string) (string, bool) {
 // умолчанию защищена, открыть её можно только добавив сюда.
 var publicPaths = map[string]struct{}{
 	// health нужен балансировщикам и readiness-пробам.
-	"/health": {},
+	healthPath: {},
 	// Вход и регистрация, разумеется, без токена: его ещё нет.
 	"/auth/login":    {},
 	"/auth/register": {},
@@ -327,9 +327,10 @@ const (
 )
 
 // isPublicGRPCMethod сообщает, что вызов можно обслуживать без токена.
+// Без токена обслуживаются ровно служебные методы (см. isServiceGRPCMethod):
+// health нужен балансировщикам и пробам, reflection — отладке.
 func isPublicGRPCMethod(fullMethod string) bool {
-	return strings.HasPrefix(fullMethod, healthMethodPrefix) ||
-		strings.HasPrefix(fullMethod, reflectionMethodPrefix)
+	return isServiceGRPCMethod(fullMethod)
 }
 
 // errorResponse — тело ответа с ошибкой.

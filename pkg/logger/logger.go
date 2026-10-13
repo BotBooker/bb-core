@@ -6,9 +6,12 @@
 //   - SetOTelHandler: подключает к глобальному логгеру обработчик OpenTelemetry,
 //     сохраняя привычный вывод в stdout.
 //   - MultiHandler: отправляет записи сразу нескольким обработчикам.
+//   - TraceHandler: добавляет к записям trace_id и span_id активного спана,
+//     чтобы логи можно было связать с трассой OpenTelemetry.
 package logger
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"sync"
@@ -32,10 +35,14 @@ var (
 	logLevel slog.Level
 )
 
-// Init инициализирует slog логгер с текстовым обработчиком.
+// Init инициализирует slog логгер с обработчиком вывода (текстовым или JSON).
+//
+// Контекстные вызовы логгера (slog.InfoContext и подобные) получают в записи
+// trace_id и span_id активного спана — их добавляет TraceHandler (см. initHandler).
 //
 // Параметры:
 //   - level: уровень логирования (например, slog.LevelInfo, slog.LevelDebug).
+//   - format: формат вывода (LogFormatJSON или LogFormatText).
 //
 // Возвращает:
 //   - *slog.Logger: настроенный экземпляр логгера.
@@ -45,12 +52,22 @@ var (
 //	log := logger.Init(slog.LevelInfo)
 //	slog.SetDefault(log)
 func Init(level slog.Level, format LogFormat) *slog.Logger {
+	return slog.New(initHandler(os.Stdout, level, format))
+}
+
+// initHandler собирает обработчик вывода логов приложения: json или plain по
+// формату, с добавлением trace_id и span_id активного спана к каждой записи.
+//
+// writer вынесен параметром, чтобы тесты проверяли обработчик на буфере, а не
+// на os.Stdout.
+func initHandler(writer io.Writer, level slog.Level, format LogFormat) slog.Handler {
 	if format == LogFormatJSON {
-		return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		return NewTraceHandler(slog.NewJSONHandler(writer, &slog.HandlerOptions{
 			Level: level,
 		}))
 	}
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+
+	return NewTraceHandler(slog.NewTextHandler(writer, &slog.HandlerOptions{
 		Level: level,
 	}))
 }
@@ -107,11 +124,12 @@ func SetOTelHandler(handler slog.Handler) {
 
 	if baseHandler == nil {
 		// InitAndSetDefault ещё не вызывался (например, в тестах): пишем в stdout
-		// обычным текстовым обработчиком. Брать slog.Default().Handler() нельзя:
-		// это stdlib defaultHandler, который выводит через пакет log, а
+		// обычным текстовым обработчиком через initHandler — он же добавляет
+		// trace_id и span_id активного спана. Брать slog.Default().Handler()
+		// нельзя: это stdlib defaultHandler, который выводит через пакет log, а
 		// slog.SetDefault переводит log.SetOutput на итоговый обработчик — вышла
 		// бы бесконечная рекурсия и дедлок на mutex пакета log.
-		baseHandler = slog.NewTextHandler(os.Stdout, nil)
+		baseHandler = initHandler(os.Stdout, slog.LevelInfo, LogFormatText)
 	}
 
 	otelHandler = handler
