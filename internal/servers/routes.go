@@ -9,6 +9,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
 	"github.com/botbooker/bb-core/internal/repository/swagger"
+	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
@@ -50,6 +51,10 @@ func NewHandler(authService AuthService, userServiceServer user_v1.UserServiceSe
 		return nil, fmt.Errorf("register user service gateway: %w", err)
 	}
 
+	if err := auth_v1.RegisterAuthServiceHandlerServer(context.Background(), gateway, NewAuthServiceServer(authService)); err != nil {
+		return nil, fmt.Errorf("register auth service gateway: %w", err)
+	}
+
 	return &handler{authService: authService, gateway: gateway}, nil
 }
 
@@ -73,6 +78,7 @@ func (h *handler) Routes() http.Handler {
 	mux.HandleFunc("GET /users/me", h.getCurrentUser)
 	mux.HandleFunc("POST /auth/register", h.registerHandler)
 	mux.HandleFunc("POST /auth/login", h.loginHandler)
+	mux.HandleFunc("POST /auth/password", h.changePasswordHandler)
 	mux.HandleFunc("POST /auth/logout", h.logoutHandler)
 
 	// Ручки proto-сервиса: POST /api/v1/users, GET|PATCH|DELETE /api/v1/users/{uuid}.

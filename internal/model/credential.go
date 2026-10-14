@@ -1,9 +1,14 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrPasswordExpired — срок действия пароля истёк. Пользователь обязан сменить
+// пароль, прежде чем продолжать работу: до этого доступ закрыт.
+var ErrPasswordExpired = errors.New("user password is expired")
 
 // Credentials — учётные данные пользователя: хеш пароля.
 //
@@ -64,6 +69,46 @@ func (c Credentials) Verify(password string) error {
 	if err := VerifyPassword(password, c.Hash); err != nil {
 		return fmt.Errorf("verify password: %w", err)
 	}
+
+	return nil
+}
+
+// ExpiresAt возвращает момент, когда пароль перестаёт действовать: время
+// последнего изменения пароля плюс срок жизни (ttl).
+func (c Credentials) ExpiresAt(ttl time.Duration) time.Time {
+	return c.UpdatedAt.Add(ttl)
+}
+
+// Expired сообщает, что срок действия пароля истёк к моменту now.
+//
+// ttl <= 0 отключает проверку: пароль не истекает. Сравнение идёт в UTC —
+// модель работает только с UTC, а UpdatedAt приходит из репозитория уже
+// нормализованным.
+func (c Credentials) Expired(now time.Time, ttl time.Duration) bool {
+	if ttl <= 0 {
+		return false
+	}
+
+	return !now.UTC().Before(c.ExpiresAt(ttl))
+}
+
+// NeedsRehash сообщает, что сохранённый хеш посчитан устаревшим алгоритмом
+// или с устаревшими параметрами: при следующем успешном входе его стоит
+// пересчитать.
+func (c Credentials) NeedsRehash() bool {
+	return NeedsRehash(c.Hash)
+}
+
+// Rehash пересчитывает хеш пароля, не меняя время последнего изменения
+// пароля: обновление алгоритма — не смена пароля и не должно сбрасывать его
+// срок действия.
+func (c *Credentials) Rehash(password string) error {
+	hash, err := HashPassword(password)
+	if err != nil {
+		return fmt.Errorf("rehash password: %w", err)
+	}
+
+	c.Hash = hash
 
 	return nil
 }

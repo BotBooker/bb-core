@@ -39,6 +39,70 @@ DSN=sqlite:/tmp/database.db go run ./cmd/migrate down
 поддерживает: он считает каждый файл отдельной миграцией и падает на дубликате
 версии.
 
+## Bootstrap: первый суперпользователь
+
+Первого администратора создаёт отдельная команда `cmd/bootstrap` — по образцу
+`cmd/migrate`. Она применяет миграции и идемпотентно создаёт суперпользователя
+(роль `admin`) с параметрами из окружения:
+
+```sh
+make bootstrap     # DSN и SUPERUSER_* берутся из .env
+```
+
+Прямой запуск — так же, как у миграций, переменные идут **перед** командой:
+
+```sh
+DSN=sqlite:/tmp/database.db \
+  SUPERUSER_EMAIL=admin@example.com \
+  SUPERUSER_PASSWORD='change-me-please' \
+  go run ./cmd/bootstrap
+```
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `DSN` | — | подключение к БД; диалект определяется по DSN |
+| `SUPERUSER_EMAIL` | — | email суперпользователя (обязательна) |
+| `SUPERUSER_PASSWORD` | — | пароль суперпользователя (обязательна) |
+| `SUPERUSER_FIRST_NAME` | `Super` | имя |
+| `SUPERUSER_LAST_NAME` | `Admin` | фамилия |
+
+Повторный запуск ничего не меняет: если пользователь с таким email уже есть,
+пароль ему не сбрасывается. Пустые `SUPERUSER_EMAIL`/`SUPERUSER_PASSWORD` —
+ошибка конфигурации (код возврата процесса `1`). Завести администратора через
+API нельзя: роль `admin` назначается только при bootstrap (`model.NewSuperuser`).
+
+## Пароли: хеширование и срок жизни
+
+Пароли хешируются **Argon2id** (`internal/model/password.go`; параметры OWASP —
+19 MiB, `t=2`, `p=1`), а не MD5/SHA: подбор пароля намеренно дорог. Алгоритм и
+его параметры хранятся в самой строке хеша, поэтому их изменение не ломает уже
+сохранённые пароли. Хеши прежнего формата (`pbkdf2_sha256$...`) продолжают
+проверяться и при успешном входе «прозрачно» пересчитываются в Argon2id
+(`model.NeedsRehash`, `AuthService.upgradeHash`) — пароль при этом не меняется,
+поэтому срок его действия не сбрасывается.
+
+`PASSWORD_TTL` задаёт срок жизни пароля — сутки с суффиксом `d` (`90d`, `1.5d`)
+или любая единица `time.ParseDuration` (`2160h`); `0` или отрицательное значение
+отключает проверку. Момент истечения считается от
+`user_credentials.updated_at` — времени последнего изменения пароля.
+
+Поток «пароль просрочен»:
+
+1. `POST /auth/login` — пароль верный, но срок истёк → `403`
+   `{"error":"password expired","code":"password_expired"}`; токен не выдаётся.
+2. Клиент отправляет пользователя на смену пароля: `POST /auth/password` с
+   `email`, `current_password`, `new_password`. Токен не нужен — личность
+   подтверждает текущий пароль (именно поэтому ручка работает и без сессии).
+3. Успех → `200` с новой сессией; срок действия пароля начинается заново
+   (`updated_at` перезаписывается временем смены).
+
+Автотесты:
+
+```sh
+go test ./internal/model/ ./internal/service/ ./internal/repository/ \
+  ./cmd/bootstrap/ -run 'TestNeedsRehash|TestCredentials|TestAuthService|TestBootstrap|TestRun' -v
+```
+
 ## Серверы
 
 Одна точка входа (`cmd/api`) поднимает два сервера с одним и тем же API:
@@ -55,10 +119,13 @@ DSN=sqlite:/tmp/database.db go run ./cmd/migrate down
 Ручки:
 
 * `GET /health` — готовность приложения (`ok`), отдельно от gRPC-health;
-* `GET /users/me` — скелет профиля, ждёт работ по аутентификации;
+* `GET /users/me` — профиль действующего пользователя (JSON-ручка приложения);
 * `POST /api/v1/users`, `GET|PATCH|DELETE /api/v1/users/{uuid}` — grpc-gateway
   поверх `user.v1.UserService` (в proto пути заданы от корня: `/users`,
   `/users/{uuid}`, префикс `/api/v1` добавляет монтирование gateway);
+* `POST /api/v1/auth/{register,login,password,logout}`, `GET /api/v1/auth/me` —
+  grpc-gateway поверх `auth.v1.AuthService` (в proto пути заданы от корня:
+  `/auth/register` и т.д., префикс `/api/v1` добавляет монтирование gateway);
 * `GET /api/swagger/` — Swagger UI (спека в `pkg/api`).
 
 В gRPC дополнительно включены `grpc.health.v1.Health` (нужен балансировщикам и
@@ -82,12 +149,18 @@ grpcurl -plaintext -d '{"email":"ivan@example.com","first_name":"Иван","last
   localhost:50051 user.v1.UserService/Create
 grpcurl -plaintext -d '{"uuid": "7c3ca7c0-ec6f-42d5-a77e-6ca55c037ae3"}' \
   localhost:50051 user.v1.UserService/Get
+grpcurl -plaintext -d '{"email":"ivan@example.com","password":"secret-password"}' \
+  localhost:50051 auth.v1.AuthService/Login
 ```
 
 Автотесты транспорта: `go test ./internal/servers/ -run TestSmoke -v` —
 поднимают приложение целиком (SQLite во временном файле, gRPC-сервер по сети и
 HTTP через gateway) и проверяют сценарий целиком: create → get → update → delete,
 конфликт уникальности и отсутствующие записи.
+
+Смок-тест ручек авторизации по HTTP (curl): `BASE_URL=http://localhost:8080 tests/smoke/auth.sh`
+проверяет регистрацию, вход, профиль, смену пароля и выход, а также коды ответов
+(400/401/409) и обратную совместимость прежних JSON-ручек `/auth/*`.
 
 ## Наблюдаемость
 
@@ -209,7 +282,6 @@ HTTP-middleware стоит между трассировкой и аутенти
 `Unauthenticated`). Реализация — `internal/servers/accesslog.go`
 (`logMiddleware`, `NewLogInterceptor`). Автотесты:
 `go test ./internal/servers/ -run 'TestLogMiddleware|TestNewLogInterceptor|TestIsServicePath' -v`.
-
 
 ### Трассировка
 

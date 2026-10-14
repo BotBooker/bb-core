@@ -26,6 +26,9 @@ type CredentialRepo interface {
 	Create(ctx context.Context, credentials *model.Credentials) error
 	// GetByUserID возвращает учётные данные или database.ErrNotFound.
 	GetByUserID(ctx context.Context, userID string) (*model.Credentials, error)
+	// Update перезаписывает хеш пароля и время его изменения;
+	// отсутствие записи — database.ErrNotFound.
+	Update(ctx context.Context, credentials *model.Credentials) error
 }
 
 // credentialColumns — колонки user_credentials в порядке чтения scanCredentials.
@@ -62,6 +65,26 @@ func (r *credentialRepo) Create(ctx context.Context, credentials *model.Credenti
 	}
 
 	return nil
+}
+
+// Update перезаписывает хеш пароля и время его изменения.
+//
+// Используется и сменой пароля, и «прозрачным» обновлением хеша при входе
+// (пересчёт устаревшего алгоритма): в обоих случаях меняется только хеш и
+// время, поэтому отдельного метода для смены пароля не нужно.
+func (r *credentialRepo) Update(ctx context.Context, credentials *model.Credentials) error {
+	const query = "UPDATE user_credentials SET password_hash = ?, updated_at = ? WHERE user_id = ?"
+
+	result, err := r.db.ExecContext(ctx, r.rebind(query),
+		credentials.Hash,
+		r.timeArg(credentials.UpdatedAt),
+		credentials.UserID,
+	)
+	if err != nil {
+		return fmt.Errorf("update credentials: %w", database.MapError(err))
+	}
+
+	return requireAffected(result, "update credentials")
 }
 
 // GetByUserID возвращает учётные данные пользователя — они нужны при входе.

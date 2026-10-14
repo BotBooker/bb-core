@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+// Package содержит API v1 для работы с сервисом BotBooker
+package auth.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+import "user/v1/user.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/botbooker/bb-core/pkg/proto/auth/v1;auth_v1";
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "API v1 для работы с сервисом BotBooker"
+    version: "1.0.0"
+  }
+  base_path: "/api/v1"
+  security_definitions: {
+    security: {
+      key: "BearerAuth"
+      value: {
+        type: TYPE_API_KEY
+        in: IN_HEADER
+        name: "Authorization"
+        description: "Введите JWT токен в формате: 'Bearer [token]'"
+      }
+    }
+  }
+  security: {
+    security_requirement: {
+      key: "BearerAuth"
+      value: {}
+    }
+  }
+};
+
+// Сервис аутентификации: регистрация, вход, смена пароля и выход.
+//
+// Регистрация, вход и смена пароля открыты (токена ещё нет либо он недоступен):
+// личность подтверждает пароль. Выход и чтение профиля требуют токен.
+service AuthService {
+  // Зарегистрировать нового пользователя (роль client) и сразу выдать токен
+  rpc Register(AuthServiceRegisterRequest) returns (AuthServiceRegisterResponse) {
+    option (google.api.http) = {
+      post: "/auth/register"
+      body: "*"
+    };
+  }
+
+  // Войти по email и паролю и получить токен доступа
+  rpc Login(AuthServiceLoginRequest) returns (AuthServiceLoginResponse) {
+    option (google.api.http) = {
+      post: "/auth/login"
+      body: "*"
+    };
+  }
+
+  // Сменить пароль, подтвердив личность текущим паролем, и выдать новую сессию
+  rpc ChangePassword(AuthServiceChangePasswordRequest) returns (AuthServiceChangePasswordResponse) {
+    option (google.api.http) = {
+      post: "/auth/password"
+      body: "*"
+    };
+  }
+
+  // Выйти из системы: отозвать токен из заголовка Authorization
+  rpc Logout(AuthServiceLogoutRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/auth/logout"
+      body: "*"
+    };
+  }
+
+  // Получить профиль действующего пользователя (пользователь берётся из токена)
+  rpc GetCurrentUser(AuthServiceGetCurrentUserRequest) returns (AuthServiceGetCurrentUserResponse) {
+    option (google.api.http) = {get: "/auth/me"};
+  }
+}
+
+// Выданный доступ: подписанный токен и срок его действия
+message Session {
+  // Подписанный JWT: клиент присылает его в заголовке Authorization
+  string token = 1;
+  // Момент, когда токен перестаёт действовать
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+// Запрос на самостоятельную регистрацию: профиль и пароль
+message AuthServiceRegisterRequest {
+  // Email обязателен и должен быть валидным адресом
+  string email = 1 [(validate.rules).string.email = true];
+  // Имя: от 1 до 100 символов
+  string first_name = 2 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+  // Фамилия: от 1 до 100 символов
+  string last_name = 3 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+  // Отчество (опционально, до 100 символов)
+  string middle_name = 4 [(validate.rules).string = {max_len: 100}];
+  // Номер телефона в формате E.164 (необязательно, пустое значение допустимо)
+  string phone_number = 5 [(validate.rules).string = {
+    pattern: "^\\+[1-9]\\d{1,14}$"
+    ignore_empty: true
+  }];
+  // Пол пользователя (по умолчанию GENDER_UNSPECIFIED)
+  user.v1.Gender gender = 6;
+  // Пароль: не короче 8 символов и не длиннее 128
+  string password = 7 [(validate.rules).string = {
+    min_len: 8
+    max_len: 128
+  }];
+}
+
+// Ответ на регистрацию: созданный пользователь и выданная сессия
+message AuthServiceRegisterResponse {
+  // Созданный пользователь
+  user.v1.User user = 1;
+  // Выданный доступ
+  Session session = 2;
+}
+
+// Запрос на вход по email и паролю
+message AuthServiceLoginRequest {
+  // Email зарегистрированного пользователя
+  string email = 1 [(validate.rules).string.email = true];
+  // Пароль пользователя
+  string password = 2 [(validate.rules).string = {
+    min_len: 1
+    max_len: 128
+  }];
+}
+
+// Ответ на вход: выданная сессия
+message AuthServiceLoginResponse {
+  // Выданный доступ
+  Session session = 1;
+}
+
+// Запрос на смену пароля: личность подтверждает текущий пароль
+message AuthServiceChangePasswordRequest {
+  // Email пользователя
+  string email = 1 [(validate.rules).string.email = true];
+  // Текущий пароль
+  string current_password = 2 [(validate.rules).string = {
+    min_len: 1
+    max_len: 128
+  }];
+  // Новый пароль: не короче 8 символов
+  string new_password = 3 [(validate.rules).string = {
+    min_len: 8
+    max_len: 128
+  }];
+}
+
+// Ответ на смену пароля: новая сессия
+message AuthServiceChangePasswordResponse {
+  // Выданный доступ
+  Session session = 1;
+}
+
+// Запрос на выход из системы (токен берётся из заголовка Authorization)
+message AuthServiceLogoutRequest {}
+
+// Запрос профиля действующего пользователя (пользователь берётся из токена)
+message AuthServiceGetCurrentUserRequest {}
+
+// Ответ с профилем действующего пользователя
+message AuthServiceGetCurrentUserResponse {
+  // Профиль действующего пользователя
+  user.v1.User user = 1;
+}

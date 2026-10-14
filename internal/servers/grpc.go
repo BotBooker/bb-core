@@ -14,6 +14,7 @@ import (
 
 	"github.com/botbooker/bb-core/internal/config"
 	"github.com/botbooker/bb-core/pkg/observability"
+	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
@@ -64,6 +65,7 @@ func newGRPCServer(userServiceServer user_v1.UserServiceServer, authService Auth
 	)
 
 	user_v1.RegisterUserServiceServer(server, userServiceServer)
+	auth_v1.RegisterAuthServiceServer(server, NewAuthServiceServer(authService))
 	registerHealth(server)
 	reflection.Register(server)
 
@@ -78,6 +80,10 @@ func registerHealth(server grpc.ServiceRegistrar) {
 	healthServer.SetServingStatus("", health_v1.HealthCheckResponse_SERVING)
 	healthServer.SetServingStatus(
 		user_v1.UserService_ServiceDesc.ServiceName,
+		health_v1.HealthCheckResponse_SERVING,
+	)
+	healthServer.SetServingStatus(
+		auth_v1.AuthService_ServiceDesc.ServiceName,
 		health_v1.HealthCheckResponse_SERVING,
 	)
 

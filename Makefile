@@ -166,3 +166,7 @@ migrate-up: ## Применить миграции вручную (DSN из ок
 .PHONY: migrate-down
 migrate-down: ## Откатить последнюю применённую миграцию
 	$(GO) run ./cmd/migrate down
+
+.PHONY: bootstrap
+bootstrap: ## Создать первого суперпользователя (SUPERUSER_EMAIL/SUPERUSER_PASSWORD из .env)
+	$(GO) run ./cmd/bootstrap

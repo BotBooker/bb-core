@@ -58,6 +58,7 @@ generate:
   inputs:
     # - directory: tenant
     - directory: user
+    - directory: auth
 
   plugins:
     # Генерация базовых Go структур (messages, enums)

@@ -271,6 +271,7 @@ func (d *diContainer) AuthService(ctx context.Context) service.AuthService {
 			d.tokenCodec,
 			d.EventBus(traceCtx),
 			config.Auth().TokenTTL,
+			config.Auth().PasswordTTL,
 		)
 	}
 

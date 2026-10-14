@@ -19,6 +19,7 @@ import (
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/internal/service"
+	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
 	"github.com/botbooker/bb-core/pkg/tools"
 )
 
@@ -29,6 +30,7 @@ import (
 type AuthService interface {
 	Register(ctx context.Context, in model.RegisterInput) (*model.User, *service.Session, error)
 	Login(ctx context.Context, email, password string) (*service.Session, error)
+	ChangePassword(ctx context.Context, email, currentPassword, newPassword string) (*service.Session, error)
 	Logout(ctx context.Context, accessToken string) error
 	Authenticate(ctx context.Context, accessToken string) (*service.Principal, error)
 }
@@ -49,6 +51,12 @@ const (
 	conflictMessage      = "already exists"
 	badRequestMessage    = "invalid request"
 	internalErrorMessage = "internal error"
+	// passwordExpiredMessage и passwordExpiredCode — ответ на попытку входа с
+	// просроченным паролем: пользователь обязан сменить пароль, прежде чем
+	// продолжать работу. Code — машиночитаемый признак, по которому клиент
+	// ведёт пользователя на экран смены пароля.
+	passwordExpiredMessage = "password expired"
+	passwordExpiredCode    = "password_expired"
 )
 
 // errNoToken — токен не передан в запросе.
@@ -58,6 +66,17 @@ var errNoToken = errors.New("token is not provided")
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+// changePasswordRequest — тело POST /auth/password: смена пароля.
+//
+// Email и текущий пароль подтверждают личность — так же, как при входе. Так
+// пароль может сменить и тот, у кого срок его действия истёк: действующего
+// токена у него нет, предъявить больше нечего.
+type changePasswordRequest struct {
+	Email           string `json:"email"`
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 // registerRequest — тело POST /auth/register: профиль и пароль.
@@ -153,6 +172,30 @@ func (h *handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newSessionResponse(session))
 }
 
+// changePasswordHandler — POST /auth/password: смена пароля по текущему паролю.
+//
+// Ручка открыта (не требует токена): она и есть способ выйти из состояния
+// «пароль просрочен», когда токена нет. Личность подтверждает текущий пароль.
+func (h *handler) changePasswordHandler(w http.ResponseWriter, r *http.Request) {
+	var request changePasswordRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, badRequestMessage)
+		return
+	}
+
+	session, err := h.authService.ChangePassword(
+		r.Context(), request.Email, request.CurrentPassword, request.NewPassword,
+	)
+	if err != nil {
+		writeServiceError(w, err, "change password")
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, newSessionResponse(session))
+}
+
 // logoutHandler — POST /auth/logout: выход из системы.
 //
 // Middleware уже проверила токен, поэтому здесь остаётся отозвать сессию:
@@ -240,6 +283,16 @@ var publicPaths = map[string]struct{}{
 	// Вход и регистрация, разумеется, без токена: его ещё нет.
 	"/auth/login":    {},
 	"/auth/register": {},
+	// Смена пароля тоже без токена: она нужна и тем, у кого пароль просрочен,
+	// — личность подтверждает текущий пароль в теле запроса.
+	"/auth/password": {},
+	// Те же ручки, что отдаёт auth.v1.AuthService через grpc-gateway, под
+	// префиксом /api/v1. Список открытых путей общий для обоих транспортов:
+	// без этих строк вход и регистрация в HTTP-gateway требовали бы токен,
+	// которого у клиента ещё нет.
+	"/api/v1/auth/login":    {},
+	"/api/v1/auth/register": {},
+	"/api/v1/auth/password": {},
 }
 
 // isPublicPath сообщает, что запрос можно обрабатывать без токена.
@@ -326,21 +379,53 @@ const (
 	reflectionMethodPrefix = "/grpc.reflection."
 )
 
+// publicGRPCMethods — вызовы proto-сервиса аутентификации, доступные без токена.
+//
+// Список — зеркало publicPaths для gRPC: вход и регистрация открыты, потому что
+// токена у клиента ещё нет, а смена пароля — потому что она нужна и тем, у кого
+// срок действия пароля истёк (токен им не выдаётся). Личность подтверждает
+// пароль в теле запроса.
+//
+// Имена собираются из AuthService_ServiceDesc.ServiceName, а не пишутся
+// литералами: переименование сервиса в proto не оставит здесь мёртвых строк.
+var publicGRPCMethods = map[string]struct{}{
+	"/" + auth_v1.AuthService_ServiceDesc.ServiceName + "/Register":       {},
+	"/" + auth_v1.AuthService_ServiceDesc.ServiceName + "/Login":          {},
+	"/" + auth_v1.AuthService_ServiceDesc.ServiceName + "/ChangePassword": {},
+}
+
 // isPublicGRPCMethod сообщает, что вызов можно обслуживать без токена.
-// Без токена обслуживаются ровно служебные методы (см. isServiceGRPCMethod):
-// health нужен балансировщикам и пробам, reflection — отладке.
+//
+// Без токена обслуживаются служебные методы (см. isServiceGRPCMethod): health
+// нужен балансировщикам и пробам, reflection — отладке, — и открытые методы
+// аутентификации (см. publicGRPCMethods). Остальные вызовы защищены.
 func isPublicGRPCMethod(fullMethod string) bool {
-	return isServiceGRPCMethod(fullMethod)
+	if isServiceGRPCMethod(fullMethod) {
+		return true
+	}
+
+	_, ok := publicGRPCMethods[fullMethod]
+
+	return ok
 }
 
 // errorResponse — тело ответа с ошибкой.
 type errorResponse struct {
 	Error string `json:"error"`
+	// Code — машиночитаемый признак для случаев, когда клиенту нужно
+	// отреагировать иначе: password_expired значит «смените пароль». У
+	// большинства ошибок признак пуст.
+	Code string `json:"code,omitempty"`
 }
 
 // writeError отправляет ошибку в JSON.
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
+}
+
+// writeErrorCode отправляет ошибку в JSON с машиночитаемым признаком.
+func writeErrorCode(w http.ResponseWriter, status int, message, code string) {
+	writeJSON(w, status, errorResponse{Error: message, Code: code})
 }
 
 // writeJSON отправляет ответ в JSON.
@@ -382,6 +467,10 @@ func writeProtoJSON(w http.ResponseWriter, status int, message proto.Message) {
 // можно было бы отличить «пользователя нет» от «пароль не тот».
 func writeServiceError(w http.ResponseWriter, err error, action string) {
 	switch {
+	case errors.Is(err, service.ErrPasswordExpired):
+		// 403 с признаком password_expired: полного доступа нет, но клиент
+		// знает, что делать — отправить пользователя на смену пароля.
+		writeErrorCode(w, http.StatusForbidden, passwordExpiredMessage, passwordExpiredCode)
 	case errors.Is(err, service.ErrUnauthorized), errors.Is(err, service.ErrInvalidCredentials):
 		writeError(w, http.StatusUnauthorized, unauthorizedMessage)
 	case errors.Is(err, service.ErrForbidden):

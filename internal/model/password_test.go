@@ -1,8 +1,6 @@
 package model
 
 import (
-	"crypto/pbkdf2"
-	"crypto/sha256"
 	"errors"
 	"strings"
 	"testing"
@@ -48,16 +46,24 @@ func TestHashPassword(t *testing.T) {
 	}
 
 	parts := strings.Split(hash, "$")
-	if len(parts) != 4 {
-		t.Fatalf("HashPassword() = %q, want 4 части, разделённые $", hash)
+	if len(parts) != 5 {
+		t.Fatalf("HashPassword() = %q, want 5 частей, разделённых $", hash)
 	}
 
 	if parts[0] != hashAlgo {
 		t.Errorf("алгоритм = %q, want %q", parts[0], hashAlgo)
 	}
 
-	if parts[1] != "210000" {
-		t.Errorf("итерации = %q, want %q", parts[1], "210000")
+	if parts[1] != "v=19" {
+		t.Errorf("версия = %q, want %q", parts[1], "v=19")
+	}
+
+	if parts[2] != "m=19456,t=2,p=1" {
+		t.Errorf("параметры = %q, want %q", parts[2], "m=19456,t=2,p=1")
+	}
+
+	if parts[3] == "" || parts[4] == "" {
+		t.Errorf("HashPassword() = %q, want непустые соль и ключ", hash)
 	}
 
 	if strings.Contains(hash, password) {
@@ -101,21 +107,6 @@ func TestVerifyPassword(t *testing.T) {
 			t.Errorf("VerifyPassword() error = %v, want %v", err, ErrPasswordMismatch)
 		}
 	})
-
-	t.Run("параметры берутся из хеша", func(t *testing.T) {
-		// Хеш с малым числом итераций: проверка идёт по параметрам из хеша,
-		// а не по текущему значению по умолчанию.
-		salt := []byte("0123456789abcdef")
-
-		key, err := pbkdf2.Key(sha256.New, password, salt, 1000, passwordKeyLen)
-		if err != nil {
-			t.Fatalf("pbkdf2.Key() unexpected error = %v", err)
-		}
-
-		if err := VerifyPassword(password, encodePasswordHash(1000, salt, key)); err != nil {
-			t.Errorf("VerifyPassword() unexpected error = %v", err)
-		}
-	})
 }
 
 func TestVerifyPassword_InvalidHash(t *testing.T) {
@@ -133,6 +124,12 @@ func TestVerifyPassword_InvalidHash(t *testing.T) {
 		{name: "пустая соль", hash: "pbkdf2_sha256$210000$$a2V5"},
 		{name: "ключ не base64", hash: "pbkdf2_sha256$210000$c2FsdA$***"},
 		{name: "пустой ключ", hash: "pbkdf2_sha256$210000$c2FsdA$"},
+		{name: "argon2 без частей", hash: "argon2id$v=19$m=19456,t=2,p=1$c2FsdA"},
+		{name: "argon2 неизвестная версия", hash: "argon2id$v=18$m=19456,t=2,p=1$c2FsdA$a2V5"},
+		{name: "argon2 нулевая память", hash: "argon2id$v=19$m=0,t=2,p=1$c2FsdA$a2V5"},
+		{name: "argon2 неизвестный параметр", hash: "argon2id$v=19$m=19456,x=2,p=1$c2FsdA$a2V5"},
+		{name: "argon2 соль не base64", hash: "argon2id$v=19$m=19456,t=2,p=1$***$a2V5"},
+		{name: "argon2 ключ не base64", hash: "argon2id$v=19$m=19456,t=2,p=1$c2FsdA$***"},
 	}
 
 	for _, tt := range tests {
@@ -140,6 +137,37 @@ func TestVerifyPassword_InvalidHash(t *testing.T) {
 			err := VerifyPassword("correct horse battery staple", tt.hash)
 			if !errors.Is(err, ErrInvalidPasswordHash) {
 				t.Errorf("VerifyPassword() error = %v, want %v", err, ErrInvalidPasswordHash)
+			}
+		})
+	}
+}
+
+func TestNeedsRehash(t *testing.T) {
+	current, err := HashPassword("correct horse battery staple")
+	if err != nil {
+		t.Fatalf("HashPassword() unexpected error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		hash string
+		want bool
+	}{
+		{name: "текущий Argon2id", hash: current, want: false},
+		{
+			name: "прежний PBKDF2",
+			hash: "pbkdf2_sha256$210000$dQIjm0wTireOlDo8WomRug$+qvx5cWbyYARbq061iEy9aedaWfstobFn25SQIDvZbc",
+			want: true,
+		},
+		{name: "Argon2id с другими параметрами", hash: "argon2id$v=19$m=1024,t=1,p=1$c2FsdA$a2V5", want: true},
+		{name: "повреждённый Argon2id", hash: "argon2id$broken", want: true},
+		{name: "неизвестный алгоритм", hash: "bcrypt$whatever", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NeedsRehash(tt.hash); got != tt.want {
+				t.Errorf("NeedsRehash(%q) = %v, want %v", tt.hash, got, tt.want)
 			}
 		})
 	}

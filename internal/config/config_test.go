@@ -163,3 +163,25 @@ func TestAppConfigMultipleCalls(t *testing.T) {
 		t.Error("AppConfig() should return the same instance on multiple calls")
 	}
 }
+
+func TestAuthConfigFields(t *testing.T) {
+	cfg := Auth()
+	if cfg == nil {
+		t.Fatal("Auth() returned nil")
+	}
+
+	if cfg.Issuer == "" {
+		t.Error("Issuer should not be empty: есть значение по умолчанию")
+	}
+}
+
+func TestBootstrapConfigFields(t *testing.T) {
+	cfg := Bootstrap()
+	if cfg == nil {
+		t.Fatal("Bootstrap() returned nil")
+	}
+
+	if cfg.FirstName == "" || cfg.LastName == "" {
+		t.Error("имя и фамилия суперпользователя должны иметь значения по умолчанию")
+	}
+}

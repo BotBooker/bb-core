@@ -186,9 +186,15 @@ func toStatusError(err error) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, database.ErrNotFound):
-		return status.Error(codes.NotFound, err.Error())
+		// Текст фиксированный: в err.Error() обёрнута ошибка драйвера
+		// (sql.ErrNoRows и т.п.), а детали SQL наружу отдавать нельзя.
+		return status.Error(codes.NotFound, notFoundMessage)
 	case errors.Is(err, database.ErrDuplicate):
-		return status.Error(codes.AlreadyExists, err.Error())
+		// Здесь драйвер сообщает имя индекса и SQLSTATE, поэтому текст тоже
+		// фиксированный — как у ErrNotFound.
+		return status.Error(codes.AlreadyExists, conflictMessage)
+	case errors.Is(err, service.ErrPasswordExpired):
+		return status.Error(codes.PermissionDenied, passwordExpiredMessage)
 	case errors.Is(err, service.ErrUnauthorized), errors.Is(err, service.ErrInvalidCredentials):
 		return status.Error(codes.Unauthenticated, unauthorizedMessage)
 	case errors.Is(err, service.ErrForbidden):

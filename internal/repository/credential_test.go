@@ -97,12 +97,46 @@ func runCredentialRepoScenario(t *testing.T, conn database.DB, dialect string) {
 			t.Errorf("Create() error = %v, want %v", err, database.ErrDuplicate)
 		}
 	})
-
 	t.Run("нет учётных данных — ErrNotFound", func(t *testing.T) {
 		unknown := "3f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
 
 		if _, err := credentialRepo.GetByUserID(ctx, unknown); !errors.Is(err, database.ErrNotFound) {
 			t.Errorf("GetByUserID() error = %v, want %v", err, database.ErrNotFound)
+		}
+	})
+
+	t.Run("обновление хеша", func(t *testing.T) {
+		// Смена пароля и пересчёт устаревшего хеша сохраняются одним UPDATE:
+		// меняются хеш и время его изменения.
+		updated := *credentials
+
+		changedAt := credentials.UpdatedAt.Add(time.Hour)
+		if err := updated.SetPassword("another correct horse", changedAt); err != nil {
+			t.Fatalf("SetPassword() unexpected error = %v", err)
+		}
+
+		if err := credentialRepo.Update(ctx, &updated); err != nil {
+			t.Fatalf("Update() unexpected error = %v", err)
+		}
+
+		got, err := credentialRepo.GetByUserID(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("GetByUserID() unexpected error = %v", err)
+		}
+
+		if got.Hash != updated.Hash {
+			t.Errorf("Hash = %q, want %q", got.Hash, updated.Hash)
+		}
+		if !got.UpdatedAt.Equal(updated.UpdatedAt) {
+			t.Errorf("UpdatedAt = %v, want %v", got.UpdatedAt, updated.UpdatedAt)
+		}
+	})
+
+	t.Run("обновление неизвестных учётных данных — ErrNotFound", func(t *testing.T) {
+		orphan := testCredentials(t, "3f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f")
+
+		if err := credentialRepo.Update(ctx, orphan); !errors.Is(err, database.ErrNotFound) {
+			t.Errorf("Update() error = %v, want %v", err, database.ErrNotFound)
 		}
 	})
 
