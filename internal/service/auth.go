@@ -159,7 +159,7 @@ func NewAuthService(
 	ttl time.Duration,
 	passwordTTL time.Duration,
 ) AuthService {
-	slog.Debug("auth service created", "token_ttl", ttl.String(), "password_ttl", passwordTTL.String())
+	slog.Debug("auth service created", "token_ttl", ttl.String(), "password_ttl_enabled", passwordTTL > 0)
 
 	return &authService{
 		userRepo:       userRepo,
