@@ -63,10 +63,14 @@ type AuthConfig struct {
 	// промышленной среде секрет задают явно, иначе токены не переживут
 	// перезапуск и не будут приниматься другими экземплярами приложения.
 	JWTSecret string
-	// TokenTTL — срок жизни токена доступа. Из окружения: AUTH_TOKEN_TTL (например, "720h").
+	// TokenTTL — срок жизни токена доступа. Из окружения: AUTH_TOKEN_TTL (например, "720h" или "30d").
 	TokenTTL time.Duration
 	// Issuer — кто выдал токен (claim iss). Из окружения: AUTH_JWT_ISSUER.
 	Issuer string
+	// PasswordTTL — срок жизни пароля: сколько времени пароль действует с
+	// момента последнего изменения. Из окружения: PASSWORD_TTL Ноль или
+	// отрицательное значение отключает проверку —пароль не истекает.
+	PasswordTTL time.Duration
 }
 
 // Auth возвращает настройки авторизации.
@@ -77,10 +81,49 @@ func Auth() *AuthConfig {
 // DefaultTokenTTL — срок жизни токена доступа по умолчанию: 30 дней.
 const DefaultTokenTTL = 720 * time.Hour
 
+// defaultPasswordTTLDays — срок жизни пароля по умолчанию.
+const defaultPasswordTTLDays = 90 * 24 * time.Hour
+
 var authConfig = &AuthConfig{
-	JWTSecret: tools.GetEnvOrDefault("JWT_SECRET", ""),
-	TokenTTL:  tools.GetEnvOrDefaultToDuration("AUTH_TOKEN_TTL", DefaultTokenTTL),
-	Issuer:    tools.GetEnvOrDefault("AUTH_JWT_ISSUER", "bb-core"),
+	JWTSecret:   tools.GetEnvOrDefault("JWT_SECRET", ""),
+	TokenTTL:    tools.GetEnvOrDefaultToDuration("AUTH_TOKEN_TTL", DefaultTokenTTL),
+	Issuer:      tools.GetEnvOrDefault("AUTH_JWT_ISSUER", "bb-core"),
+	PasswordTTL: passwordTTLFromEnv(tools.GetEnvOrDefaultToDuration("PASSWORD_TTL", defaultPasswordTTLDays)),
+}
+
+// passwordTTLFromEnv переводит срок жизни пароля из дней в time.Duration.
+// Ноль и отрицательные значения означают «пароль не истекает».
+func passwordTTLFromEnv(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return 0
+	}
+	return ttl
+}
+
+// BootstrapConfig хранит данные первого суперпользователя, которого создаёт
+// команда bootstrap (cmd/bootstrap).
+type BootstrapConfig struct {
+	// Email — адрес суперпользователя. Из окружения: SUPERUSER_EMAIL.
+	Email string
+	// Password — открытый пароль суперпользователя. Из окружения:
+	// SUPERUSER_PASSWORD. В базе хранится только его хеш.
+	Password string
+	// FirstName, LastName — имя и фамилия. Из окружения: SUPERUSER_FIRST_NAME,
+	// SUPERUSER_LAST_NAME.
+	FirstName string
+	LastName  string
+}
+
+// Bootstrap возвращает настройки первого суперпользователя.
+func Bootstrap() *BootstrapConfig {
+	return bootstrapConfig
+}
+
+var bootstrapConfig = &BootstrapConfig{
+	Email:     tools.GetEnvOrDefault("SUPERUSER_EMAIL", ""),
+	Password:  tools.GetEnvOrDefault("SUPERUSER_PASSWORD", ""),
+	FirstName: tools.GetEnvOrDefault("SUPERUSER_FIRST_NAME", "Super"),
+	LastName:  tools.GetEnvOrDefault("SUPERUSER_LAST_NAME", "Admin"),
 }
 
 var databaseConfig = &DatabaseConfig{

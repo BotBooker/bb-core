@@ -16,10 +16,11 @@ import (
 // mockAuthService — мок сервиса авторизации для сборки хендлера: сам сервис
 // проверяется в тестах service, здесь важен только транспорт.
 type mockAuthService struct {
-	authenticateFunc func(ctx context.Context, token string) (*service.Principal, error)
-	loginFunc        func(ctx context.Context, email, password string) (*service.Session, error)
-	registerFunc     func(ctx context.Context, in model.RegisterInput) (*model.User, *service.Session, error)
-	logoutFunc       func(ctx context.Context, token string) error
+	authenticateFunc   func(ctx context.Context, token string) (*service.Principal, error)
+	loginFunc          func(ctx context.Context, email, password string) (*service.Session, error)
+	changePasswordFunc func(ctx context.Context, email, currentPassword, newPassword string) (*service.Session, error)
+	registerFunc       func(ctx context.Context, in model.RegisterInput) (*model.User, *service.Session, error)
+	logoutFunc         func(ctx context.Context, token string) error
 }
 
 func (m *mockAuthService) Authenticate(ctx context.Context, token string) (*service.Principal, error) {
@@ -33,6 +34,17 @@ func (m *mockAuthService) Authenticate(ctx context.Context, token string) (*serv
 func (m *mockAuthService) Login(ctx context.Context, email, password string) (*service.Session, error) {
 	if m.loginFunc != nil {
 		return m.loginFunc(ctx, email, password)
+	}
+
+	return nil, service.ErrInvalidCredentials
+}
+
+func (m *mockAuthService) ChangePassword(
+	ctx context.Context,
+	email, currentPassword, newPassword string,
+) (*service.Session, error) {
+	if m.changePasswordFunc != nil {
+		return m.changePasswordFunc(ctx, email, currentPassword, newPassword)
 	}
 
 	return nil, service.ErrInvalidCredentials
@@ -265,6 +277,7 @@ func TestHandler_PublicPaths(t *testing.T) {
 		{name: "health открыт", method: http.MethodGet, path: "/health", wantStatus: http.StatusOK},
 		{name: "вход открыт", method: http.MethodPost, path: "/auth/login", wantStatus: http.StatusUnauthorized},
 		{name: "регистрация открыта", method: http.MethodPost, path: "/auth/register", wantStatus: http.StatusForbidden},
+		{name: "смена пароля открыта", method: http.MethodPost, path: "/auth/password", wantStatus: http.StatusUnauthorized},
 		// swagger без токена отдаёт сам UI (файл swagger-ui.html из pkg/api):
 		// index.html в статике нет, а http.FileServer на путь, оканчивающийся
 		// на /index.html, отвечает 301-редиректом — проверяем реальную страницу.
@@ -339,4 +352,120 @@ func TestHandler_AuthenticateError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_loginPasswordExpired проверяет ответ на вход с просроченным
+// паролем: 403 с признаком password_expired, по которому клиент ведёт
+// пользователя на смену пароля.
+func TestHandler_loginPasswordExpired(t *testing.T) {
+	auth := &mockAuthService{loginFunc: func(context.Context, string, string) (*service.Session, error) {
+		return nil, service.ErrPasswordExpired
+	}}
+
+	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+	if err != nil {
+		t.Fatalf("NewHandler() unexpected error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/login",
+		strings.NewReader(`{"email":"ivan@example.com","password":"secret-pass"}`))
+	rec := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (body = %s)", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+
+	if !strings.Contains(body, passwordExpiredMessage) || !strings.Contains(body, passwordExpiredCode) {
+		t.Errorf("body = %q, want %q и %q", body, passwordExpiredMessage, passwordExpiredCode)
+	}
+}
+
+// TestHandler_changePassword проверяет POST /auth/password: ручка открыта
+// (токена нет), отвечает сессией либо ошибкой.
+func TestHandler_changePassword(t *testing.T) {
+	user := handlerTestUser(t)
+
+	t.Run("успех — 200 с токеном", func(t *testing.T) {
+		var gotEmail, gotCurrent, gotNew string
+
+		auth := &mockAuthService{changePasswordFunc: func(
+			_ context.Context,
+			email, currentPassword, newPassword string,
+		) (*service.Session, error) {
+			gotEmail, gotCurrent, gotNew = email, currentPassword, newPassword
+
+			now := time.Now().UTC()
+
+			return &service.Session{
+				AccessToken: "new-token",
+				Token: &model.Token{
+					ID:        "1c9edc8e-1f1c-4d5c-8a5e-6f2f1d3c4b5a",
+					UserID:    user.ID,
+					Role:      user.Role,
+					IssuedAt:  now,
+					ExpiresAt: now.Add(time.Hour),
+				},
+			}, nil
+		}}
+
+		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+		if err != nil {
+			t.Fatalf("NewHandler() unexpected error = %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/password", strings.NewReader(
+			`{"email":"ivan@example.com","current_password":"old-password","new_password":"new-password"}`,
+		))
+		rec := httptest.NewRecorder()
+		handler.Routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d (body = %s)", rec.Code, http.StatusOK, rec.Body.String())
+		}
+
+		if !strings.Contains(rec.Body.String(), "new-token") {
+			t.Errorf("body = %q, want токен", rec.Body.String())
+		}
+
+		if gotEmail != "ivan@example.com" || gotCurrent != "old-password" || gotNew != "new-password" {
+			t.Errorf("ChangePassword(%q, %q, %q)", gotEmail, gotCurrent, gotNew)
+		}
+	})
+
+	t.Run("неверные данные — 401", func(t *testing.T) {
+		auth := &mockAuthService{changePasswordFunc: func(context.Context, string, string, string) (*service.Session, error) {
+			return nil, service.ErrInvalidCredentials
+		}}
+
+		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+		if err != nil {
+			t.Fatalf("NewHandler() unexpected error = %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/password", strings.NewReader(`{}`))
+		rec := httptest.NewRecorder()
+		handler.Routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("битый JSON — 400", func(t *testing.T) {
+		handler, err := NewHandler(&mockAuthService{}, NewUserServiceServer(&mockUserServiceAPI{}))
+		if err != nil {
+			t.Fatalf("NewHandler() unexpected error = %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/auth/password", strings.NewReader("not json"))
+		rec := httptest.NewRecorder()
+		handler.Routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
 }

@@ -23,6 +23,11 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	// ErrForbidden — пользователь известен, но прав на операцию нет.
 	ErrForbidden = errors.New("forbidden")
+	// ErrPasswordExpired — срок действия пароля истёк: вход разрешён только для
+	// смены пароля. Значение совпадает с model.ErrPasswordExpired — сервис не
+	// заводит второй сигнал для того же состояния, а транспорт переводит его в
+	// 403 с признаком password_expired.
+	ErrPasswordExpired = model.ErrPasswordExpired
 )
 
 // _dummyPasswordHash — хеш случайного пароля, которого нет ни у одного
@@ -34,7 +39,7 @@ var (
 // зарегистрированы. Пароль этого хеша нигде не сохранён, поэтому проверка по
 // нему всегда даёт ErrPasswordMismatch.
 // #nosec G101
-const _dummyPasswordHash = "pbkdf2_sha256$210000$36guytfU5srcVZr3g3y//g$j7R6CdZUMhnqCpIbk630kyA6gyTiNmAoWqeeEFhjklk"
+const _dummyPasswordHash = "argon2id$v=19$m=19456,t=2,p=1$vnTtR/4LeIqz3A2E/cJJPQ$PK+j63/BT4gsmwv+pe819IAXaPFuDho4W/TS0xbdYrg"
 
 // AuthUserRepository — интерфейс репозитория пользователей для AuthService.
 type AuthUserRepository interface {
@@ -49,6 +54,9 @@ type AuthUserRepository interface {
 type AuthCredentialRepository interface {
 	Create(ctx context.Context, credentials *model.Credentials) error
 	GetByUserID(ctx context.Context, userID string) (*model.Credentials, error)
+	// Update перезаписывает хеш пароля и время его изменения (смена пароля и
+	// «прозрачное» обновление устаревшего хеша при входе).
+	Update(ctx context.Context, credentials *model.Credentials) error
 }
 
 // AuthTokenRepository — интерфейс репозитория сессий.
@@ -81,6 +89,8 @@ const (
 	EventUserLoggedIn = "user.logged_in"
 	// EventUserLoggedOut — пользователь вышел из системы.
 	EventUserLoggedOut = "user.logged_out"
+	// EventUserPasswordChanged — пользователь сменил пароль.
+	EventUserPasswordChanged = "user.password_changed"
 )
 
 // tokenTouchInterval — как часто обновляется время последнего использования
@@ -102,7 +112,15 @@ type AuthService interface {
 	// отдельный вход после регистрации не нужен.
 	Register(ctx context.Context, in model.RegisterInput) (*model.User, *Session, error)
 	// Login проверяет email и пароль и выдаёт токен.
+	//
+	// Если срок действия пароля истёк, токен не выдаётся: возвращается
+	// ErrPasswordExpired, и пользователь может только сменить пароль.
 	Login(ctx context.Context, email, password string) (*Session, error)
+	// ChangePassword меняет пароль пользователя и выдаёт новую сессию.
+	//
+	// Личность подтверждается текущим паролем, а не токеном: сменить пароль
+	// нужно и тем, у кого срок действия пароля истёк, — а им токен не выдаётся.
+	ChangePassword(ctx context.Context, email, currentPassword, newPassword string) (*Session, error)
 	// Logout отзывает токен — это и есть выход из системы.
 	Logout(ctx context.Context, accessToken string) error
 	// Authenticate проверяет токен и возвращает действующего пользователя.
@@ -118,6 +136,9 @@ type authService struct {
 	events         AuthEventPublisher
 	// ttl — срок жизни выдаваемых токенов.
 	ttl time.Duration
+	// passwordTTL — срок жизни пароля: по его истечении вход превращается в
+	// принудительную смену пароля. Значение <= 0 отключает проверку.
+	passwordTTL time.Duration
 	// now — часы сервиса: поле, а не прямой вызов time.Now, чтобы тесты
 	// проверяли истечение срока и не зависели от реального времени.
 	now func() time.Time
@@ -127,6 +148,8 @@ type authService struct {
 //
 // ttl — срок жизни выдаваемых токенов (config.Auth().TokenTTL): сервис не
 // читает конфигурацию сам, её передаёт слой сборки приложения.
+// passwordTTL — срок жизни пароля (config.Auth().PasswordTTL): после его
+// истечения вход превращается в принудительную смену пароля.
 func NewAuthService(
 	userRepo AuthUserRepository,
 	credentialRepo AuthCredentialRepository,
@@ -134,8 +157,9 @@ func NewAuthService(
 	codec AuthTokenCodec,
 	events AuthEventPublisher,
 	ttl time.Duration,
+	passwordTTL time.Duration,
 ) AuthService {
-	slog.Debug("auth service created", "token_ttl", ttl.String())
+	slog.Debug("auth service created", "token_ttl", ttl.String(), "password_ttl", passwordTTL.String())
 
 	return &authService{
 		userRepo:       userRepo,
@@ -144,6 +168,7 @@ func NewAuthService(
 		codec:          codec,
 		events:         events,
 		ttl:            ttl,
+		passwordTTL:    passwordTTL,
 		now:            time.Now,
 	}
 }
@@ -230,6 +255,20 @@ func (s *authService) Login(ctx context.Context, email, password string) (*Sessi
 		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
 	}
 
+	// Просроченный пароль блокирует вход: токен не выдаётся, пока пароль не
+	// сменён. Проверка стоит после проверки пароля, поэтому по ответу нельзя
+	// узнать о пользователе больше, чем он сам сообщил.
+	if credentials.Expired(now, s.passwordTTL) {
+		expiredAt := credentials.ExpiresAt(s.passwordTTL).Format(time.RFC3339)
+		slog.InfoContext(ctx, "user password expired", "uuid", user.ID, "expired_at", expiredAt)
+
+		return nil, fmt.Errorf("%w: password of user %s expired at %s", ErrPasswordExpired, user.ID, expiredAt)
+	}
+
+	// Устаревший хеш обновляем на лету: пользователь ввёл правильный пароль,
+	// и переход на новый алгоритм не должен требовать от него действий.
+	s.upgradeHash(ctx, credentials, password)
+
 	s.touchLastLogin(ctx, user, now)
 	s.removeExpiredTokens(ctx, user.ID, now)
 
@@ -240,6 +279,71 @@ func (s *authService) Login(ctx context.Context, email, password string) (*Sessi
 
 	slog.InfoContext(ctx, "user logged in", "uuid", user.ID)
 	s.publish(EventUserLoggedIn)
+
+	return session, nil
+}
+
+// ChangePassword меняет пароль пользователя и выдаёт новую сессию.
+//
+// Личность подтверждается текущим паролем: у пользователя с просроченным
+// паролем токена нет, поэтому предъявить он может только сам пароль. После
+// успешной смены срок действия пароля начинается заново (UpdatedAt), а
+// пользователь сразу получает токен и может работать.
+func (s *authService) ChangePassword(
+	ctx context.Context,
+	email, currentPassword, newPassword string,
+) (*Session, error) {
+	now := s.now()
+
+	user, err := s.userRepo.GetByEmail(ctx, model.NormalizeEmail(email))
+	if errors.Is(err, database.ErrNotFound) {
+		_ = model.VerifyPassword(currentPassword, _dummyPasswordHash)
+
+		return nil, ErrInvalidCredentials
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("change password: %w", err)
+	}
+
+	credentials, err := s.credentialRepo.GetByUserID(ctx, user.ID)
+	if errors.Is(err, database.ErrNotFound) {
+		// Пользователь есть, пароля нет: подтвердить личность нечем.
+		_ = model.VerifyPassword(currentPassword, _dummyPasswordHash)
+
+		return nil, ErrInvalidCredentials
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("change password: %w", err)
+	}
+
+	if err := credentials.Verify(currentPassword); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
+	}
+
+	// Новый пароль проходит те же требования, что и при регистрации; проверка
+	// идёт до записи, чтобы неверный пароль не оставил пользователя без входа.
+	if err := credentials.SetPassword(newPassword, now); err != nil {
+		return nil, fmt.Errorf("change password: %w", err)
+	}
+
+	if err := s.credentialRepo.Update(ctx, credentials); err != nil {
+		return nil, fmt.Errorf("change password: %w", err)
+	}
+
+	// Вход после смены: срок действия пароля сброшен, а новая сессия выдаётся
+	// сразу — иначе пользователю пришлось бы входить повторно.
+	s.touchLastLogin(ctx, user, now)
+	s.removeExpiredTokens(ctx, user.ID, now)
+
+	session, err := s.issue(ctx, user, now)
+	if err != nil {
+		return nil, fmt.Errorf("change password: %w", err)
+	}
+
+	slog.InfoContext(ctx, "user password changed", "uuid", user.ID)
+	s.publish(EventUserPasswordChanged)
 
 	return session, nil
 }
@@ -350,6 +454,27 @@ func (s *authService) issue(ctx context.Context, user *model.User, now time.Time
 func (s *authService) removeUser(ctx context.Context, id string) {
 	if err := s.userRepo.Delete(ctx, id); err != nil {
 		slog.ErrorContext(ctx, "failed to roll back registration", "uuid", id, "err", err)
+	}
+}
+
+// upgradeHash пересчитывает устаревший хеш пароля и сохраняет его.
+//
+// Это не смена пароля: время последнего изменения (UpdatedAt) не трогается,
+// поэтому срок действия пароля не сбрасывается. Ошибку логируем — она не
+// должна мешать входу, ведь пароль уже проверен.
+func (s *authService) upgradeHash(ctx context.Context, credentials *model.Credentials, password string) {
+	if !credentials.NeedsRehash() {
+		return
+	}
+
+	if err := credentials.Rehash(password); err != nil {
+		slog.WarnContext(ctx, "failed to rehash password", "uuid", credentials.UserID, "err", err)
+
+		return
+	}
+
+	if err := s.credentialRepo.Update(ctx, credentials); err != nil {
+		slog.WarnContext(ctx, "failed to persist rehashed password", "uuid", credentials.UserID, "err", err)
 	}
 }
 

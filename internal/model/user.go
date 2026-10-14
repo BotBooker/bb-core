@@ -225,6 +225,23 @@ func NewUser(in CreateUserInput, now time.Time) (*User, error) {
 	}, nil
 }
 
+// NewSuperuser создаёт пользователя с ролью admin — первого суперпользователя
+// системы (см. cmd/bootstrap).
+//
+// Роль задаётся здесь, а не через API: самостоятельно стать администратором
+// нельзя, единственный способ завести первого админа — bootstrap. Остальные
+// правила те же, что и у обычного пользователя (валидация профиля, is_active).
+func NewSuperuser(in CreateUserInput, now time.Time) (*User, error) {
+	user, err := NewUser(in, now)
+	if err != nil {
+		return nil, err
+	}
+
+	user.Role = RoleAdmin
+
+	return user, nil
+}
+
 // Validate проверяет вход создания пользователя.
 //
 // Возвращает все найденные ошибки сразу: несколько проблем удобнее показать

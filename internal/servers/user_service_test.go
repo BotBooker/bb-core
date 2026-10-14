@@ -436,23 +436,42 @@ func TestUserServiceServer_Delete(t *testing.T) {
 
 func TestToStatusError(t *testing.T) {
 	tests := []struct {
-		name     string
-		err      error
-		wantCode codes.Code
+		name        string
+		err         error
+		wantCode    codes.Code
+		wantMessage string
 	}{
 		{name: "nil остаётся nil", err: nil, wantCode: codes.OK},
-		{name: "не найдено", err: database.ErrNotFound, wantCode: codes.NotFound},
-		{name: "конфликт", err: database.ErrDuplicate, wantCode: codes.AlreadyExists},
+		{
+			name:        "не найдено",
+			err:         database.ErrNotFound,
+			wantCode:    codes.NotFound,
+			wantMessage: notFoundMessage,
+		},
+		{
+			name:        "конфликт",
+			err:         database.ErrDuplicate,
+			wantCode:    codes.AlreadyExists,
+			wantMessage: conflictMessage,
+		},
 		{name: "валидация модели", err: model.ErrInvalidEmail, wantCode: codes.InvalidArgument},
 		{name: "валидация пароля", err: model.ErrInvalidPassword, wantCode: codes.InvalidArgument},
 		{name: "nil-запрос", err: errNilRequest, wantCode: codes.InvalidArgument},
 		{name: "нет действующего пользователя", err: service.ErrUnauthorized, wantCode: codes.Unauthenticated},
 		{name: "неверные учётные данные", err: service.ErrInvalidCredentials, wantCode: codes.Unauthenticated},
 		{name: "нет прав", err: service.ErrForbidden, wantCode: codes.PermissionDenied},
+		{name: "пароль просрочен", err: service.ErrPasswordExpired, wantCode: codes.PermissionDenied},
 		{
 			name:     "обёрнутая ошибка",
 			err:      errors.Join(database.ErrNotFound, errors.New("x")),
 			wantCode: codes.NotFound,
+		},
+		{
+			// Ошибка драйвера обёрнута в ErrNotFound: её текст клиенту не отдаётся.
+			name:        "детали драйвера не утекают",
+			err:         errors.Join(database.ErrNotFound, errors.New("sql: no rows in result set")),
+			wantCode:    codes.NotFound,
+			wantMessage: notFoundMessage,
 		},
 		{name: "внутренняя", err: errors.New("boom"), wantCode: codes.Internal},
 	}
@@ -466,6 +485,10 @@ func TestToStatusError(t *testing.T) {
 
 			if tt.err == nil && err != nil {
 				t.Errorf("toStatusError(nil) = %v, want nil", err)
+			}
+
+			if tt.wantMessage != "" && status.Convert(err).Message() != tt.wantMessage {
+				t.Errorf("toStatusError() message = %q, want %q", status.Convert(err).Message(), tt.wantMessage)
 			}
 		})
 	}

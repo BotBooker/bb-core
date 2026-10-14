@@ -16,7 +16,7 @@ DSN=sqlite:/tmp/database.db go run ./cmd/api   # миграции применя
 | Переменная | По умолчанию | Назначение |
 | --- | --- | --- |
 | `SERVER_HOST`, `SERVER_PORT` | `localhost`, `8080` | HTTP: `/health`, `/api/v1`, `/api/swagger/` |
-| `SERVER_GRPC_HOST`, `SERVER_GRPC_PORT` | `localhost`, `50051` | gRPC: `user.v1.UserService`, health, reflection |
+| `SERVER_GRPC_HOST`, `SERVER_GRPC_PORT` | `localhost`, `50051` | gRPC: `user.v1.UserService`, `auth.v1.AuthService`, health, reflection |
 | `DSN` | — | подключение к БД; диалект (postgres/sqlite) определяется по DSN |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | адрес OTel Collector для всех сигналов |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | — | адрес OTel Collector для логов |
@@ -28,5 +28,74 @@ DSN=sqlite:/tmp/database.db go run ./cmd/api   # миграции применя
 curl -s localhost:8080/health
 grpcurl -plaintext localhost:50051 list
 ```
+
+## Аутентификация
+
+Ручки авторизации живут в `internal/servers/auth.go`:
+
+| Ручка | Назначение |
+| --- | --- |
+| `POST /auth/register` | Самостоятельная регистрация (роль `client`), сразу выдаёт токен |
+| `POST /auth/login` | Вход по email и паролю |
+| `POST /auth/password` | Смена пароля по текущему паролю |
+| `POST /auth/logout` | Выход (отзыв токена) |
+| `GET /users/me` | Профиль действующего пользователя |
+
+Те же операции доступны как proto-сервис `auth.v1.AuthService`
+(`proto/auth/v1/auth.proto`): gRPC-методы `Register`, `Login`, `ChangePassword`,
+`Logout`, `GetCurrentUser`, а через grpc-gateway — ручки
+`POST /api/v1/auth/{register,login,password,logout}` и `GET /api/v1/auth/me`.
+Один адаптер (`internal/servers/auth_service.go`) обслуживает оба транспорта,
+поэтому коды и тела ответов совпадают.
+
+Смок-тест ручек авторизации:
+
+```sh
+BASE_URL=http://localhost:8080 tests/smoke/auth.sh
+```
+
+Пароли хранятся только в виде хеша **Argon2id** (`internal/model/password.go`).
+Хеши прежнего формата (PBKDF2-HMAC-SHA256) продолжают проверяться и
+«прозрачно» пересчитываются в Argon2id при успешном входе — сбрасывать пароли
+при обновлении не нужно.
+
+### Срок жизни пароля
+
+`PASSWORD_TTL` (по умолчанию `90d`) задаёт, сколько пароль действует с момента
+последнего изменения. Формат — сутки с суффиксом `d` (`90d`, `1.5d`) или любая
+единица `time.ParseDuration` (`2160h`, `30m`). Когда срок истёк, вход больше не
+выдаёт токен:
+`POST /auth/login` отвечает `403` с телом
+
+```json
+{"error": "password expired", "code": "password_expired"}
+```
+
+и клиент обязан отправить пользователя на смену пароля — `POST /auth/password`
+с текущим и новым паролем. Только после смены выдаётся токен. Значение `0` или
+отрицательное отключает проверку (пароль не истекает).
+
+### Первый суперпользователь
+
+Первого администратора создаёт команда bootstrap — она же применяет миграции:
+
+```sh
+make bootstrap          # берёт DSN и SUPERUSER_* из .env
+# или напрямую
+DSN=sqlite:/tmp/database.db \
+  SUPERUSER_EMAIL=admin@example.com \
+  SUPERUSER_PASSWORD='change-me-please' \
+  go run ./cmd/bootstrap
+```
+
+| Переменная | Назначение |
+| --- | --- |
+| `SUPERUSER_EMAIL` | Email первого суперпользователя (роль `admin`) |
+| `SUPERUSER_PASSWORD` | Его пароль (в базе хранится только хеш) |
+| `SUPERUSER_FIRST_NAME`, `SUPERUSER_LAST_NAME` | Имя и фамилия (`Super`, `Admin` по умолчанию) |
+
+Команда идемпотентна: если суперпользователь с таким email уже есть, он не
+меняется и пароль ему не сбрасывается. Завести администратора через API нельзя —
+роль `admin` назначается только при bootstrap.
 
 Подробности по наблюдаемости — в [docs/HOWTO.md](docs/HOWTO.md).

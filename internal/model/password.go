@@ -10,26 +10,48 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"golang.org/x/crypto/argon2"
 )
 
 // Требования к паролю и параметры хеширования.
+//
+// Пароли хеширует Argon2id — современный алгоритм, победитель Password Hashing
+// Competition. Он намеренно медленный и «жадный» до памяти: подбор пароля
+// требует заметной памяти на каждую попытку, поэтому перебор на GPU/ASIC
+// становится невыгодным. Устаревшие алгоритмы (MD5, SHA1/SHA256 без растяжения
+// ключа) не используются вовсе.
+//
+// Алгоритм и его параметры хранятся в самой строке хеша, поэтому их изменение
+// не ломает уже сохранённые пароли: старые хеши продолжают проверяться, а при
+// следующем успешном входе пересчитываются новыми параметрами (см. NeedsRehash).
 const (
 	// PasswordMinLen — минимальная длина пароля в символах (рунах).
 	PasswordMinLen = 8
 	// PasswordMaxLen — максимальная длина пароля в байтах: ограничивает работу,
 	// которую злоумышленник может заставить сервер выполнить одним запросом.
 	PasswordMaxLen = 128
-	// passwordSaltLen — длина соли в байтах.
+	// passwordSaltLen — длина соли в байтах: своя для каждого пароля, поэтому
+	// одинаковые пароли дают разные хеши.
 	passwordSaltLen = 16
 	// passwordKeyLen — длина ключа (хеша) в байтах.
 	passwordKeyLen = 32
-	// passwordIterations — число итераций PBKDF2-HMAC-SHA256 по умолчанию:
-	// компромисс между стойкостью и временем входа (≈0,2 с на этом железе).
-	// Значение хранится в самом хеше, поэтому его можно поднять без сброса
-	// паролей (текущая рекомендация OWASP — 600 000 итераций).
-	passwordIterations = 210_000
-	// hashAlgo — имя алгоритма в закодированном хеше.
-	hashAlgo = "pbkdf2_sha256"
+	// hashAlgo — имя алгоритма хеширования пароля в закодированном хеше.
+	hashAlgo = "argon2id"
+	// argon2Version — версия Argon2. Хранится в хеше вместе с параметрами,
+	// поэтому обновление библиотеки не ломает уже сохранённые пароли.
+	argon2Version = argon2.Version
+	// argon2Memory — сколько KiB памяти использует один расчёт (19 MiB —
+	// рекомендация OWASP для Argon2id).
+	argon2Memory = 19 * 1024
+	// argon2Time — число проходов (iterations).
+	argon2Time = 2
+	// argon2Threads — число потоков, которыми считается хеш.
+	argon2Threads = 1
+	// legacyHashAlgo — алгоритм прежних версий сервиса (PBKDF2-HMAC-SHA256).
+	// Поддерживается только для проверки уже сохранённых хешей: новые пароли
+	// всегда считаются Argon2id.
+	legacyHashAlgo = "pbkdf2_sha256"
 )
 
 // Ошибки пароля.
@@ -60,11 +82,11 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
-// HashPassword считает хеш пароля в формате
+// HashPassword считает хеш пароля Argon2id в формате
 //
-//	pbkdf2_sha256$<итерации>$<соль>$<ключ>
+//	argon2id$v=19$m=19456,t=2,p=1$<соль>$<ключ>
 //
-// Алгоритм и число итераций хранятся вместе с хешем: их смена не ломает уже
+// Алгоритм и его параметры хранятся вместе с хешем: их смена не ломает уже
 // сохранённые пароли. Соль случайная для каждого пароля, поэтому одинаковые
 // пароли разных пользователей дают разные хеши. Открытый пароль нигде не
 // сохраняется.
@@ -78,22 +100,72 @@ func HashPassword(password string) (string, error) {
 		return "", fmt.Errorf("hash password: %w", err)
 	}
 
-	key, err := pbkdf2.Key(sha256.New, password, salt, passwordIterations, passwordKeyLen)
-	if err != nil {
-		return "", fmt.Errorf("hash password: %w", err)
-	}
+	key := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, passwordKeyLen)
 
-	return encodePasswordHash(passwordIterations, salt, key), nil
+	return encodeArgon2Hash(salt, key), nil
 }
 
-// VerifyPassword сравнивает пароль с закодированным хешем.
+// VerifyPassword сравнивает пароль с закодированным хешем и возвращает nil,
+// если пароль подходит.
 //
-// Возвращает ErrPasswordMismatch, если пароль не подходит, и
-// ErrInvalidPasswordHash, если хеш нельзя разобрать. Сравнение ключей —
-// за постоянное время (crypto/subtle): по времени ответа нельзя узнать,
-// сколько байт хеша совпало.
+// Понимаются оба формата: текущий Argon2id и прежний PBKDF2-HMAC-SHA256
+// (legacyHashAlgo) — иначе после перехода на новый алгоритм уже сохранённые
+// пароли перестали бы проверяться. Возвращает ErrPasswordMismatch, если пароль
+// не подходит, и ErrInvalidPasswordHash, если хеш нельзя разобрать. Сравнение
+// ключей — за постоянное время (crypto/subtle): по времени ответа нельзя
+// узнать, сколько байт хеша совпало.
 func VerifyPassword(password, encoded string) error {
-	iterations, salt, key, err := decodePasswordHash(encoded)
+	switch {
+	case strings.HasPrefix(encoded, hashAlgo+"$"):
+		return verifyArgon2(password, encoded)
+	case strings.HasPrefix(encoded, legacyHashAlgo+"$"):
+		return verifyPBKDF2(password, encoded)
+	default:
+		return fmt.Errorf("%w: unknown algorithm in %q", ErrInvalidPasswordHash, prefix(encoded))
+	}
+}
+
+// NeedsRehash сообщает, что хеш посчитан устаревшим алгоритмом или с
+// параметрами, отличными от текущих, и его стоит пересчитать.
+//
+// Вызывается после успешной проверки пароля: открытый пароль в этот момент
+// известен, поэтому хеш можно обновить, не заставляя пользователя менять
+// пароль (см. AuthService — «прозрачное» обновление хеша при входе).
+func NeedsRehash(encoded string) bool {
+	if !strings.HasPrefix(encoded, hashAlgo+"$") {
+		return true
+	}
+
+	params, _, key, err := decodeArgon2Hash(encoded)
+	if err != nil {
+		return true
+	}
+
+	return params != currentArgon2Params() || uint32(len(key)) != passwordKeyLen
+}
+
+// verifyArgon2 проверяет пароль по хешу Argon2id.
+func verifyArgon2(password, encoded string) error {
+	params, salt, key, err := decodeArgon2Hash(encoded)
+	if err != nil {
+		return err
+	}
+
+	actual := argon2.IDKey([]byte(password), salt, params.time, params.memory, params.threads, uint32(len(key)))
+
+	if subtle.ConstantTimeCompare(actual, key) != 1 {
+		return ErrPasswordMismatch
+	}
+
+	return nil
+}
+
+// verifyPBKDF2 проверяет пароль по хешу прежнего формата.
+//
+// Параметры (число итераций) берутся из самого хеша, поэтому старые пароли
+// проверяются ровно так, как были посчитаны.
+func verifyPBKDF2(password, encoded string) error {
+	iterations, salt, key, err := decodePBKDF2Hash(encoded)
 	if err != nil {
 		return err
 	}
@@ -110,21 +182,107 @@ func VerifyPassword(password, encoded string) error {
 	return nil
 }
 
-// encodePasswordHash собирает строку хеша.
-func encodePasswordHash(iterations int, salt, key []byte) string {
-	encode := base64.RawStdEncoding.EncodeToString
-
-	return fmt.Sprintf("%s$%d$%s$%s", hashAlgo, iterations, encode(salt), encode(key))
+// argon2Params — параметры Argon2id, с которыми посчитан хеш.
+type argon2Params struct {
+	memory  uint32
+	time    uint32
+	threads uint8
 }
 
-// decodePasswordHash разбирает строку хеша на итерации, соль и ключ.
-func decodePasswordHash(encoded string) (int, []byte, []byte, error) {
+// currentArgon2Params возвращает параметры, заданные константами пакета.
+func currentArgon2Params() argon2Params {
+	return argon2Params{memory: argon2Memory, time: argon2Time, threads: argon2Threads}
+}
+
+// encodeArgon2Hash собирает строку хеша Argon2id (формат PHC).
+func encodeArgon2Hash(salt, key []byte) string {
+	params := currentArgon2Params()
+	encode := base64.RawStdEncoding.EncodeToString
+
+	return fmt.Sprintf("%s$v=%d$m=%d,t=%d,p=%d$%s$%s",
+		hashAlgo, argon2Version, params.memory, params.time, params.threads, encode(salt), encode(key))
+}
+
+// decodeArgon2Hash разбирает строку хеша Argon2id на параметры, соль и ключ.
+func decodeArgon2Hash(encoded string) (argon2Params, []byte, []byte, error) {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 5 {
+		return argon2Params{}, nil, nil, fmt.Errorf("%w: %d parts, want 5", ErrInvalidPasswordHash, len(parts))
+	}
+
+	if parts[0] != hashAlgo {
+		return argon2Params{}, nil, nil, fmt.Errorf("%w: unknown algorithm %q", ErrInvalidPasswordHash, parts[0])
+	}
+
+	version, err := strconv.Atoi(strings.TrimPrefix(parts[1], "v="))
+	if err != nil || version != argon2Version {
+		return argon2Params{}, nil, nil, fmt.Errorf("%w: version %q", ErrInvalidPasswordHash, parts[1])
+	}
+
+	params, err := parseArgon2Params(parts[2])
+	if err != nil {
+		return argon2Params{}, nil, nil, err
+	}
+
+	salt, err := base64.RawStdEncoding.DecodeString(parts[3])
+	if err != nil || len(salt) == 0 {
+		return argon2Params{}, nil, nil, fmt.Errorf("%w: salt %q", ErrInvalidPasswordHash, parts[3])
+	}
+
+	key, err := base64.RawStdEncoding.DecodeString(parts[4])
+	if err != nil || len(key) == 0 {
+		return argon2Params{}, nil, nil, fmt.Errorf("%w: key %q", ErrInvalidPasswordHash, parts[4])
+	}
+
+	return params, salt, key, nil
+}
+
+// parseArgon2Params разбирает сегмент "m=...,t=...,p=...".
+func parseArgon2Params(segment string) (argon2Params, error) {
+	params := argon2Params{}
+
+	for _, field := range strings.Split(segment, ",") {
+		key, value, found := strings.Cut(field, "=")
+		if !found {
+			return argon2Params{}, fmt.Errorf("%w: params %q", ErrInvalidPasswordHash, segment)
+		}
+
+		parsed, err := strconv.ParseUint(value, 10, 32)
+		if err != nil || parsed == 0 {
+			return argon2Params{}, fmt.Errorf("%w: param %q", ErrInvalidPasswordHash, field)
+		}
+
+		switch key {
+		case "m":
+			params.memory = uint32(parsed)
+		case "t":
+			params.time = uint32(parsed)
+		case "p":
+			if parsed > 255 {
+				return argon2Params{}, fmt.Errorf("%w: param %q", ErrInvalidPasswordHash, field)
+			}
+
+			params.threads = uint8(parsed)
+		default:
+			return argon2Params{}, fmt.Errorf("%w: param %q", ErrInvalidPasswordHash, field)
+		}
+	}
+
+	if params.memory == 0 || params.time == 0 || params.threads == 0 {
+		return argon2Params{}, fmt.Errorf("%w: params %q", ErrInvalidPasswordHash, segment)
+	}
+
+	return params, nil
+}
+
+// decodePBKDF2Hash разбирает строку хеша прежнего формата.
+func decodePBKDF2Hash(encoded string) (int, []byte, []byte, error) {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 4 {
 		return 0, nil, nil, fmt.Errorf("%w: %d parts, want 4", ErrInvalidPasswordHash, len(parts))
 	}
 
-	if parts[0] != hashAlgo {
+	if parts[0] != legacyHashAlgo {
 		return 0, nil, nil, fmt.Errorf("%w: unknown algorithm %q", ErrInvalidPasswordHash, parts[0])
 	}
 
@@ -144,4 +302,16 @@ func decodePasswordHash(encoded string) (int, []byte, []byte, error) {
 	}
 
 	return iterations, salt, key, nil
+}
+
+// prefix возвращает начало строки для сообщения об ошибке: сам хеш в лог
+// целиком не попадает.
+func prefix(encoded string) string {
+	const limit = 16
+
+	if len(encoded) <= limit {
+		return encoded
+	}
+
+	return encoded[:limit] + "..."
 }

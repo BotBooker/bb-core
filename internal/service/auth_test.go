@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,11 +15,14 @@ const (
 	// testTokenTTL — срок жизни токена в тестах: значение не влияет на проверки,
 	// они смотрят на выданную запись, а не на конкретное число.
 	testTokenTTL = 24 * time.Hour
+	// testPasswordTTL — срок жизни пароля в тестах (90 дней).
+	testPasswordTTL = 90 * 24 * time.Hour
 	// testPassword — пароль тестовых учётных данных.
 	testPassword = "correct horse battery staple"
-	// testPasswordHash — хеш testPassword, посчитанный заранее: PBKDF2 с 210 000
-	// итераций стоит ~0,2 с, и платить их в каждом тесте незачем (само
-	// хеширование проверяется в тестах модели).
+	// testPasswordHash — хеш testPassword в прежнем формате (PBKDF2), посчитанный
+	// заранее: сам он стоит ~0,2 с, и платить их в каждом тесте незачем (своё
+	// хеширование проверяется в тестах модели). Формат намеренно устаревший:
+	// так тесты входа заодно проверяют и совместимость, и пересчёт хеша.
 	testPasswordHash = "pbkdf2_sha256$210000$dQIjm0wTireOlDo8WomRug$+qvx5cWbyYARbq061iEy9aedaWfstobFn25SQIDvZbc"
 )
 
@@ -79,6 +83,7 @@ func (m *mockAuthUserRepository) Delete(ctx context.Context, id string) error {
 type mockAuthCredentialRepository struct {
 	createFunc      func(ctx context.Context, credentials *model.Credentials) error
 	getByUserIDFunc func(ctx context.Context, userID string) (*model.Credentials, error)
+	updateFunc      func(ctx context.Context, credentials *model.Credentials) error
 }
 
 func (m *mockAuthCredentialRepository) Create(ctx context.Context, credentials *model.Credentials) error {
@@ -95,6 +100,14 @@ func (m *mockAuthCredentialRepository) GetByUserID(ctx context.Context, userID s
 	}
 
 	return nil, database.ErrNotFound
+}
+
+func (m *mockAuthCredentialRepository) Update(ctx context.Context, credentials *model.Credentials) error {
+	if m.updateFunc != nil {
+		return m.updateFunc(ctx, credentials)
+	}
+
+	return nil
 }
 
 // mockAuthTokenRepository — мок репозитория сессий.
@@ -203,7 +216,7 @@ func newAuthMocks() *authMocks {
 func newTestAuthService(t *testing.T, m *authMocks) *authService {
 	t.Helper()
 
-	created := NewAuthService(m.users, m.credentials, m.tokens, m.codec, m.events, testTokenTTL)
+	created := NewAuthService(m.users, m.credentials, m.tokens, m.codec, m.events, testTokenTTL, testPasswordTTL)
 
 	svc, ok := created.(*authService)
 	if !ok {
@@ -778,6 +791,276 @@ func TestAuthService_Authenticate(t *testing.T) {
 		_, err := svc.Authenticate(context.Background(), "access-token")
 		if err == nil || errors.Is(err, ErrUnauthorized) {
 			t.Errorf("Authenticate() error = %v, want ошибку базы", err)
+		}
+	})
+}
+
+// expiredCredentials возвращает учётные данные с просроченным паролем:
+// время последнего изменения старше testPasswordTTL.
+func expiredCredentials(userID string) *model.Credentials {
+	credentials := testCredentials(userID)
+	credentials.UpdatedAt = testNow.Add(-testPasswordTTL - time.Hour)
+
+	return credentials
+}
+
+func TestAuthService_Login_PasswordExpired(t *testing.T) {
+	user := testAuthUser(t, model.RoleClient)
+
+	tokenCreated := false
+
+	m := newAuthMocks()
+	m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
+		return user, nil
+	}
+	m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
+		return expiredCredentials(userID), nil
+	}
+	m.tokens.createFunc = func(context.Context, *model.Token) error {
+		tokenCreated = true
+
+		return nil
+	}
+
+	svc := newTestAuthService(t, m)
+
+	_, err := svc.Login(context.Background(), "ivan@example.com", testPassword)
+	if !errors.Is(err, ErrPasswordExpired) {
+		t.Fatalf("Login() error = %v, want %v", err, ErrPasswordExpired)
+	}
+	if tokenCreated {
+		t.Error("Login() выдал токен при просроченном пароле")
+	}
+	if len(m.events.events) != 0 {
+		t.Errorf("события = %v, want пусто", m.events.events)
+	}
+}
+
+func TestAuthService_Login_UpgradesLegacyHash(t *testing.T) {
+	t.Run("прежний хеш пересчитывается в Argon2id", func(t *testing.T) {
+		user := testAuthUser(t, model.RoleClient)
+
+		var updated *model.Credentials
+
+		m := newAuthMocks()
+		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
+			return user, nil
+		}
+		m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
+			return testCredentials(userID), nil
+		}
+		m.credentials.updateFunc = func(_ context.Context, credentials *model.Credentials) error {
+			updated = credentials
+
+			return nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		if _, err := svc.Login(context.Background(), "ivan@example.com", testPassword); err != nil {
+			t.Fatalf("Login() unexpected error = %v", err)
+		}
+
+		if updated == nil {
+			t.Fatal("Login() не обновил устаревший хеш")
+		}
+		if !strings.HasPrefix(updated.Hash, "argon2id$") {
+			t.Errorf("Hash = %q, want Argon2id", updated.Hash)
+		}
+		if !updated.UpdatedAt.Equal(testNow) {
+			t.Errorf("UpdatedAt = %v, want %v: пересчёт не должен сбрасывать срок пароля",
+				updated.UpdatedAt, testNow)
+		}
+	})
+
+	t.Run("актуальный хеш не пересчитывается", func(t *testing.T) {
+		user := testAuthUser(t, model.RoleClient)
+
+		hash, err := model.HashPassword(testPassword)
+		if err != nil {
+			t.Fatalf("model.HashPassword() unexpected error = %v", err)
+		}
+
+		updateCalled := false
+
+		m := newAuthMocks()
+		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
+			return user, nil
+		}
+		m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
+			credentials := testCredentials(userID)
+			credentials.Hash = hash
+
+			return credentials, nil
+		}
+		m.credentials.updateFunc = func(context.Context, *model.Credentials) error {
+			updateCalled = true
+
+			return nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		if _, err := svc.Login(context.Background(), "ivan@example.com", testPassword); err != nil {
+			t.Fatalf("Login() unexpected error = %v", err)
+		}
+
+		if updateCalled {
+			t.Error("Login() пересчитал актуальный Argon2id-хеш")
+		}
+	})
+}
+
+func TestAuthService_ChangePassword(t *testing.T) {
+	const newPassword = "brand new password phrase"
+
+	t.Run("меняет пароль и выдаёт сессию", func(t *testing.T) {
+		user := testAuthUser(t, model.RoleClient)
+
+		var (
+			updated   *model.Credentials
+			created   *model.Token
+			loginTime *model.User
+		)
+
+		m := newAuthMocks()
+		m.users.getByEmailFunc = func(_ context.Context, email string) (*model.User, error) {
+			if email != "ivan@example.com" {
+				t.Errorf("GetByEmail() email = %q, want %q", email, "ivan@example.com")
+			}
+
+			return user, nil
+		}
+		// Пароль просрочен: смена — единственный способ войти.
+		m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
+			return expiredCredentials(userID), nil
+		}
+		m.credentials.updateFunc = func(_ context.Context, credentials *model.Credentials) error {
+			updated = credentials
+
+			return nil
+		}
+		m.users.updateFunc = func(_ context.Context, got *model.User) error {
+			loginTime = got
+
+			return nil
+		}
+		m.tokens.createFunc = func(_ context.Context, token *model.Token) error {
+			created = token
+
+			return nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		session, err := svc.ChangePassword(context.Background(), "IVAN@example.COM", testPassword, newPassword)
+		if err != nil {
+			t.Fatalf("ChangePassword() unexpected error = %v", err)
+		}
+
+		if session == nil || session.AccessToken == "" {
+			t.Fatal("ChangePassword() не выдал токен")
+		}
+		if updated == nil {
+			t.Fatal("ChangePassword() не сохранил новый пароль")
+		}
+		if err := updated.Verify(newPassword); err != nil {
+			t.Errorf("новый пароль не проходит проверку: %v", err)
+		}
+		if !updated.UpdatedAt.Equal(testNow) {
+			t.Errorf("UpdatedAt = %v, want %v: срок пароля начинается заново", updated.UpdatedAt, testNow)
+		}
+		if created == nil || created.UserID != user.ID {
+			t.Errorf("запись сессии = %+v, want для пользователя %q", created, user.ID)
+		}
+		if loginTime == nil || loginTime.LastLoginAt == nil || !loginTime.LastLoginAt.Equal(testNow) {
+			t.Errorf("LastLoginAt = %+v, want %v", loginTime, testNow)
+		}
+		if len(m.events.events) != 1 || m.events.events[0] != EventUserPasswordChanged {
+			t.Errorf("события = %v, want [%s]", m.events.events, EventUserPasswordChanged)
+		}
+	})
+
+	t.Run("неверный текущий пароль", func(t *testing.T) {
+		user := testAuthUser(t, model.RoleClient)
+
+		updatedCalled := false
+
+		m := newAuthMocks()
+		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
+			return user, nil
+		}
+		m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
+			return testCredentials(userID), nil
+		}
+		m.credentials.updateFunc = func(context.Context, *model.Credentials) error {
+			updatedCalled = true
+
+			return nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", "wrong password entirely", newPassword)
+		if !errors.Is(err, ErrInvalidCredentials) {
+			t.Errorf("ChangePassword() error = %v, want %v", err, ErrInvalidCredentials)
+		}
+		if updatedCalled {
+			t.Error("ChangePassword() сохранил пароль при неверном текущем")
+		}
+	})
+
+	t.Run("неизвестный email", func(t *testing.T) {
+		m := newAuthMocks()
+
+		svc := newTestAuthService(t, m)
+
+		_, err := svc.ChangePassword(context.Background(), "nobody@example.com", testPassword, newPassword)
+		if !errors.Is(err, ErrInvalidCredentials) {
+			t.Errorf("ChangePassword() error = %v, want %v", err, ErrInvalidCredentials)
+		}
+	})
+
+	t.Run("слабый новый пароль не сохраняется", func(t *testing.T) {
+		user := testAuthUser(t, model.RoleClient)
+
+		updateCalled := false
+
+		m := newAuthMocks()
+		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
+			return user, nil
+		}
+		m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
+			return testCredentials(userID), nil
+		}
+		m.credentials.updateFunc = func(context.Context, *model.Credentials) error {
+			updateCalled = true
+
+			return nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", testPassword, "short")
+		if !errors.Is(err, model.ErrInvalidPassword) {
+			t.Errorf("ChangePassword() error = %v, want %v", err, model.ErrInvalidPassword)
+		}
+		if updateCalled {
+			t.Error("ChangePassword() сохранил слабый пароль")
+		}
+	})
+
+	t.Run("ошибка репозитория не подменяется отказом в доступе", func(t *testing.T) {
+		m := newAuthMocks()
+		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
+			return nil, errors.New("select user failed")
+		}
+
+		svc := newTestAuthService(t, m)
+
+		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", testPassword, newPassword)
+		if err == nil || errors.Is(err, ErrInvalidCredentials) {
+			t.Errorf("ChangePassword() error = %v, want ошибку репозитория", err)
 		}
 	})
 }
