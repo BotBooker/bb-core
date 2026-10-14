@@ -113,31 +113,39 @@ graph TD;
 **А. Основная база данных (PostgreSQL 14+)**
 
 * **Схемы и таблицы** (атрибуты и ограничения — в `ERDB.md`):
-  - `users` — профиль (UUID `id`, имя/фамилия/отчество, e-mail, телефон, роль,
+  - `users` — профиль (UUID `id`, имя/фамилия/отчество, e-mail, телефон,
     `is_active`/`is_delete`); `user_credentials`, `user_tokens` — служебные
-    (хеш bcrypt, выданные JWT);
-  - `tenants` — организации-владельцы (арендаторы);
-  - `type_objects`, `locations` — справочники (целочисленный PK; в `locations` —
-    регион и часовой пояс);
+    (хеш bcrypt, выданные JWT в рамках тенанта);
+  - `roles` — справочник ролей; `tenants`, `tenant_members` — организации-владельцы
+    (арендаторы) и состав тенанта (роль пользователя хранится в членстве:
+    `tenant_members.role_id`, поэтому в разных тенантах роли независимы);
+  - `type_objects`, `locations`, `statuses`, `booking_statuses`, `currencies`,
+    `payment_methods` — справочники (целочисленный PK: типы объектов,
+    населённые пункты, статусы объектов, статусы брони, валюты ISO-4217,
+    способы оплаты; в `locations` — регион и часовой пояс);
   - `rental_objects` — объекты аренды (UUID `id`, `type`→`type_objects`,
-    `location_id`→`locations`, `address`, `price_minor` + `currency`,
+    `location_id`→`locations`, `status_id`→`statuses` (статус вместо флагов
+    `is_active`/`is_delete`), `address`, `price_minor` + `currency`,
     `owner_id`→`users`);
   - `object_addons` — дополнительные услуги объекта;
   - `photos`, `object_photos` — галерея (M:N: файл в S3, в БД — `object_key` и
     метаданные);
   - `object_weekday_rules`, `object_schedule_exceptions` — правила расписания и
     исключения;
-  - `bookings`, `booking_addons`, `bookings_journal` — брони, услуги в брони и
-    журнал изменений;
-  - `payments` — платежи (`amount_minor` + `currency`);
+  - `bookings`, `booking_addons`, `bookings_journal` — брони (`status_id`→
+    `booking_statuses`, `currency_id`→`currencies`), услуги в брони и журнал
+    изменений (снимок статуса и валюты);
+  - `payments` — платежи (`amount_minor`, `currency_id`→`currencies`,
+    `payment_method_id`→`payment_methods`, `status`);
   - `notifications`, `notification_subscriptions` — очередь уведомлений и
     подписки.
 * **Идентификаторы и деньги:** PK бизнес-сущностей — `UUID` (генерирует
-  приложение); суммы — `BIGINT` в минорных единицах (копейки) + `CHAR(3)`
-  ISO-4217, без `float`.
-* **Индексы:** `bookings(object_id, slot_start)`,
-  `rental_objects(type, subtype, status)`, `payments(status)` и частичные
-  уникальные индексы «живых» записей — полный список в `ERDB.md`.
+  приложение), PK справочников — целочисленный (`SMALLINT`); суммы — `BIGINT` в
+  минорных единицах (копейки) + ссылка на справочник `currencies`
+  (`currency_id`), без `float`.
+* **Индексы:** `bookings(object_id, slot_start)`, `rental_objects(type)`,
+  `rental_objects(location_id)`, `rental_objects(owner_id)`, `payments(status)`
+  и частичные уникальные индексы «живых» записей — полный список в `ERDB.md`.
 * **Аудит:** изменения брони — неизменяемый снимок в `bookings_journal`
   (отдельные триггеры не используются).
 

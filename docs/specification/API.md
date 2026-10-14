@@ -7,10 +7,15 @@
 - **Аутентификация**: JWT‑токен в заголовке `Authorization: Bearer <token>`
 - **Кодировка**: UTF‑8
 - **Версионирование**: через URL (`/v1`, `/v2`)
-- **Идентификаторы**: `UUID` строкой, значение генерирует приложение; `INT` —
-  только у справочников `type_objects`/`locations` (см. `ERDB.md`).
-- **Деньги**: `BIGINT` в минорных единицах (копейки) вместе с кодом валюты
-  ISO‑4217 (`currency`); `float`/`DECIMAL` не используются.
+- **Идентификаторы**: `UUID` строкой, значение генерирует приложение;
+  целочисленный PK (`INT`/`SMALLINT`) — только у справочников (`type_objects`,
+  `locations`, `statuses`, `booking_statuses`, `currencies`, `payment_methods`,
+  `roles`; см. `ERDB.md`). На границе API значения справочников передаются
+  **строковым кодом** (`code`: `RUB`, `pending`, `card`), а в БД хранится
+  внешний ключ (`*_id`).
+- **Деньги**: `BIGINT` в минорных единицах (копейки) вместе с валютой; в API —
+  код ISO‑4217 (`currency`, например `RUB`), в БД — ссылка на справочник
+  `currencies` (`currency_id`). `float`/`DECIMAL` не используются.
 - **Коды ответов**: успех — `200 OK` с телом ресурса; `201`/`204` не
   используются, потому что HTTP (grpc-gateway) и gRPC обслуживает один адаптер.
 - **Источник истины схемы**: `docs/specification/ERDB.md`.
@@ -100,6 +105,8 @@
   + `type` (INT — ссылка на `type_objects.id`, например `1` — транспорт, `2` — недвижимость)
   + `subtype` (строка, например `автомобиль`, `квартира`)
   + `location_id` (INT — ссылка на `locations.id`)
+  + `status` (строка — `statuses.code`: `active`, `under_repair`, `archived`;
+    `deleted` — внутреннее состояние и в выдаче не встречается)
   + `min_price_minor`, `max_price_minor` (целое число в минорных единицах)
   + `page_size`, `page_token` (keyset-пагинация)
 - **Ответ (200 OK)**:
@@ -116,6 +123,7 @@
         "currency": "RUB",
         "location_id": 1,
         "address": "ул. Ленина, 1",
+        "status": "active",
         "photos": ["https://.../photo1.jpg"]
       }
     ],
@@ -141,6 +149,7 @@
     "min_duration_minutes": 60,
     "location_id": 1,
     "address": "ул. Ленина, 1",
+    "status": "active",
     "photos": [
       {"url": "https://.../photo1.jpg", "is_main": true},
       {"url": "https://.../photo2.jpg", "is_main": false}

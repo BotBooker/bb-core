@@ -1,5 +1,5 @@
 -- +goose Up
--- Пользователи сервиса BotBooker (SQLite-вариант схемы,
+-- Пользователи сервиса BotBooker — профиль (ERDB 2.3, SQLite-вариант схемы,
 -- см. migrations/postgres/00002_users.sql).
 --
 -- Отличия от PostgreSQL — только там, где диалекту не хватает возможностей:
@@ -9,25 +9,25 @@
 --     задаёт CHECK-ограничение;
 --   * время хранится строкой RFC3339 в UTC (у SQLite нет типа timestamp,
 --     формат значения задаёт репозиторий), дата рождения — строкой YYYY-MM-DD.
--- Значение id генерирует приложение (model.NewUser → UUIDv4) в обоих диалектах.
+-- Роли у профиля нет: роль хранится в членстве (tenant_members.role_id,
+-- миграция 00003). Значение id генерирует приложение (model.NewUser → UUIDv4).
 -- IF NOT EXISTS не используется: чужая таблица с тем же именем должна ронять
 -- старт явной ошибкой, а не подменять схему.
 CREATE TABLE users (
-    id            TEXT PRIMARY KEY,
+    id            TEXT    PRIMARY KEY,
     email         TEXT    NOT NULL,
-    first_name    TEXT    NOT NULL,
-    last_name     TEXT    NOT NULL,
+    first_name    TEXT    NOT NULL DEFAULT '',
+    last_name     TEXT    NOT NULL DEFAULT '',
     middle_name   TEXT    NOT NULL DEFAULT '',
     phone_number  TEXT    NOT NULL DEFAULT '',
     gender        TEXT    NOT NULL DEFAULT 'unspecified'
         CONSTRAINT users_gender_check CHECK (gender IN ('unspecified', 'male', 'female')),
     birth_date    TEXT,
-    role          TEXT    NOT NULL DEFAULT 'client'
-        CONSTRAINT users_role_check CHECK (role IN ('client', 'operator', 'admin')),
     created_at    TEXT    NOT NULL,
     updated_at    TEXT    NOT NULL,
     last_login_at TEXT,
-    is_active     INTEGER NOT NULL DEFAULT 1
+    is_active     INTEGER NOT NULL DEFAULT 1,
+    is_delete     INTEGER NOT NULL DEFAULT 0
 );
 
 -- Уникальность email — только среди активных пользователей (WHERE is_active = 1):
@@ -44,4 +44,3 @@ CREATE UNIQUE INDEX users_phone_number_idx ON users (phone_number) WHERE phone_n
 -- +goose Down
 -- Откат: таблица удаляется вместе с индексами.
 DROP TABLE IF EXISTS users;
-

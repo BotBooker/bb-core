@@ -33,7 +33,7 @@
 | `phone_number` | VARCHAR(20) | Да (`DEFAULT ''`) | Телефон, E.164 (частичный UNIQUE `WHERE phone_number <> ''`) |
 | `gender` | ENUM('unspecified','male','female') | Да (`DEFAULT 'unspecified'`) | Пол |
 | `birth_date` | DATE | Нет | Дата рождения |
-| `role` | ENUM('client','operator','admin') | Да (`DEFAULT 'client'`) | Роль пользователя в системе |
+| `role` | SMALLINT (FK → `roles.id`) | — | Не поле профиля: роль пользователя хранится в `tenant_members.role_id` (роль в тенанте) |
 | `created_at`, `updated_at` | TIMESTAMPTZ | Да | Служебные метки времени (UTC) |
 | `last_login_at` | TIMESTAMPTZ | Нет | Дата и время последнего входа |
 | `is_active`, `is_delete` | BOOLEAN | Да | Признаки мягкого удаления |
@@ -69,7 +69,7 @@
 | — | `phone_number` | Нет аналога в Telegram API; кастомное поле сервиса; E.164 |
 | — | `gender` | Нет аналога в Telegram API; кастомное поле сервиса |
 | — | `birth_date` | Нет аналога в Telegram API; кастомное поле сервиса |
-| — | `role` | Нет аналога в Telegram API; кастомное поле ролевой модели |
+| — | `role` | Нет аналога в Telegram API; кастомное поле ролевой модели; хранится в `tenant_members`, а не в `users` |
 | — | `created_at`, `updated_at`, `last_login_at` | Нет аналога в Telegram API; служебные поля |
 | — | `is_active`, `is_delete` | Нет аналога в Telegram API; признаки мягкого удаления |
 | — | `password_hash` | Хранится не в `users`, а в служебной `user_credentials` (bcrypt) |
@@ -118,7 +118,7 @@
 | `phone_number` | String | Нет | Номер телефона пользователя (E.164) | ERDB | `custom: true`; `DEFAULT ''`, частичный UNIQUE |
 | `gender` | String (ENUM) | Да | Пол: `unspecified`, `male`, `female` | ERDB | `custom: true`; default: `unspecified` |
 | `birth_date` | Date | Нет | Дата рождения | ERDB | `custom: true` |
-| `role` | String (ENUM) | Да | Роль: `client`, `operator`, `admin` | ERDB | `custom: true`; default: `client` |
+| `role` | SMALLINT (FK → `roles.id`) | — | Не поле профиля: роль задаётся членством в тенанте (`tenant_members.role_id`); справочник `roles`: `client` (32767, по умолчанию), `operator`, `manager`, `admin` | ERDB | `custom: true`; вне таблицы `users` |
 | `created_at`, `updated_at` | Timestamp | Да | Метки создания и обновления записи (UTC) | ERDB | `custom: true` |
 | `last_login_at` | Timestamp | Нет | Дата и время последнего входа | ERDB | `custom: true` |
 | `is_active`, `is_delete` | Boolean | Да | Признаки мягкого удаления | ERDB | `custom: true` |
@@ -152,7 +152,7 @@
 | `PhoneNumber` | `string` | `phone_number` | NOT NULL DEFAULT `''` + частичный уникальный индекс `users_phone_number_idx` | E.164; необязателен (пусто или E.164); непустые значения уникальны |
 | `Gender` | `Gender` | `gender` (enum) | NOT NULL DEFAULT `'unspecified'` | ENUM `user_gender` в PG, `CHECK` в SQLite: `unspecified` / `male` / `female` |
 | `BirthDate` | `*model.Date` | `birthday` | NULL (`DATE` в PG, `TEXT` `YYYY-MM-DD` в SQLite) | календарная дата без времени; не может быть в будущем. Имя в proto отличается от модели и колонки |
-| `Role` | `Role` | — | NOT NULL DEFAULT `'client'` | служебное поле (ERDB); API роль не задаёт |
+| `Role` | `Role` | — | нет колонки в `users` (роль — в `tenant_members.role_id`) | служебное поле (ERDB); API роль не задаёт |
 | `CreatedAt`, `UpdatedAt` | `time.Time` | `created_at`, `updated_at` | NOT NULL | всегда в UTC |
 | `LastLoginAt` | `*time.Time` | — | NULL | служебное поле (ERDB `last_login_at`) |
 | `IsActive` | `bool` | — | NOT NULL DEFAULT `true` (`BOOLEAN` в PG, `INTEGER` 0/1 в SQLite) | служебный признак soft delete: удаление — это `is_active = false`, а не физический `DELETE` |
@@ -169,7 +169,7 @@
 | Уникальность телефона | уникальность держит частичный индекс (`WHERE phone_number <> ''`): непустые номера не повторяются, а пользователей без телефона может быть сколько угодно. Обычный `UNIQUE` разрешил бы единственную строку с пустым телефоном. Нарушение уникальности СУБД (PG `23505`, SQLite `2067`) при реализации репозитория переводится в доменную ошибку дубликата |
 | Тип даты рождения | в proto дата — `google.type.Date` (год, месяц, день без времени и пояса), в модели и БД — календарная дата (`model.Date`, `DATE`/`YYYY-MM-DD`): `Timestamp` для даты рождения не подходит, потому что он всегда про момент времени, а `google.type.Date` допускает и частичную дату (например, только месяц и день, год 0 — если год рождения скрыт). Пустой объект (все компоненты нулевые) означает «дата не задана» и превращается в `nil`, неполная дата вроде «только год» отклоняется валидацией модели |
 | `gender` — ENUM | в модели это Go-тип `model.Gender`, в PostgreSQL — нативный тип `user_gender`, в SQLite — `TEXT` + `CHECK` (ENUM в SQLite нет). Значение вне набора отклоняет СУБД (в PG — `SQLSTATE 22P02`), а не только модель |
-| `role` — не ENUM | набор ролей служебный и может расширяться административно, поэтому в обоих диалектах это `VARCHAR(20)` + `CHECK`; при необходимости роль переводится в ENUM тем же способом, что и `gender` |
+| `role` — не поле `users` | роль хранится в членстве (`tenant_members.role_id`), а не в профиле: пользователь может состоять в нескольких тенантах и в каждом иметь свою роль. Набор ролей служебный и задан справочником `roles` (проверяется ссылкой, а не `CHECK`) |
 
 ---
 
@@ -202,7 +202,11 @@
   удаляет и тип: `DROP TYPE IF EXISTS user_gender`. Новое значение добавляется
   миграцией `ALTER TYPE user_gender ADD VALUE ...` — в PostgreSQL ≥12 это
   допустимо внутри транзакции, но использовать значение в той же транзакции нельзя;
-- **`role` остаётся `CHECK`**: набор служебный и может расширяться;
+- **`role` уходит из `users`**: роль — атрибут членства в тенанте
+  (`tenant_members.role_id`, FK → `roles.id`), поэтому единый источник роли —
+  `tenant_members`, а не профиль. Действующая миграция `00002_users.sql` пока
+  содержит колонку `role`; её переносит отдельная миграция тенантов
+  (`ERDB.md` — источник истины, см. его примечание 13);
 - **`email` — частичный уникальный индекс `users_email_idx`** вместо `UNIQUE` на
   колонке: гарантия та же (один активный адрес), но имя индекса предсказуемо
   (в PostgreSQL ограничение создавало индекс `users_email_key`, в SQLite —
