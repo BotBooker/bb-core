@@ -18,19 +18,26 @@ var (
 	ErrTokenRevoked = errors.New("auth token is revoked")
 )
 
-// Token — выданный пользователю токен доступа.
+// Token — выданная пользователю сессия (запись в user_tokens и JWT).
 //
 // Сам токен подписан и отдаётся клиенту целиком, а в БД лежит его описание.
 // Нужно оно, чтобы токен можно было отозвать: одной подписи для этого мало —
 // иначе выход из системы не работал бы до истечения срока. Идентификатор
 // записи (ID) — это claim jti: по нему проверка находит токен и узнаёт,
 // не отозван ли он.
+//
+// Сессия действует в рамках одного тенанта: роль пользователя зависит от
+// тенанта, поэтому в записи хранятся и TenantID (claim tenant), и Role — роль
+// в этом тенанте на момент выдачи (для аудита).
 type Token struct {
 	// ID — идентификатор токена (jti), UUIDv4. Первичный ключ user_tokens.id.
 	ID string
 	// UserID — владелец токена: идентификатор пользователя (users.id).
 	UserID string
-	// Role — роль пользователя на момент выдачи: попадает в claim role.
+	// TenantID — тенант сессии (user_tokens.tenant_id).
+	TenantID string
+	// Role — роль пользователя в тенанте на момент выдачи: попадает в claim
+	// role. В БД хранится ссылкой на справочник roles (role_id).
 	Role Role
 	// IssuedAt — когда токен выдан (UTC).
 	IssuedAt time.Time
@@ -42,12 +49,13 @@ type Token struct {
 	LastUsedAt *time.Time
 }
 
-// NewToken выдаёт токен пользователю на срок ttl.
+// NewToken выдаёт пользователю сессию в тенанте tenantID на срок ttl.
 //
 // Идентификатор (UUIDv4) и время выдачи проставляет модель — так же, как
-// NewUser делает для пользователя. Роль берётся у пользователя и попадает в
-// claim role: по ней транспорт проверяет права, не ходя в базу за пользователем.
-func NewToken(user *User, ttl time.Duration, now time.Time) (*Token, error) {
+// NewUser делает для пользователя. Роль приходит из членства пользователя в
+// тенанте (tenant_members.role_id): она попадает и в запись, и в claim role,
+// по которому транспорт проверяет права, не ходя в базу за профилем.
+func NewToken(user *User, tenantID string, role Role, ttl time.Duration, now time.Time) (*Token, error) {
 	if user == nil {
 		return nil, fmt.Errorf("%w: user is nil", ErrInvalidToken)
 	}
@@ -62,13 +70,20 @@ func NewToken(user *User, ttl time.Duration, now time.Time) (*Token, error) {
 
 	issuedAt := now.UTC()
 
-	return &Token{
+	token := &Token{
 		ID:        uuid.NewString(),
 		UserID:    user.ID,
-		Role:      user.Role,
+		TenantID:  tenantID,
+		Role:      role,
 		IssuedAt:  issuedAt,
 		ExpiresAt: issuedAt.Add(ttl),
-	}, nil
+	}
+
+	if err := token.Validate(); err != nil {
+		return nil, err
+	}
+
+	return token, nil
 }
 
 // Validate проверяет инварианты записи токена.
@@ -84,6 +99,10 @@ func (t Token) Validate() error {
 
 	if err := validateUUID(t.UserID); err != nil {
 		errs = append(errs, fmt.Errorf("%w: user id: %w", ErrInvalidToken, err))
+	}
+
+	if err := validateUUID(t.TenantID); err != nil {
+		errs = append(errs, fmt.Errorf("%w: tenant id: %w", ErrInvalidToken, err))
 	}
 
 	if !t.Role.Valid() {

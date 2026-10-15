@@ -38,7 +38,7 @@ type TokenRepo interface {
 
 // authColumns — колонки user_tokens в том порядке, в котором их читает scanToken.
 // Порядок должен совпадать: рассинхрон ловят тесты репозитория.
-const authColumns = "id, user_id, role, issued_at, expires_at, revoked_at, last_used_at"
+const authColumns = "id, user_id, tenant_id, role_id, issued_at, expires_at, revoked_at, last_used_at"
 
 // tokenRepo — конкретная реализация, скрыта от внешних пакетов.
 type tokenRepo struct {
@@ -53,15 +53,25 @@ func NewTokenRepo(db TokenDB, dialect string) TokenRepo {
 	return &tokenRepo{db: db, codec: codec{dialect: dialect}}
 }
 
-// Create вставляет выданный токен.
+// Create вставляет выданную сессию.
+//
+// Роль записывается ссылкой на справочник roles (role_id): код роли переводит
+// модель (model.Role.ID). Так роль токена и роль членства в тенанте смотрят
+// на один список значений.
 func (r *tokenRepo) Create(ctx context.Context, token *model.Token) error {
-	const query = `INSERT INTO user_tokens (id, user_id, role, issued_at, expires_at,` +
-		` revoked_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	const query = `INSERT INTO user_tokens (id, user_id, tenant_id, role_id, issued_at,` +
+		` expires_at, revoked_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := r.db.ExecContext(ctx, r.rebind(query),
+	roleID, err := token.Role.ID()
+	if err != nil {
+		return fmt.Errorf("insert token: %w", err)
+	}
+
+	_, err = r.db.ExecContext(ctx, r.rebind(query),
 		token.ID,
 		token.UserID,
-		string(token.Role),
+		token.TenantID,
+		roleID,
 		r.timeArg(token.IssuedAt),
 		r.timeArg(token.ExpiresAt),
 		r.nullTimeArg(token.RevokedAt),
@@ -139,10 +149,12 @@ func (r *tokenRepo) DeleteExpired(ctx context.Context, user_id string, before ti
 // scanToken читает строку user_tokens в доменную модель.
 //
 // Время разбирает nullTime: PostgreSQL отдаёт time.Time, SQLite — строку.
+// Роль приходит числовым role_id: код роли даёт model.ParseRoleID, поэтому
+// неизвестный id (справочник и код разошлись) — ошибка чтения, а не пустая роль.
 func scanToken(row *sql.Row) (*model.Token, error) {
 	var (
 		token                 model.Token
-		role                  string
+		roleID                int16
 		issuedAt, expiresAt   nullTime
 		revokedAt, lastUsedAt nullTime
 	)
@@ -150,7 +162,8 @@ func scanToken(row *sql.Row) (*model.Token, error) {
 	err := row.Scan(
 		&token.ID,
 		&token.UserID,
-		&role,
+		&token.TenantID,
+		&roleID,
 		&issuedAt,
 		&expiresAt,
 		&revokedAt,
@@ -160,7 +173,12 @@ func scanToken(row *sql.Row) (*model.Token, error) {
 		return nil, err
 	}
 
-	token.Role = model.Role(role)
+	role, err := model.ParseRoleID(roleID)
+	if err != nil {
+		return nil, fmt.Errorf("scan token: %w", err)
+	}
+
+	token.Role = role
 	token.IssuedAt = issuedAt.time()
 	token.ExpiresAt = expiresAt.time()
 	token.RevokedAt = revokedAt.ptr()

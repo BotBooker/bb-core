@@ -100,10 +100,9 @@ func (s *userService) Create(
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
-	if !current.CanCreate() {
-		return nil, fmt.Errorf("create user: %w: role %q", ErrForbidden, current.Role)
+	if !actor.CanCreate() {
+		return nil, fmt.Errorf("create user: %w: role %q", ErrForbidden, actor.Role)
 	}
-
 	user, err := model.NewUser(in, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
@@ -125,8 +124,7 @@ func (s *userService) Create(
 // не похожую на UUID, ответил бы ошибкой приведения типа, а не «не найдено».
 // Чужой профиль доступен только сотруднику (оператору или администратору).
 func (s *userService) Get(ctx context.Context, actor *Principal, id string) (*model.User, error) {
-	current, err := principalUser(actor)
-	if err != nil {
+	if _, err := principalUser(actor); err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
@@ -139,8 +137,8 @@ func (s *userService) Get(ctx context.Context, actor *Principal, id string) (*mo
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
-	if !current.CanRead(user) {
-		return nil, fmt.Errorf("get user: %w: role %q", ErrForbidden, current.Role)
+	if !actor.CanRead(user) {
+		return nil, fmt.Errorf("get user: %w: role %q", ErrForbidden, actor.Role)
 	}
 
 	return user, nil
@@ -170,8 +168,8 @@ func (s *userService) Update(
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	if !current.CanUpdate(user) {
-		return nil, fmt.Errorf("update user: %w: role %q", ErrForbidden, current.Role)
+	if !actor.CanUpdate(user) {
+		return nil, fmt.Errorf("update user: %w: role %q", ErrForbidden, actor.Role)
 	}
 
 	if err := user.ApplyUpdate(in, time.Now()); err != nil {
@@ -199,8 +197,8 @@ func (s *userService) Delete(ctx context.Context, actor *Principal, id string) e
 		return fmt.Errorf("delete user: %w", err)
 	}
 
-	if !current.CanDelete() {
-		return fmt.Errorf("delete user: %w: role %q", ErrForbidden, current.Role)
+	if !actor.CanDelete() {
+		return fmt.Errorf("delete user: %w: role %q", ErrForbidden, actor.Role)
 	}
 
 	if err := model.ValidateUUID(id); err != nil {

@@ -1,10 +1,13 @@
 -- +goose Up
--- Пользователи сервиса BotBooker.
+-- Пользователи сервиса BotBooker — профиль (ERDB 2.3).
 --
 -- Внешний контракт — proto user.v1 (идентификатор uuid строкой), служебные поля —
--- из ERDB (роль, время последнего входа). Хеш пароля здесь не хранится:
--- по Шагу 3 маппинга (docs/specification/user_schema_mapping.md) он выносится
--- в отдельную таблицу UserCredentials.
+-- из ERDB (время последнего входа, признаки мягкого удаления). Хеш пароля здесь
+-- не хранится: он вынесен в отдельную таблицу user_credentials (миграция 00004).
+--
+-- Роли у профиля нет: пользователь может состоять в нескольких тенантах и в
+-- каждом иметь свою роль (tenant_members.role_id, миграция 00003), поэтому роль
+-- хранится в членстве, а не в users.
 --
 -- id — нативный UUID и первичный ключ: 16 байт вместо 36, формат проверяет сама
 -- СУБД, а отдельная колонка uuid не нужна — идентификатор один. Значение
@@ -24,25 +27,24 @@ CREATE TYPE user_gender AS ENUM ('unspecified', 'male', 'female');
 CREATE TABLE users (
     id            UUID         PRIMARY KEY,
     email         VARCHAR(254) NOT NULL,
-    first_name    VARCHAR(100) NOT NULL,
-    last_name     VARCHAR(100) NOT NULL,
+    first_name    VARCHAR(100) NOT NULL DEFAULT '',
+    last_name     VARCHAR(100) NOT NULL DEFAULT '',
     middle_name   VARCHAR(100) NOT NULL DEFAULT '',
     phone_number  VARCHAR(20)  NOT NULL DEFAULT '',
     gender        user_gender  NOT NULL DEFAULT 'unspecified',
     birth_date    DATE,
-    role          VARCHAR(20)  NOT NULL DEFAULT 'client'
-        CONSTRAINT users_role_check CHECK (role IN ('client', 'operator', 'admin')),
     created_at    TIMESTAMPTZ  NOT NULL,
     updated_at    TIMESTAMPTZ  NOT NULL,
     last_login_at TIMESTAMPTZ,
-    is_active     BOOLEAN      NOT NULL DEFAULT true
+    is_active     BOOLEAN      NOT NULL DEFAULT true,
+    is_delete     BOOLEAN      NOT NULL DEFAULT false
 );
 
 -- Уникальность email — только среди активных пользователей: удаление здесь
 -- soft delete (is_active = false), поэтому у одного адреса может быть одна
 -- активная запись и сколько угодно удалённых. Индекс частичный (WHERE is_active):
 -- он держит «один активный email» и заодно освобождает адрес для повторной
--- регистрации после удаления, не теряя историю. Как и раньше, отдельный индекс
+-- регистрации после удаления, не теряя историю. Отдельный индекс
 -- users_email_idx используется вместо UNIQUE на колонке — имя предсказуемо.
 CREATE UNIQUE INDEX users_email_idx ON users (email) WHERE is_active = true;
 
@@ -58,4 +60,3 @@ CREATE UNIQUE INDEX users_phone_number_idx ON users (phone_number) WHERE phone_n
 DROP TABLE IF EXISTS users;
 
 DROP TYPE IF EXISTS user_gender;
-

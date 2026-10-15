@@ -70,6 +70,7 @@ func (m *mockAuthService) Logout(ctx context.Context, token string) error {
 }
 
 // handlerTestUser — пользователь, которого «вернул» сервис авторизации.
+// Роли у профиля нет: она приходит из членства в тенанте (service.Principal).
 func handlerTestUser(t *testing.T) *model.User {
 	t.Helper()
 
@@ -86,17 +87,45 @@ func handlerTestUser(t *testing.T) *model.User {
 	return user
 }
 
+// testTenantID — тенант сессии в тестах HTTP-слоя: токен всегда действует в
+// рамках тенанта (user_tokens.tenant_id NOT NULL).
+const testTenantID = "0f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
+
+// testPrincipal собирает действующего пользователя с ролью в тенанте: роль
+// принадлежит членству (tenant_members.role_id), поэтому задаётся явно, а не
+// берётся из профиля.
+func testPrincipal(t *testing.T, user *model.User, role model.Role) *service.Principal {
+	t.Helper()
+
+	now := time.Now().UTC()
+
+	return &service.Principal{
+		User: user,
+		Token: &model.Token{
+			ID:        "1c9edc8e-1f1c-4d5c-8a5e-6f2f1d3c4b5a",
+			UserID:    user.ID,
+			TenantID:  testTenantID,
+			Role:      role,
+			IssuedAt:  now,
+			ExpiresAt: now.Add(time.Hour),
+		},
+		Role: role,
+	}
+}
+
 // authenticatedHandler собирает хендлер, в котором любой непустой токен
 // считается действующим, а его владелец — пользователем user.
 func authenticatedHandler(t *testing.T, user *model.User) Handler {
 	t.Helper()
+
+	principal := testPrincipal(t, user, model.RoleClient)
 
 	auth := &mockAuthService{authenticateFunc: func(_ context.Context, token string) (*service.Principal, error) {
 		if token == "" {
 			return nil, service.ErrUnauthorized
 		}
 
-		return &service.Principal{User: user}, nil
+		return principal, nil
 	}}
 
 	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
@@ -324,7 +353,7 @@ func TestHandler_AuthenticateError(t *testing.T) {
 						return nil, service.ErrUnauthorized
 					}
 
-					return &service.Principal{User: handlerTestUser(t)}, nil
+					return testPrincipal(t, handlerTestUser(t), model.RoleClient), nil
 				}
 
 				return nil, tt.authErr
@@ -404,7 +433,8 @@ func TestHandler_changePassword(t *testing.T) {
 				Token: &model.Token{
 					ID:        "1c9edc8e-1f1c-4d5c-8a5e-6f2f1d3c4b5a",
 					UserID:    user.ID,
-					Role:      user.Role,
+					TenantID:  testTenantID,
+					Role:      model.RoleClient,
 					IssuedAt:  now,
 					ExpiresAt: now.Add(time.Hour),
 				},

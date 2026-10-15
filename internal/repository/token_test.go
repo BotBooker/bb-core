@@ -12,12 +12,16 @@ import (
 
 // testToken собирает токен с заданным сроком жизни.
 //
+// Сессия действует в рамках тенанта, поэтому он передаётся явно: у
+// user_tokens.tenant_id внешний ключ на tenants, и тенант должен существовать.
+// Роль — роль пользователя в этом тенанте на момент выдачи.
+//
 // Время усечено до микросекунд — предел точности TIMESTAMPTZ: с ним результат
 // одинаков у обоих диалектов, а сравнение в тестах не зависит от округления.
-func testToken(t *testing.T, user *model.User, ttl time.Duration) *model.Token {
+func testToken(t *testing.T, tenantID string, user *model.User, ttl time.Duration) *model.Token {
 	t.Helper()
 
-	token, err := model.NewToken(user, ttl, time.Now().UTC().Truncate(time.Microsecond))
+	token, err := model.NewToken(user, tenantID, model.RoleClient, ttl, time.Now().UTC().Truncate(time.Microsecond))
 	if err != nil {
 		t.Fatalf("model.NewToken() unexpected error = %v", err)
 	}
@@ -63,14 +67,18 @@ func runTokenRepoScenario(t *testing.T, conn database.DB, dialect string) {
 
 	userRepo := NewUserRepo(conn, dialect)
 	tokenRepo := NewTokenRepo(conn, dialect)
+	tenantRepo := NewTenantRepo(conn, dialect)
 
 	user := testUser(t, "token-owner@example.com", "+79990000123")
 	if err := userRepo.Create(ctx, user); err != nil {
 		t.Fatalf("UserRepo.Create() unexpected error = %v", err)
 	}
 
+	// Сессия действует в тенанте, поэтому он должен существовать до токена.
+	tenant := testTenant(t, tenantRepo, "token-owner")
+
 	t.Run("создание и чтение", func(t *testing.T) {
-		token := testToken(t, user, time.Hour)
+		token := testToken(t, tenant.ID, user, time.Hour)
 
 		if err := tokenRepo.Create(ctx, token); err != nil {
 			t.Fatalf("Create() unexpected error = %v", err)
@@ -81,8 +89,9 @@ func runTokenRepoScenario(t *testing.T, conn database.DB, dialect string) {
 			t.Fatalf("GetByID() unexpected error = %v", err)
 		}
 
-		if got.ID != token.ID || got.UserID != user.ID || got.Role != token.Role {
-			t.Errorf("GetByID() = %+v, want id=%q user=%q role=%q", got, token.ID, user.ID, token.Role)
+		if got.ID != token.ID || got.UserID != user.ID || got.TenantID != tenant.ID || got.Role != token.Role {
+			t.Errorf("GetByID() = %+v, want id=%q user=%q tenant=%q role=%q",
+				got, token.ID, user.ID, tenant.ID, token.Role)
 		}
 		if !got.IssuedAt.Equal(token.IssuedAt) || !got.ExpiresAt.Equal(token.ExpiresAt) {
 			t.Errorf("время = %v..%v, want %v..%v",
@@ -97,7 +106,7 @@ func runTokenRepoScenario(t *testing.T, conn database.DB, dialect string) {
 	})
 
 	t.Run("повторная вставка — ErrDuplicate", func(t *testing.T) {
-		token := testToken(t, user, time.Hour)
+		token := testToken(t, tenant.ID, user, time.Hour)
 
 		if err := tokenRepo.Create(ctx, token); err != nil {
 			t.Fatalf("Create() unexpected error = %v", err)
@@ -127,7 +136,7 @@ func runTokenRepoScenario(t *testing.T, conn database.DB, dialect string) {
 	})
 
 	t.Run("активность и отзыв", func(t *testing.T) {
-		token := testToken(t, user, time.Hour)
+		token := testToken(t, tenant.ID, user, time.Hour)
 
 		if err := tokenRepo.Create(ctx, token); err != nil {
 			t.Fatalf("Create() unexpected error = %v", err)
@@ -190,6 +199,7 @@ func TestTokenRepo_DeleteExpired(t *testing.T) {
 	conn := newSQLiteTestDB(t)
 	userRepo := NewUserRepo(conn, database.DialectSQLite)
 	tokenRepo := NewTokenRepo(conn, database.DialectSQLite)
+	tenant := testTenant(t, NewTenantRepo(conn, database.DialectSQLite), "expired-tokens")
 
 	user := testUser(t, "expired-tokens@example.com", "+79990000124")
 	if err := userRepo.Create(ctx, user); err != nil {
@@ -199,12 +209,12 @@ func TestTokenRepo_DeleteExpired(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	// Просроченный токен: выдан два часа назад со сроком жизни час.
-	expired, err := model.NewToken(user, time.Hour, now.Add(-2*time.Hour))
+	expired, err := model.NewToken(user, tenant.ID, model.RoleClient, time.Hour, now.Add(-2*time.Hour))
 	if err != nil {
 		t.Fatalf("model.NewToken() unexpected error = %v", err)
 	}
 
-	fresh := testToken(t, user, time.Hour)
+	fresh := testToken(t, tenant.ID, user, time.Hour)
 
 	for _, token := range []*model.Token{expired, fresh} {
 		if err := tokenRepo.Create(ctx, token); err != nil {
@@ -240,13 +250,14 @@ func TestTokenRepo_UserSoftDelete(t *testing.T) {
 	conn := newSQLiteTestDB(t)
 	userRepo := NewUserRepo(conn, database.DialectSQLite)
 	tokenRepo := NewTokenRepo(conn, database.DialectSQLite)
+	tenant := testTenant(t, NewTenantRepo(conn, database.DialectSQLite), "cascade")
 
 	user := testUser(t, "cascade@example.com", "+79990000125")
 	if err := userRepo.Create(ctx, user); err != nil {
 		t.Fatalf("UserRepo.Create() unexpected error = %v", err)
 	}
 
-	token := testToken(t, user, time.Hour)
+	token := testToken(t, tenant.ID, user, time.Hour)
 	if err := tokenRepo.Create(ctx, token); err != nil {
 		t.Fatalf("Create() unexpected error = %v", err)
 	}

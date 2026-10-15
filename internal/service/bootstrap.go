@@ -39,16 +39,31 @@ type BootstrapService interface {
 type bootstrapService struct {
 	userRepo       AuthUserRepository
 	credentialRepo AuthCredentialRepository
+	tenantRepo     AuthTenantRepository
+	// passwordTTL — срок жизни пароля (config.Auth().PasswordTTL): попадает в
+	// expires_at учётных данных суперпользователя.
+	passwordTTL time.Duration
 	// now — часы сервиса: поле, а не прямой вызов time.Now, чтобы тесты не
 	// зависели от реального времени.
 	now func() time.Time
 }
 
 // NewBootstrapService создаёт сервис первичной инициализации.
-func NewBootstrapService(userRepo AuthUserRepository, credentialRepo AuthCredentialRepository) BootstrapService {
+func NewBootstrapService(
+	userRepo AuthUserRepository,
+	credentialRepo AuthCredentialRepository,
+	tenantRepo AuthTenantRepository,
+	passwordTTL time.Duration,
+) BootstrapService {
 	slog.Debug("bootstrap service created")
 
-	return &bootstrapService{userRepo: userRepo, credentialRepo: credentialRepo, now: time.Now}
+	return &bootstrapService{
+		userRepo:       userRepo,
+		credentialRepo: credentialRepo,
+		tenantRepo:     tenantRepo,
+		passwordTTL:    passwordTTL,
+		now:            time.Now,
+	}
 }
 
 // EnsureSuperuser создаёт первого суперпользователя, если его ещё нет.
@@ -79,7 +94,7 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 
 	now := s.now()
 
-	user, err := model.NewSuperuser(model.CreateUserInput{
+	user, err := model.NewUser(model.CreateUserInput{
 		Email:     in.Email,
 		FirstName: in.FirstName,
 		LastName:  in.LastName,
@@ -98,14 +113,20 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 		return nil, false, fmt.Errorf("bootstrap superuser: %w", err)
 	}
 
-	credentials, err := model.NewCredentials(user.ID, in.Password, now)
+	credentials, err := model.NewCredentials(user.ID, user.Email, in.Password, s.passwordTTL, now)
 	if err == nil {
 		err = s.credentialRepo.Create(ctx, credentials)
 	}
 
+	if err == nil {
+		// Роль в профиле не хранится: администратором суперпользователь
+		// становится через членство в личном тенанте (tenant_members.role_id).
+		err = s.createAdminTenant(ctx, user, now)
+	}
+
 	if err != nil {
-		// Пользователь без пароля бесполезен и занял бы email: откатываем его
-		// (soft delete), чтобы bootstrap можно было повторить.
+		// Пользователь без пароля или без тенанта бесполезен и занял бы email:
+		// откатываем его (soft delete), чтобы bootstrap можно было повторить.
 		s.rollback(ctx, user.ID)
 
 		return nil, false, fmt.Errorf("bootstrap superuser: %w", err)
@@ -114,6 +135,37 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 	slog.InfoContext(ctx, "superuser created", "uuid", user.ID, "email", user.Email)
 
 	return user, true, nil
+}
+
+// createAdminTenant создаёт личный тенант суперпользователя и членство в нём с
+// ролью admin.
+//
+// Тенант нужен, потому что сессия действует в рамках одного тенанта
+// (user_tokens.tenant_id NOT NULL), а роль — атрибут членства: без членства
+// суперпользователь не смог бы войти, а без роли admin — управлять системой.
+// Владельцем тенанта становится он сам (is_owner = true).
+func (s *bootstrapService) createAdminTenant(ctx context.Context, user *model.User, now time.Time) error {
+	tenant, err := model.NewTenant(user.FullName(), personalTenantSlug(user.ID), now)
+	if err != nil {
+		return fmt.Errorf("create superuser tenant: %w", err)
+	}
+
+	if err := s.tenantRepo.Create(ctx, tenant); err != nil {
+		return fmt.Errorf("create superuser tenant: %w", err)
+	}
+
+	member, err := model.NewTenantMember(tenant.ID, user.ID, model.RoleAdmin, true, now)
+	if err != nil {
+		return fmt.Errorf("create superuser membership: %w", err)
+	}
+
+	if err := s.tenantRepo.AddMember(ctx, member); err != nil {
+		return fmt.Errorf("create superuser membership: %w", err)
+	}
+
+	slog.InfoContext(ctx, "superuser tenant created", "tenant", tenant.ID, "uuid", user.ID)
+
+	return nil
 }
 
 // ensureSuperuserAfterRace читает пользователя, которого создал параллельный

@@ -176,12 +176,14 @@ func TestNeedsRehash(t *testing.T) {
 func TestCredentials(t *testing.T) {
 	const (
 		password = "correct horse battery staple"
+		email    = "ivan@example.com"
 		userID   = "3f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
+		ttl      = 90 * 24 * time.Hour
 	)
 
 	now := time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC)
 
-	credentials, err := NewCredentials(userID, password, now)
+	credentials, err := NewCredentials(userID, email, password, ttl, now)
 	if err != nil {
 		t.Fatalf("NewCredentials() unexpected error = %v", err)
 	}
@@ -189,8 +191,12 @@ func TestCredentials(t *testing.T) {
 	if credentials.UserID != userID {
 		t.Errorf("UserID = %q, want %q", credentials.UserID, userID)
 	}
-	if !credentials.CreatedAt.Equal(now) || !credentials.UpdatedAt.Equal(now) {
-		t.Errorf("CreatedAt/UpdatedAt = %v/%v, want %v", credentials.CreatedAt, credentials.UpdatedAt, now)
+	if !credentials.CreatedAt.Equal(now) {
+		t.Errorf("CreatedAt = %v, want %v", credentials.CreatedAt, now)
+	}
+	if credentials.ProviderKey != email || credentials.Provider != CredentialProviderEmail {
+		t.Errorf("Provider/ProviderKey = %q/%q, want %q/%q",
+			credentials.Provider, credentials.ProviderKey, CredentialProviderEmail, email)
 	}
 	if strings.Contains(credentials.Hash, password) {
 		t.Error("Hash содержит открытый пароль")
@@ -208,15 +214,15 @@ func TestCredentials(t *testing.T) {
 		before := credentials.Hash
 		later := now.Add(time.Hour)
 
-		if err := credentials.SetPassword("new correct horse", later); err != nil {
+		if err := credentials.SetPassword("new correct horse", ttl, later); err != nil {
 			t.Fatalf("SetPassword() unexpected error = %v", err)
 		}
 
 		if credentials.Hash == before {
 			t.Error("хеш не изменился")
 		}
-		if !credentials.UpdatedAt.Equal(later) {
-			t.Errorf("UpdatedAt = %v, want %v", credentials.UpdatedAt, later)
+		if want := later.Add(ttl); !credentials.ExpiresAt.Equal(want) {
+			t.Errorf("ExpiresAt = %v, want %v", credentials.ExpiresAt, want)
 		}
 		if err := credentials.Verify("new correct horse"); err != nil {
 			t.Errorf("Verify() нового пароля unexpected error = %v", err)
@@ -227,15 +233,15 @@ func TestCredentials(t *testing.T) {
 	})
 
 	t.Run("отказы", func(t *testing.T) {
-		if _, err := NewCredentials("not-a-uuid", password, now); !errors.Is(err, ErrInvalidUUID) {
+		if _, err := NewCredentials("not-a-uuid", email, password, ttl, now); !errors.Is(err, ErrInvalidUUID) {
 			t.Errorf("NewCredentials() error = %v, want %v", err, ErrInvalidUUID)
 		}
 
-		if _, err := NewCredentials(userID, "short", now); !errors.Is(err, ErrInvalidPassword) {
+		if _, err := NewCredentials(userID, email, "short", ttl, now); !errors.Is(err, ErrInvalidPassword) {
 			t.Errorf("NewCredentials() error = %v, want %v", err, ErrInvalidPassword)
 		}
 
-		if err := credentials.SetPassword("short", now); !errors.Is(err, ErrInvalidPassword) {
+		if err := credentials.SetPassword("short", ttl, now); !errors.Is(err, ErrInvalidPassword) {
 			t.Errorf("SetPassword() error = %v, want %v", err, ErrInvalidPassword)
 		}
 	})

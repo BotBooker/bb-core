@@ -9,8 +9,13 @@ import (
 // tokenNow — фиксированное «сейчас» для тестов токенов.
 var tokenNow = time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC)
 
-// testUserForToken возвращает валидного пользователя с заданной ролью.
-func testUserForToken(t *testing.T, role Role) *User {
+// testTenantID — идентификатор тенанта сессии в тестах токенов.
+const testTenantID = "0f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
+
+// testUserForToken возвращает валидного пользователя для выдачи сессии.
+// Роль у профиля не задаётся: она приходит из членства в тенанте, поэтому
+// передаётся в NewToken отдельным аргументом.
+func testUserForToken(t *testing.T) *User {
 	t.Helper()
 
 	user, err := NewUser(CreateUserInput{
@@ -23,18 +28,16 @@ func testUserForToken(t *testing.T, role Role) *User {
 		t.Fatalf("model.NewUser() unexpected error = %v", err)
 	}
 
-	user.Role = role
-
 	return user
 }
 
 func TestNewToken(t *testing.T) {
 	const ttl = 24 * time.Hour
 
-	t.Run("выдаёт токен владельцу", func(t *testing.T) {
-		user := testUserForToken(t, RoleClient)
+	t.Run("выдаёт сессию владельцу в тенанте", func(t *testing.T) {
+		user := testUserForToken(t)
 
-		token, err := NewToken(user, ttl, tokenNow)
+		token, err := NewToken(user, testTenantID, RoleClient, ttl, tokenNow)
 		if err != nil {
 			t.Fatalf("NewToken() unexpected error = %v", err)
 		}
@@ -44,6 +47,9 @@ func TestNewToken(t *testing.T) {
 		}
 		if token.UserID != user.ID {
 			t.Errorf("UserID = %q, want %q", token.UserID, user.ID)
+		}
+		if token.TenantID != testTenantID {
+			t.Errorf("TenantID = %q, want %q", token.TenantID, testTenantID)
 		}
 		if token.Role != RoleClient {
 			t.Errorf("Role = %q, want %q", token.Role, RoleClient)
@@ -63,14 +69,14 @@ func TestNewToken(t *testing.T) {
 	})
 
 	t.Run("идентификаторы разных токенов не совпадают", func(t *testing.T) {
-		user := testUserForToken(t, RoleClient)
+		user := testUserForToken(t)
 
-		first, err := NewToken(user, ttl, tokenNow)
+		first, err := NewToken(user, testTenantID, RoleClient, ttl, tokenNow)
 		if err != nil {
 			t.Fatalf("NewToken() unexpected error = %v", err)
 		}
 
-		second, err := NewToken(user, ttl, tokenNow)
+		second, err := NewToken(user, testTenantID, RoleClient, ttl, tokenNow)
 		if err != nil {
 			t.Fatalf("NewToken() unexpected error = %v", err)
 		}
@@ -81,10 +87,10 @@ func TestNewToken(t *testing.T) {
 	})
 
 	t.Run("время приводится к UTC", func(t *testing.T) {
-		user := testUserForToken(t, RoleClient)
+		user := testUserForToken(t)
 		zone := time.FixedZone("MSK", 3*60*60)
 
-		token, err := NewToken(user, ttl, tokenNow.In(zone))
+		token, err := NewToken(user, testTenantID, RoleClient, ttl, tokenNow.In(zone))
 		if err != nil {
 			t.Fatalf("NewToken() unexpected error = %v", err)
 		}
@@ -95,26 +101,30 @@ func TestNewToken(t *testing.T) {
 	})
 
 	t.Run("отказы", func(t *testing.T) {
-		valid := testUserForToken(t, RoleAdmin)
+		valid := testUserForToken(t)
 
 		broken := *valid
-		broken.Role = Role("wat")
+		broken.Email = "not-an-email"
 
 		tests := []struct {
-			name string
-			user *User
-			ttl  time.Duration
-			want error
+			name     string
+			user     *User
+			tenantID string
+			role     Role
+			ttl      time.Duration
+			want     error
 		}{
-			{name: "нет пользователя", user: nil, ttl: ttl, want: ErrInvalidToken},
-			{name: "нулевой срок", user: valid, ttl: 0, want: ErrInvalidToken},
-			{name: "отрицательный срок", user: valid, ttl: -time.Minute, want: ErrInvalidToken},
-			{name: "невалидный пользователь", user: &broken, ttl: ttl, want: ErrInvalidRole},
+			{name: "нет пользователя", user: nil, tenantID: testTenantID, role: RoleAdmin, ttl: ttl, want: ErrInvalidToken},
+			{name: "нулевой срок", user: valid, tenantID: testTenantID, role: RoleAdmin, ttl: 0, want: ErrInvalidToken},
+			{name: "отрицательный срок", user: valid, tenantID: testTenantID, role: RoleAdmin, ttl: -time.Minute, want: ErrInvalidToken},
+			{name: "невалидный пользователь", user: &broken, tenantID: testTenantID, role: RoleAdmin, ttl: ttl, want: ErrInvalidEmail},
+			{name: "нет тенанта", user: valid, tenantID: "", role: RoleAdmin, ttl: ttl, want: ErrInvalidToken},
+			{name: "неизвестная роль", user: valid, tenantID: testTenantID, role: Role("wat"), ttl: ttl, want: ErrInvalidRole},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				_, err := NewToken(tt.user, tt.ttl, tokenNow)
+				_, err := NewToken(tt.user, tt.tenantID, tt.role, tt.ttl, tokenNow)
 				if !errors.Is(err, tt.want) {
 					t.Errorf("NewToken() error = %v, want %v", err, tt.want)
 				}
@@ -127,6 +137,7 @@ func TestToken_Validate(t *testing.T) {
 	valid := Token{
 		ID:        "3f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f",
 		UserID:    "2f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f",
+		TenantID:  testTenantID,
 		Role:      RoleClient,
 		IssuedAt:  tokenNow,
 		ExpiresAt: tokenNow.Add(time.Hour),
@@ -144,6 +155,8 @@ func TestToken_Validate(t *testing.T) {
 		{name: "пустой id", alter: func(t *Token) { t.ID = "" }, want: ErrInvalidToken},
 		{name: "id не UUID", alter: func(t *Token) { t.ID = "not-a-uuid" }, want: ErrInvalidToken},
 		{name: "пустой user_id", alter: func(t *Token) { t.UserID = "" }, want: ErrInvalidToken},
+		{name: "пустой tenant_id", alter: func(t *Token) { t.TenantID = "" }, want: ErrInvalidToken},
+		{name: "tenant_id не UUID", alter: func(t *Token) { t.TenantID = "not-a-uuid" }, want: ErrInvalidToken},
 		{name: "неизвестная роль", alter: func(t *Token) { t.Role = Role("wat") }, want: ErrInvalidRole},
 		{name: "нет времени выдачи", alter: func(t *Token) { t.IssuedAt = time.Time{} }, want: ErrInvalidToken},
 		{

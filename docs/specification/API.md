@@ -7,6 +7,21 @@
 - **Аутентификация**: JWT‑токен в заголовке `Authorization: Bearer <token>`
 - **Кодировка**: UTF‑8
 - **Версионирование**: через URL (`/v1`, `/v2`)
+- **Идентификаторы**: `UUID` строкой, значение генерирует приложение;
+  целочисленный PK (`INT`/`SMALLINT`) — только у справочников (`type_objects`,
+  `locations`, `statuses`, `booking_statuses`, `currencies`, `payment_methods`,
+  `roles`; см. `ERDB.md`). На границе API значения справочников передаются
+  **строковым кодом** (`code`: `RUB`, `pending`, `card`), а в БД хранится
+  внешний ключ (`*_id`).
+- **Деньги**: `BIGINT` в минорных единицах (копейки) вместе с валютой; в API —
+  код ISO‑4217 (`currency`, например `RUB`), в БД — ссылка на справочник
+  `currencies` (`currency_id`). `float`/`DECIMAL` не используются.
+- **Коды ответов**: успех — `200 OK` с телом ресурса; `201`/`204` не
+  используются, потому что HTTP (grpc-gateway) и gRPC обслуживает один адаптер.
+- **Источник истины схемы**: `docs/specification/ERDB.md`.
+- **Имена на границе API**: поля запросов/ответов задаются в `proto/`; часть имён
+  в контракте отличается от колонок БД и указывается здесь явно
+  (например, `start_at`/`end_at` в API ↔ `slot_start`/`slot_end` в `bookings`).
 
 ## 2. Методы аутентификации и авторизации
 
@@ -17,20 +32,31 @@
 
   ```json
   {
-    "full_name": "Иван Иванов",
     "email": "user@example.com",
-    "phone": "+79991234567",
-    "password": "secure_password"
+    "password": "secure_password",
+    "first_name": "Иван",
+    "last_name": "Иванов",
+    "middle_name": "Иванович",
+    "phone_number": "+79991234567"
   }
   ```
 
-- **Ответ (201 Created)**:
+- **Ответ (200 OK)** — профиль и выданная сессия:
 
   ```json
   {
-    "user_id": 123,
-    "email": "user@example.com",
-    "role": "client"
+    "user": {
+      "uuid": "7c3ca7c0-ec6f-42d5-a77e-6ca55c037ae3",
+      "email": "user@example.com",
+      "first_name": "Иван",
+      "last_name": "Иванов",
+      "middle_name": "Иванович",
+      "phone_number": "+79991234567"
+    },
+    "session": {
+      "token": "eyJ...abc123",
+      "expires_at": "2025-12-08T10:00:00Z"
+    }
   }
   ```
 
@@ -50,9 +76,10 @@
 
   ```json
   {
-    "token": "eyJ...abc123",
-    "user_id": 123,
-    "role": "client"
+    "session": {
+      "token": "eyJ...abc123",
+      "expires_at": "2025-12-08T10:00:00Z"
+    }
   }
   ```
 
@@ -75,46 +102,54 @@
 
 - **Endpoint**: `GET /objects`
 - **Параметры запроса (query)**:
-  + `type` (например, `транспорт`, `недвижимость`)
-  + `subtype` (например, `автомобиль`, `квартира`)
-  + `location` (строка)
-  + `min_price`, `max_price` (число)
-  + `page`, `limit` (пагинация)
+  + `type` (INT — ссылка на `type_objects.id`, например `1` — транспорт, `2` — недвижимость)
+  + `subtype` (строка, например `автомобиль`, `квартира`)
+  + `location_id` (INT — ссылка на `locations.id`)
+  + `status` (строка — `statuses.code`: `active`, `under_repair`, `archived`;
+    `deleted` — внутреннее состояние и в выдаче не встречается)
+  + `min_price_minor`, `max_price_minor` (целое число в минорных единицах)
+  + `page_size`, `page_token` (keyset-пагинация)
 - **Ответ (200 OK)**:
 
   ```json
   {
     "items": [
       {
-        "object_id": 456,
-        "type": "транспорт",
+        "uuid": "0f2d9c1e-3b6a-4c8d-9e10-2a3b4c5d6e7f",
+        "type": 1,
         "subtype": "автомобиль",
         "title": "Toyota Camry",
-        "price_per_unit": 2500.00,
-        "location": "Москва, ул. Ленина, 1",
+        "price_minor": 250000,
+        "currency": "RUB",
+        "location_id": 1,
+        "address": "ул. Ленина, 1",
+        "status": "active",
         "photos": ["https://.../photo1.jpg"]
       }
     ],
     "total": 50,
-    "page": 1
+    "next_page_token": "..."
   }
   ```
 
 ### 3.2. Получение детальной информации об объекте
 
-- **Endpoint**: `GET /objects/{object_id}`
+- **Endpoint**: `GET /objects/{uuid}`
 - **Ответ (200 OK)**:
 
   ```json
   {
-    "object_id": 456,
-    "type": "транспорт",
+    "uuid": "0f2d9c1e-3b6a-4c8d-9e10-2a3b4c5d6e7f",
+    "type": 1,
     "subtype": "автомобиль",
     "title": "Toyota Camry",
     "description": "Новый автомобиль с кондиционером",
-    "price_per_unit": 2500.00,
-    "min_duration": 60,
-    "location": "Москва, ул. Ленина, 1",
+    "price_minor": 250000,
+    "currency": "RUB",
+    "min_duration_minutes": 60,
+    "location_id": 1,
+    "address": "ул. Ленина, 1",
+    "status": "active",
     "photos": [
       {"url": "https://.../photo1.jpg", "is_main": true},
       {"url": "https://.../photo2.jpg", "is_main": false}
@@ -131,22 +166,24 @@
 
   ```json
   {
-    "object_id": 456,
-    "start_datetime": "2025-12-01T10:00:00Z",
-    "end_datetime": "2025-12-01T12:00:00Z",
+    "object_uuid": "0f2d9c1e-3b6a-4c8d-9e10-2a3b4c5d6e7f",
+    "start_at": "2025-12-01T10:00:00Z",
+    "end_at": "2025-12-01T12:00:00Z",
     "addons": [
-      {"addon_id": 789, "quantity": 1}
-    ]
+      {"addon_uuid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "quantity": 1}
+    ],
+    "idempotency_key": "5c1f8e2a-9b4d-4f6e-8a3c-2d1e0f9a8b7c"
   }
   ```
 
-- **Ответ (201 Created)**:
+- **Ответ (200 OK)**:
 
   ```json
   {
-    "booking_id": 101,
-    "total_price": 5000.00,
-    "status": "ожидает"
+    "uuid": "9d8c7b6a-1f2e-4d3c-8b7a-6f5e4d3c2b1a",
+    "total_price_minor": 500000,
+    "currency": "RUB",
+    "status": "pending"
   }
   ```
 
@@ -158,12 +195,13 @@
   ```json
   [
     {
-      "booking_id": 101,
-      "object_id": 456,
-      "start_datetime": "2025-12-01T10:00:00Z",
-      "end_datetime": "2025-12-01T12:00:00Z",
-      "total_price": 5000.00,
-      "status": "оплачено",
+      "uuid": "9d8c7b6a-1f2e-4d3c-8b7a-6f5e4d3c2b1a",
+      "object_uuid": "0f2d9c1e-3b6a-4c8d-9e10-2a3b4c5d6e7f",
+      "start_at": "2025-12-01T10:00:00Z",
+      "end_at": "2025-12-01T12:00:00Z",
+      "total_price_minor": 500000,
+      "currency": "RUB",
+      "status": "paid",
       "object_title": "Toyota Camry"
     }
   ]
@@ -171,14 +209,14 @@
 
 #### 4.3. Изменение бронирования
 
-- **Endpoint**: `PUT /bookings/{booking_id}`
+- **Endpoint**: `PATCH /bookings/{uuid}`
 - **Тело запроса** (частичное обновление):
 
   ```json
   {
-    "start_datetime": "2025-12-01T11:00:00Z",
+    "start_at": "2025-12-01T11:00:00Z",
     "addons": [
-      {"addon_id": 790, "quantity": 2}
+      {"addon_uuid": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e", "quantity": 2}
     ]
   }
   ```
@@ -187,8 +225,8 @@
 
 #### 4.4. Отмена бронирования
 
-- **Endpoint**: `DELETE /bookings/{booking_id}`
-- **Ответ (204 No Content)**: `{}`
+- **Endpoint**: `POST /bookings/{uuid}/cancel`
+- **Ответ (200 OK)**: отменённая бронь со `status = "cancelled"`.
 
 ### 5. Платежи
 
@@ -199,8 +237,8 @@
 
   ```json
   {
-    "booking_id": 101,
-    "payment_method": "карта"
+    "booking_uuid": "9d8c7b6a-1f2e-4d3c-8b7a-6f5e4d3c2b1a",
+    "payment_method": "card"
   }
   ```
 
@@ -208,23 +246,24 @@
 
   ```json
   {
-    "payment_id": 202,
+    "uuid": "3c4d5e6f-7a8b-4c9d-0e1f-2a3b4c5d6e7f",
     "redirect_url": "https://payment-gateway.com/pay/abc123",
-    "status": "ожидает"
+    "status": "pending"
   }
   ```
 
 #### 5.2. Проверка статуса платежа
 
-- **Endpoint**: `GET /payments/{payment_id}`
+- **Endpoint**: `GET /payments/{uuid}`
 - **Ответ (200 OK)**:
 
   ```json
   {
-    "payment_id": 202,
-    "booking_id": 101,
-    "amount": 5000.00,
-    "status": "успешно",
+    "uuid": "3c4d5e6f-7a8b-4c9d-0e1f-2a3b4c5d6e7f",
+    "booking_uuid": "9d8c7b6a-1f2e-4d3c-8b7a-6f5e4d3c2b1a",
+    "amount_minor": 500000,
+    "currency": "RUB",
+    "status": "succeeded",
     "paid_at": "2025-11-08T03:30:00Z"
   }
   ```
@@ -233,15 +272,16 @@
 
 #### 6.1. Получение списка услуг для объекта
 
-- **Endpoint**: `GET /objects/{object_id}/addons`
+- **Endpoint**: `GET /objects/{uuid}/addons`
 - **Ответ (200 OK)**:
 
   ```json
   [
     {
-      "addon_id": 789,
+      "uuid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
       "name": "Заправка топливом",
-      "price": 500.00,
+      "price_minor": 50000,
+      "currency": "RUB",
       "duration_minutes": 15
     }
   ]
@@ -261,7 +301,7 @@
   }
   ```
 
-- **Ответ (201 Created)**: `{}`
+- **Ответ (200 OK)**: `{}`
 
 ### 8. Веб‑панель операторов (административные методы)
 
@@ -274,7 +314,8 @@
   ```json
   {
     "total_bookings": 150,
-    "revenue": 750000.00,
-    "avg_booking_value": 5000.00
+    "revenue_minor": 75000000,
+    "currency": "RUB",
+    "avg_booking_value_minor": 500000
   }
   ```

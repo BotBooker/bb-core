@@ -60,9 +60,6 @@ func TestNewUser(t *testing.T) {
 		if user.Gender != GenderMale {
 			t.Errorf("Gender = %q, want %q", user.Gender, GenderMale)
 		}
-		if user.Role != RoleClient {
-			t.Errorf("Role = %q, want %q", user.Role, RoleClient)
-		}
 		if user.BirthDate == nil || *user.BirthDate != *in.BirthDate {
 			t.Errorf("BirthDate = %v, want %v", user.BirthDate, in.BirthDate)
 		}
@@ -462,8 +459,8 @@ func TestUser_Validate(t *testing.T) {
 		{name: "телефон не E.164", mutate: func(u *User) { u.PhoneNumber = "89991234567" }, wantErr: ErrInvalidPhone},
 		{name: "пол не задан", mutate: func(u *User) { u.Gender = "" }, wantErr: ErrInvalidGender},
 		{name: "неизвестный пол", mutate: func(u *User) { u.Gender = Gender("wat") }, wantErr: ErrInvalidGender},
-		{name: "роль не задана", mutate: func(u *User) { u.Role = "" }, wantErr: ErrInvalidRole},
-		{name: "неизвестная роль", mutate: func(u *User) { u.Role = Role("root") }, wantErr: ErrInvalidRole},
+		// IsDelete — служебный признак репозитория, доменные инварианты не меняет.
+		{name: "помеченный удалённым профиль остаётся валидным", mutate: func(u *User) { u.IsDelete = true }},
 	}
 
 	for _, tt := range tests {
@@ -566,8 +563,8 @@ func TestApplyUpdate(t *testing.T) {
 		if user.BirthDate == nil || *user.BirthDate != *before.BirthDate {
 			t.Errorf("BirthDate = %v, want %v", user.BirthDate, before.BirthDate)
 		}
-		if !user.CreatedAt.Equal(before.CreatedAt) || user.Role != before.Role || user.Email != before.Email {
-			t.Errorf("служебные поля изменились: %v %q %q", user.CreatedAt, user.Role, user.Email)
+		if !user.CreatedAt.Equal(before.CreatedAt) || user.Email != before.Email {
+			t.Errorf("служебные поля изменились: %v %q", user.CreatedAt, user.Email)
 		}
 		if !user.UpdatedAt.Equal(later) {
 			t.Errorf("UpdatedAt = %v, want %v", user.UpdatedAt, later)
@@ -609,8 +606,8 @@ func TestApplyUpdate(t *testing.T) {
 		if !user.CreatedAt.Equal(testNow) {
 			t.Errorf("CreatedAt = %v, want %v", user.CreatedAt, testNow)
 		}
-		if user.Role != RoleClient || user.Email != "ivan@example.com" {
-			t.Errorf("служебные поля изменились: %q %q", user.Role, user.Email)
+		if user.Email != "ivan@example.com" {
+			t.Errorf("служебные поля изменились: %q", user.Email)
 		}
 	})
 
@@ -773,44 +770,8 @@ func TestParseGender(t *testing.T) {
 	}
 }
 
-func TestParseRole(t *testing.T) {
-	tests := []struct {
-		name    string
-		value   string
-		want    Role
-		wantErr error
-	}{
-		{name: "client", value: "client", want: RoleClient},
-		{name: "operator", value: "operator", want: RoleOperator},
-		{name: "admin", value: "admin", want: RoleAdmin},
-		{name: "значение с пробелами", value: " admin ", want: RoleAdmin},
-		{name: "пустая строка", value: "", want: RoleClient},
-		{name: "неизвестная роль", value: "root", wantErr: ErrInvalidRole},
-		{name: "другой регистр", value: "CLIENT", wantErr: ErrInvalidRole},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseRole(tt.value)
-
-			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
-					t.Fatalf("ParseRole(%q) error = %v, want %v", tt.value, err, tt.wantErr)
-				}
-
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("ParseRole(%q) unexpected error = %v", tt.value, err)
-			}
-			if got != tt.want {
-				t.Errorf("ParseRole(%q) = %q, want %q", tt.value, got, tt.want)
-			}
-		})
-	}
-}
-
+// TestGenderValid проверяет разбор и валидацию пола. Роли проверяются в
+// role_test.go: Role больше не атрибут профиля.
 func TestGenderValid(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -831,31 +792,6 @@ func TestGenderValid(t *testing.T) {
 			}
 			if got := tt.value.String(); got != string(tt.value) {
 				t.Errorf("Gender(%q).String() = %q, want %q", tt.value, got, tt.value)
-			}
-		})
-	}
-}
-
-func TestRoleValid(t *testing.T) {
-	tests := []struct {
-		name  string
-		value Role
-		want  bool
-	}{
-		{name: "client", value: RoleClient, want: true},
-		{name: "operator", value: RoleOperator, want: true},
-		{name: "admin", value: RoleAdmin, want: true},
-		{name: "пустое значение", value: "", want: false},
-		{name: "неизвестное значение", value: Role("root"), want: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.value.Valid(); got != tt.want {
-				t.Errorf("Role(%q).Valid() = %v, want %v", tt.value, got, tt.want)
-			}
-			if got := tt.value.String(); got != string(tt.value) {
-				t.Errorf("Role(%q).String() = %q, want %q", tt.value, got, tt.value)
 			}
 		})
 	}

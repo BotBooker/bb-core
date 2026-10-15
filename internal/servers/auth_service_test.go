@@ -24,7 +24,9 @@ func authTestSession(t *testing.T) *service.Session {
 
 	user := handlerTestUser(t)
 
-	token, err := model.NewToken(user, time.Hour, time.Now().UTC())
+	// Сессия действует в тенанте, а роль — атрибут членства: в записи хранится
+	// снимок роли на момент выдачи.
+	token, err := model.NewToken(user, testTenantID, model.RoleClient, time.Hour, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("model.NewToken() unexpected error = %v", err)
 	}
@@ -223,7 +225,7 @@ func TestAuthServiceServer_GetCurrentUser(t *testing.T) {
 	user := handlerTestUser(t)
 	server := NewAuthServiceServer(&mockAuthService{})
 
-	ctx := service.WithPrincipal(context.Background(), &service.Principal{User: user})
+	ctx := service.WithPrincipal(context.Background(), testPrincipal(t, user, model.RoleClient))
 
 	resp, err := server.GetCurrentUser(ctx, &auth_v1.AuthServiceGetCurrentUserRequest{})
 	if err != nil {
@@ -350,7 +352,7 @@ func TestIsPublicGRPCMethod(t *testing.T) {
 func TestNewAuthInterceptor_AuthMethods(t *testing.T) {
 	auth := &mockAuthService{authenticateFunc: func(_ context.Context, token string) (*service.Principal, error) {
 		if token == "good-token" {
-			return &service.Principal{User: handlerTestUser(t)}, nil
+			return testPrincipal(t, handlerTestUser(t), model.RoleClient), nil
 		}
 
 		return nil, service.ErrUnauthorized

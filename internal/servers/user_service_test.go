@@ -86,9 +86,9 @@ func adapterContext(t *testing.T) context.Context {
 		t.Fatalf("model.NewUser() unexpected error = %v", err)
 	}
 
-	user.Role = model.RoleAdmin
-
-	return service.WithPrincipal(context.Background(), &service.Principal{User: user})
+	// Роль у профиля не хранится: она принадлежит членству в тенанте, поэтому
+	// в Principal она задаётся явно — так же, как это делает Authenticate.
+	return service.WithPrincipal(context.Background(), testPrincipal(t, user, model.RoleAdmin))
 }
 
 // adapterTestUser — пользователь, как его вернул бы доменный сервис.

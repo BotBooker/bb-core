@@ -116,12 +116,14 @@ func TestUserRepo_DeleteQuery(t *testing.T) {
 		{
 			name:    "sqlite",
 			dialect: database.DialectSQLite,
-			want:    "UPDATE users SET is_active = false WHERE id = ? AND is_active = true",
+			want: "UPDATE users SET is_active = false, is_delete = true" +
+				" WHERE id = ? AND is_active = true",
 		},
 		{
 			name:    "postgres",
 			dialect: database.DialectPostgres,
-			want:    "UPDATE users SET is_active = false WHERE id = $1 AND is_active = true",
+			want: "UPDATE users SET is_active = false, is_delete = true" +
+				" WHERE id = $1 AND is_active = true",
 		},
 	}
 
@@ -232,8 +234,9 @@ func assertUser(t *testing.T, want, got *model.User) {
 	if got.Gender != want.Gender {
 		t.Errorf("Gender = %q, want %q", got.Gender, want.Gender)
 	}
-	if got.Role != want.Role {
-		t.Errorf("Role = %q, want %q", got.Role, want.Role)
+	// Роли у профиля нет: она принадлежит членству в тенанте.
+	if got.IsDelete != want.IsDelete {
+		t.Errorf("IsDelete = %v, want %v", got.IsDelete, want.IsDelete)
 	}
 	if got.BirthDate == nil || want.BirthDate == nil || got.BirthDate.String() != want.BirthDate.String() {
 		t.Errorf("BirthDate = %v, want %v", got.BirthDate, want.BirthDate)
@@ -414,6 +417,43 @@ func runUserRepoScenario(t *testing.T, repo UserRepo) {
 			t.Errorf("GetByEmail() error = %v, want %v", err, database.ErrNotFound)
 		}
 	})
+}
+
+// TestUserRepo_SoftDeleteMarksBothFlags проверяет, что удаление помечает строку
+// целиком: is_active = false и is_delete = true (как в ERDB для пользователей).
+// Строка остаётся в таблице — её читают напрямую, минуя фильтр репозитория.
+func TestUserRepo_SoftDeleteMarksBothFlags(t *testing.T) {
+	ctx := context.Background()
+
+	conn := newSQLiteTestDB(t)
+	repo := NewUserRepo(conn, database.DialectSQLite)
+
+	user := testUser(t, "flags@example.com", "+79990000010")
+	if err := repo.Create(ctx, user); err != nil {
+		t.Fatalf("Create() unexpected error = %v", err)
+	}
+
+	if err := repo.Delete(ctx, user.ID); err != nil {
+		t.Fatalf("Delete() unexpected error = %v", err)
+	}
+
+	var (
+		isActive bool
+		isDelete bool
+	)
+
+	err := conn.QueryRowContext(ctx,
+		"SELECT is_active, is_delete FROM users WHERE id = ?", user.ID).Scan(&isActive, &isDelete)
+	if err != nil {
+		t.Fatalf("SELECT is_active, is_delete unexpected error = %v", err)
+	}
+
+	if isActive {
+		t.Error("is_active = true после удаления, want false")
+	}
+	if !isDelete {
+		t.Error("is_delete = false после удаления, want true")
+	}
 }
 
 // resultStub — sql.Result с заданным числом строк и ошибкой: проверяет

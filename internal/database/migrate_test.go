@@ -27,8 +27,8 @@ import (
 // wantUserColumns — набор колонок таблицы users: одинаковый в обоих диалектах.
 var wantUserColumns = []string{
 	"id", "email", "first_name", "last_name", "middle_name",
-	"phone_number", "gender", "birth_date", "role", "created_at", "updated_at",
-	"last_login_at", "is_active",
+	"phone_number", "gender", "birth_date", "created_at", "updated_at",
+	"last_login_at", "is_active", "is_delete",
 }
 
 // fakePool — пул без настоящего database/sql: проверяет отказ миграций
@@ -326,18 +326,19 @@ func TestMigrateSQLite(t *testing.T) {
 		t.Fatalf("insertUser() unexpected error = %v", err)
 	}
 
-	var role, gender, phone, middle string
+	var gender, phone, middle string
+	var isActive, isDelete int
 
 	err := conn.QueryRowContext(ctx,
-		"SELECT role, gender, phone_number, middle_name FROM users WHERE email = ?", "ivan@example.com").
-		Scan(&role, &gender, &phone, &middle)
+		"SELECT gender, phone_number, middle_name, is_active, is_delete FROM users WHERE email = ?", "ivan@example.com").
+		Scan(&gender, &phone, &middle, &isActive, &isDelete)
 	if err != nil {
 		t.Fatalf("select значений по умолчанию: %v", err)
 	}
 
-	if role != "client" || gender != "unspecified" || phone != "" || middle != "" {
-		t.Errorf("значения по умолчанию = %q/%q/%q/%q, want client/unspecified/''/''",
-			role, gender, phone, middle)
+	if gender != "unspecified" || phone != "" || middle != "" || isActive != 1 || isDelete != 0 {
+		t.Errorf("значения по умолчанию = %q/%q/%q/%d/%d, want unspecified/''/''/1/0",
+			gender, phone, middle, isActive, isDelete)
 	}
 
 	t.Run("уникальность email", func(t *testing.T) {
@@ -416,31 +417,33 @@ func TestMigrateSQLite(t *testing.T) {
 		}
 	})
 
-	// Откат снимает ровно одну миграцию: сначала последнюю — таблицы токенов
-	// и учётных данных...
-	if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
-		t.Fatalf("MigrateDown() unexpected error = %v", err)
-	}
-
+	// Каждый откат снимает ровно одну миграцию — с последней (00007_notifications)
+	// до первой (00001_foundation). Таблица, которую миграция создавала, должна
+	// исчезнуть вместе с ней.
 	var count int
 
-	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM user_tokens").Scan(&count); err == nil {
-		t.Error("SELECT после отката: ошибки нет, want отсутствие таблицы user_tokens")
+	for _, tc := range []struct {
+		version string
+		table   string
+	}{
+		{"00007_notifications", "notifications"},
+		{"00006_bookings", "bookings"},
+		{"00005_objects", "rental_objects"},
+		{"00004_auth", "user_tokens"},
+		{"00003_tenants", "tenant_members"},
+		{"00002_users", "users"},
+		{"00001_foundation", "roles"},
+	} {
+		if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
+			t.Fatalf("MigrateDown(%s) unexpected error = %v", tc.version, err)
+		}
+
+		if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tc.table).Scan(&count); err == nil {
+			t.Errorf("SELECT %s после отката %s: ошибки нет, want отсутствие таблицы", tc.table, tc.version)
+		}
 	}
 
-	// ...затем миграцию с таблицей пользователей...
-	if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
-		t.Fatalf("MigrateDown() второй unexpected error = %v", err)
-	}
-
-	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count); err == nil {
-		t.Error("SELECT после отката: ошибки нет, want отсутствие таблицы users")
-	}
-
-	// ...а откат оставшихся миграций и повторный откат ошибкой не считаются.
-	if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
-		t.Fatalf("MigrateDown() третий unexpected error = %v", err)
-	}
+	// Откат, когда миграций не осталось, ошибкой не считается.
 	if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
 		t.Fatalf("MigrateDown() без миграций unexpected error = %v", err)
 	}
@@ -674,15 +677,6 @@ func TestMigratePostgres(t *testing.T) {
 		t.Error("insert дубликата email: ошибки нет, want нарушение UNIQUE")
 	}
 
-	_, err = conn.ExecContext(ctx,
-		"INSERT INTO users (id, email, first_name, last_name, role, created_at, updated_at)"+
-			" VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		"33333333-3333-4333-8333-333333333333", "petr@example.com", "Пётр", "Петров", "root",
-		time.Now().UTC(), time.Now().UTC())
-	if err == nil {
-		t.Error("insert неизвестной роли: ошибки нет, want нарушение CHECK")
-	}
-
 	// Значение вне ENUM и не-UUID отклоняет сама СУБД (SQLSTATE 22P02).
 	_, err = conn.ExecContext(ctx,
 		"INSERT INTO users (id, email, first_name, last_name, gender, created_at, updated_at)"+
@@ -697,29 +691,34 @@ func TestMigratePostgres(t *testing.T) {
 		t.Error("insert не-UUID в id: ошибки нет, want нарушение типа uuid")
 	}
 
-	// Откат снимает ровно одну миграцию: сначала последнюю — таблицы токенов
-	// и учётных данных...
-	if err := database.MigrateDown(ctx, conn, database.DialectPostgres); err != nil {
-		t.Fatalf("MigrateDown() unexpected error = %v", err)
-	}
-
+	// Каждый откат снимает ровно одну миграцию — с 00007_notifications до
+	// 00001_foundation. Таблица, которую миграция создавала, исчезает вместе с ней.
 	var count int
-	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM user_tokens").Scan(&count); err == nil {
-		t.Error("SELECT после отката: ошибки нет, want отсутствие таблицы user_tokens")
+
+	for _, tc := range []struct {
+		version string
+		table   string
+	}{
+		{"00007_notifications", "notifications"},
+		{"00006_bookings", "bookings"},
+		{"00005_objects", "rental_objects"},
+		{"00004_auth", "user_tokens"},
+		{"00003_tenants", "tenant_members"},
+		{"00002_users", "users"},
+		{"00001_foundation", "roles"},
+	} {
+		if err := database.MigrateDown(ctx, conn, database.DialectPostgres); err != nil {
+			t.Fatalf("MigrateDown(%s) unexpected error = %v", tc.version, err)
+		}
+
+		if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tc.table).Scan(&count); err == nil {
+			t.Errorf("SELECT %s после отката %s: ошибки нет, want отсутствие таблицы", tc.table, tc.version)
+		}
 	}
 
-	// ...затем миграцию с таблицей пользователей...
-	if err := database.MigrateDown(ctx, conn, database.DialectPostgres); err != nil {
-		t.Fatalf("MigrateDown() второй unexpected error = %v", err)
-	}
-
-	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count); err == nil {
-		t.Error("SELECT после отката: ошибки нет, want отсутствие таблицы users")
-	}
-
-	// Откат убирает и собственный тип ENUM: тип в PostgreSQL живёт независимо
-	// от таблицы, поэтому повторная раскатка должна создавать его заново.
-	// to_regtype ищет тип по search_path — то есть в схеме теста, а не в public.
+	// Откат 00002_users убирает и собственный тип ENUM: тип в PostgreSQL живёт
+	// независимо от таблицы, поэтому повторная раскатка должна создавать его
+	// заново. to_regtype ищет тип по search_path — то есть в схеме теста, а не в public.
 	var genderTypeMissing bool
 	if err := conn.QueryRowContext(ctx, "SELECT to_regtype('user_gender') IS NULL").Scan(&genderTypeMissing); err != nil {
 		t.Fatalf("поиск типа user_gender: %v", err)

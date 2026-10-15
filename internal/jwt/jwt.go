@@ -55,10 +55,12 @@ type header struct {
 }
 
 // claims — полезная нагрузка JWT. В модели токена этим полям соответствуют
-// TokenID (jti), UserID (sub), Role (role), IssuedAt (iat) и ExpiresAt (exp).
+// TokenID (jti), UserID (sub), TenantID (tenant), Role (role), IssuedAt (iat)
+// и ExpiresAt (exp).
 type claims struct {
 	Issuer    string `json:"iss,omitempty"`
 	Subject   string `json:"sub"`
+	Tenant    string `json:"tenant"`
 	Role      string `json:"role"`
 	TokenID   string `json:"jti"`
 	IssuedAt  int64  `json:"iat"`
@@ -110,6 +112,7 @@ func (s *Signer) Sign(token *model.Token) (string, error) {
 	rawClaims, err := json.Marshal(claims{
 		Issuer:    s.issuer,
 		Subject:   token.UserID,
+		Tenant:    token.TenantID,
 		Role:      string(token.Role),
 		TokenID:   token.ID,
 		IssuedAt:  token.IssuedAt.Unix(),
@@ -179,6 +182,7 @@ func (s *Signer) Parse(raw string, now time.Time) (*model.Token, error) {
 	token := &model.Token{
 		ID:        parsedClaims.TokenID,
 		UserID:    parsedClaims.Subject,
+		TenantID:  parsedClaims.Tenant,
 		Role:      model.Role(parsedClaims.Role),
 		IssuedAt:  time.Unix(parsedClaims.IssuedAt, 0).UTC(),
 		ExpiresAt: time.Unix(parsedClaims.ExpiresAt, 0).UTC(),

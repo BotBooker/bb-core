@@ -35,3 +35,4 @@ build/
 *.sarif
 *.lock
 tmp/
+.clinerules/

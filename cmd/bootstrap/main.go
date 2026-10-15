@@ -71,6 +71,8 @@ func run(ctx context.Context, dbCfg config.DatabaseConfig, superuser config.Boot
 	svc := service.NewBootstrapService(
 		repository.NewUserRepo(db, dialect),
 		repository.NewCredentialRepo(db, dialect),
+		repository.NewTenantRepo(db, dialect),
+		config.Auth().PasswordTTL,
 	)
 
 	user, created, err := svc.EnsureSuperuser(ctx, service.BootstrapInput{

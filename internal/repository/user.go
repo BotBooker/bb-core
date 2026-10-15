@@ -41,8 +41,13 @@ type UserRepo interface {
 
 // userColumns — колонки users в том порядке, в котором их читает scanUser.
 // Порядок должен совпадать: рассинхрон ловят тесты репозитория.
+// Колонки роли здесь нет: роль хранится в членстве (tenant_members.role_id).
 const userColumns = "id, email, first_name, last_name, middle_name, phone_number," +
-	" gender, birth_date, role, created_at, updated_at, last_login_at, is_active"
+	" gender, birth_date, created_at, updated_at, last_login_at, is_active, is_delete"
+
+// activeUserFilter — условие «строка живая»: удалённый пользователь
+// (is_active = false, is_delete = true) не виден ни по id, ни по email.
+const activeUserFilter = " AND is_active = true AND is_delete = false"
 
 // userRepo — конкретная реализация, скрыта от внешних пакетов.
 type userRepo struct {
@@ -61,10 +66,13 @@ func NewUserRepo(db UserDB, dialect string) UserRepo {
 }
 
 // Create вставляет активного пользователя.
+//
+// Роль не записывается: её хранит членство в тенанте (tenant_members), а
+// профиль в users колонки с ролью не имеет.
 func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 	const query = `INSERT INTO users` +
 		` (id, email, first_name, last_name, middle_name, phone_number,` +
-		` gender, birth_date, role, created_at, updated_at, last_login_at, is_active)` +
+		` gender, birth_date, created_at, updated_at, last_login_at, is_active, is_delete)` +
 		` VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := r.db.ExecContext(ctx, r.rebind(query),
@@ -76,11 +84,11 @@ func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 		user.PhoneNumber,
 		string(user.Gender),
 		r.dateArg(user.BirthDate),
-		string(user.Role),
 		r.timeArg(user.CreatedAt),
 		r.timeArg(user.UpdatedAt),
 		r.nullTimeArg(user.LastLoginAt),
 		user.IsActive,
+		user.IsDelete,
 	)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", database.MapError(err))
@@ -90,10 +98,10 @@ func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 }
 
 // GetByID возвращает активного пользователя по идентификатору (UUID).
-// Удалённые (is_active = false) записи не видны: soft delete делает их
-// недоступными так же, как обычное удаление.
+// Удалённые (is_active = false, is_delete = true) записи не видны: soft delete
+// делает их недоступными так же, как обычное удаление.
 func (r *userRepo) GetByID(ctx context.Context, id string) (*model.User, error) {
-	const query = "SELECT " + userColumns + " FROM users WHERE id = ? AND is_active = true"
+	const query = "SELECT " + userColumns + " FROM users WHERE id = ?" + activeUserFilter
 
 	return r.getBy(ctx, query, id)
 }
@@ -101,12 +109,11 @@ func (r *userRepo) GetByID(ctx context.Context, id string) (*model.User, error) 
 // GetByEmail возвращает активного пользователя по email: вход и восстановление
 // доступа.
 //
-// Условие is_active = true обязательно: после soft delete в таблице может
-// остаться несколько строк с одним email (одна активная и любое число удалённых),
-// и без фильтра QueryRow вернул бы произвольную из них.
+// Фильтр «строка живая» обязателен: после soft delete в таблице может
+// остаться несколько строк с одним email (одна активная и любое число
+// удалённых), и без фильтра QueryRow вернул бы произвольную из них.
 func (r *userRepo) GetByEmail(ctx context.Context, email string) (*model.User, error) {
-	const query = "SELECT " + userColumns +
-		" FROM users WHERE email = ? AND is_active = true"
+	const query = "SELECT " + userColumns + " FROM users WHERE email = ?" + activeUserFilter
 
 	return r.getBy(ctx, query, email)
 }
@@ -116,8 +123,8 @@ func (r *userRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 // удалённого пользователя менять нельзя.
 func (r *userRepo) Update(ctx context.Context, user *model.User) error {
 	const query = `UPDATE users SET email = ?, first_name = ?, last_name = ?, middle_name = ?,` +
-		` phone_number = ?, gender = ?, birth_date = ?, role = ?, updated_at = ?, last_login_at = ?` +
-		` WHERE id = ? AND is_active = true`
+		` phone_number = ?, gender = ?, birth_date = ?, updated_at = ?, last_login_at = ?` +
+		` WHERE id = ? AND is_active = true AND is_delete = false`
 
 	result, err := r.db.ExecContext(ctx, r.rebind(query),
 		user.Email,
@@ -127,7 +134,6 @@ func (r *userRepo) Update(ctx context.Context, user *model.User) error {
 		user.PhoneNumber,
 		string(user.Gender),
 		r.dateArg(user.BirthDate),
-		string(user.Role),
 		r.timeArg(user.UpdatedAt),
 		r.nullTimeArg(user.LastLoginAt),
 		user.ID,
@@ -139,14 +145,17 @@ func (r *userRepo) Update(ctx context.Context, user *model.User) error {
 	return requireAffected(result, "update user")
 }
 
-// Delete помечает пользователя удалённым: строка остаётся, is_active = false.
+// Delete помечает пользователя удалённым: строка остаётся, is_active = false и
+// is_delete = true.
 //
-// Это soft delete, а не DELETE: так сохраняется история (токены, учётные данные)
-// и освобождается email — частичный уникальный индекс users_email_idx держит
-// уникальность только среди активных строк. Условие is_active = true делает
-// повторное удаление ошибкой ErrNotFound, а не тихим успехом.
+// Это soft delete, а не DELETE: так сохраняется история (токены, учётные
+// данные) и освобождается email — частичный уникальный индекс users_email_idx
+// держит уникальность только среди активных строк. Оба признака
+// (is_active/is_delete) выставляются вместе, как в ERDB для пользователей и
+// фото; условие is_active = true делает повторное удаление ошибкой ErrNotFound,
+// а не тихим успехом.
 func (r *userRepo) Delete(ctx context.Context, id string) error {
-	const query = "UPDATE users SET is_active = false WHERE id = ? AND is_active = true"
+	const query = "UPDATE users SET is_active = false, is_delete = true WHERE id = ? AND is_active = true"
 
 	// Значение приходит от вызывающего слоя, поэтому проверяется до запроса:
 	// невалидный id отклоняется здесь, а не отдаётся драйверу как аргумент.
@@ -183,14 +192,14 @@ func (r *userRepo) getBy(ctx context.Context, query string, args ...any) (*model
 func scanUser(row *sql.Row) (*model.User, error) {
 	var (
 		user                 model.User
-		gender, role         string
+		gender               string
 		birthDate            nullDate
 		createdAt, updatedAt nullTime
 		lastLogin            nullTime
 	)
 
-	// is_active читается в bool: PostgreSQL отдаёт BOOLEAN, SQLite — INTEGER
-	// (0/1), и database/sql приводит оба вида через driver.Bool.
+	// is_active и is_delete читаются в bool: PostgreSQL отдаёт BOOLEAN,
+	// SQLite — INTEGER (0/1), и database/sql приводит оба вида через driver.Bool.
 	err := row.Scan(
 		&user.ID,
 		&user.Email,
@@ -200,11 +209,11 @@ func scanUser(row *sql.Row) (*model.User, error) {
 		&user.PhoneNumber,
 		&gender,
 		&birthDate,
-		&role,
 		&createdAt,
 		&updatedAt,
 		&lastLogin,
 		&user.IsActive,
+		&user.IsDelete,
 	)
 	if err != nil {
 		return nil, err
@@ -212,7 +221,6 @@ func scanUser(row *sql.Row) (*model.User, error) {
 
 	user.Gender = model.Gender(gender)
 	user.BirthDate = birthDate.date
-	user.Role = model.Role(role)
 	user.CreatedAt = createdAt.time()
 	user.UpdatedAt = updatedAt.time()
 	user.LastLoginAt = lastLogin.ptr()

@@ -50,13 +50,32 @@ type AuthUserRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// AuthCredentialRepository — интерфейс учётных данных (хешей паролей).
+// AuthCredentialRepository — интерфейс учётных данных (user_credentials).
 type AuthCredentialRepository interface {
 	Create(ctx context.Context, credentials *model.Credentials) error
 	GetByUserID(ctx context.Context, userID string) (*model.Credentials, error)
-	// Update перезаписывает хеш пароля и время его изменения (смена пароля и
-	// «прозрачное» обновление устаревшего хеша при входе).
+	// Update перезаписывает изменяемые поля учётных данных (хеш пароля и срок
+	// его действия — смена пароля и «прозрачное» обновление устаревшего хеша).
 	Update(ctx context.Context, credentials *model.Credentials) error
+	// TouchLastLogin отмечает вход по учётным данным (аудит).
+	TouchLastLogin(ctx context.Context, id string, at time.Time) error
+}
+
+// AuthTenantRepository — интерфейс репозитория тенантов и членства.
+//
+// Нужен сервису авторизации, потому что роль — атрибут членства в тенанте
+// (tenant_members.role_id), а сессия действует в рамках одного тенанта:
+// без членства выдать токен с ролью нельзя.
+type AuthTenantRepository interface {
+	// Create создаёт тенант.
+	Create(ctx context.Context, tenant *model.Tenant) error
+	// AddMember добавляет пользователя в тенант.
+	AddMember(ctx context.Context, member *model.TenantMember) error
+	// GetMember возвращает членство в тенанте или database.ErrNotFound.
+	GetMember(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
+	// MemberOfUser возвращает членство в действующем тенанте или
+	// database.ErrNotFound — это тенант по умолчанию для новой сессии.
+	MemberOfUser(ctx context.Context, userID string) (*model.TenantMember, error)
 }
 
 // AuthTokenRepository — интерфейс репозитория сессий.
@@ -132,6 +151,7 @@ type authService struct {
 	userRepo       AuthUserRepository
 	credentialRepo AuthCredentialRepository
 	tokenRepo      AuthTokenRepository
+	tenantRepo     AuthTenantRepository
 	codec          AuthTokenCodec
 	events         AuthEventPublisher
 	// ttl — срок жизни выдаваемых токенов.
@@ -148,12 +168,14 @@ type authService struct {
 //
 // ttl — срок жизни выдаваемых токенов (config.Auth().TokenTTL): сервис не
 // читает конфигурацию сам, её передаёт слой сборки приложения.
-// passwordTTL — срок жизни пароля (config.Auth().PasswordTTL): после его
-// истечения вход превращается в принудительную смену пароля.
+// passwordTTL — срок жизни пароля (config.Auth().PasswordTTL): он записывается
+// в expires_at учётных данных, поэтому после его истечения вход превращается в
+// принудительную смену пароля.
 func NewAuthService(
 	userRepo AuthUserRepository,
 	credentialRepo AuthCredentialRepository,
 	tokenRepo AuthTokenRepository,
+	tenantRepo AuthTenantRepository,
 	codec AuthTokenCodec,
 	events AuthEventPublisher,
 	ttl time.Duration,
@@ -165,6 +187,7 @@ func NewAuthService(
 		userRepo:       userRepo,
 		credentialRepo: credentialRepo,
 		tokenRepo:      tokenRepo,
+		tenantRepo:     tenantRepo,
 		codec:          codec,
 		events:         events,
 		ttl:            ttl,
@@ -175,10 +198,16 @@ func NewAuthService(
 
 // Register создаёт пользователя с паролем и выдаёт ему токен.
 //
-// Порядок операций: пользователь → пароль → токен. Между операциями нет общей
-// транзакции (репозитории работают каждый со своим подключением), поэтому
-// неудачное сохранение пароля откатывается вручную: иначе остался бы
-// пользователь, занявший email, войти в которого невозможно.
+// Порядок операций: пользователь → пароль → членство в тенанте → токен.
+// Между операциями нет общей транзакции (репозитории работают каждый со своим
+// подключением), поэтому неудачное сохранение пароля откатывается вручную:
+// иначе остался бы пользователь, занявший email, войти в которого невозможно.
+//
+// Самостоятельная регистрация даёт личный тенант: сессия действует в рамках
+// одного тенанта (user_tokens.tenant_id), а роль — атрибут членства
+// (tenant_members.role_id), поэтому без тенанта токен выдать нечем. В своём
+// тенанте пользователь — владелец с ролью client: сотрудником он становится,
+// только если его роль в тенанте повысит администратор (или bootstrap).
 func (s *authService) Register(ctx context.Context, in model.RegisterInput) (*model.User, *Session, error) {
 	now := s.now()
 
@@ -197,7 +226,7 @@ func (s *authService) Register(ctx context.Context, in model.RegisterInput) (*mo
 		return nil, nil, fmt.Errorf("register user: %w", err)
 	}
 
-	credentials, err := model.NewCredentials(user.ID, in.Password, now)
+	credentials, err := model.NewCredentials(user.ID, user.Email, in.Password, s.passwordTTL, now)
 	if err == nil {
 		err = s.credentialRepo.Create(ctx, credentials)
 	}
@@ -208,12 +237,19 @@ func (s *authService) Register(ctx context.Context, in model.RegisterInput) (*mo
 		return nil, nil, fmt.Errorf("register user: %w", err)
 	}
 
-	session, err := s.issue(ctx, user, now)
+	member, err := s.createPersonalTenant(ctx, user, now)
+	if err != nil {
+		s.removeUser(ctx, user.ID)
+
+		return nil, nil, fmt.Errorf("register user: %w", err)
+	}
+
+	session, err := s.issue(ctx, user, member, now)
 	if err != nil {
 		return nil, nil, fmt.Errorf("register user: %w", err)
 	}
 
-	slog.InfoContext(ctx, "user registered", "uuid", user.ID)
+	slog.InfoContext(ctx, "user registered", "uuid", user.ID, "tenant", member.TenantID)
 	s.publish(EventUserRegistered)
 
 	return user, session, nil
@@ -258,8 +294,8 @@ func (s *authService) Login(ctx context.Context, email, password string) (*Sessi
 	// Просроченный пароль блокирует вход: токен не выдаётся, пока пароль не
 	// сменён. Проверка стоит после проверки пароля, поэтому по ответу нельзя
 	// узнать о пользователе больше, чем он сам сообщил.
-	if credentials.Expired(now, s.passwordTTL) {
-		expiredAt := credentials.ExpiresAt(s.passwordTTL).Format(time.RFC3339)
+	if credentials.Expired(now) {
+		expiredAt := credentials.ExpiresAt.Format(time.RFC3339)
 		slog.InfoContext(ctx, "user password expired", "uuid", user.ID, "expired_at", expiredAt)
 
 		return nil, fmt.Errorf("%w: password of user %s expired at %s", ErrPasswordExpired, user.ID, expiredAt)
@@ -269,15 +305,21 @@ func (s *authService) Login(ctx context.Context, email, password string) (*Sessi
 	// и переход на новый алгоритм не должен требовать от него действий.
 	s.upgradeHash(ctx, credentials, password)
 
-	s.touchLastLogin(ctx, user, now)
-	s.removeExpiredTokens(ctx, user.ID, now)
-
-	session, err := s.issue(ctx, user, now)
+	member, err := s.membership(ctx, user, now)
 	if err != nil {
 		return nil, fmt.Errorf("login: %w", err)
 	}
 
-	slog.InfoContext(ctx, "user logged in", "uuid", user.ID)
+	s.touchLastLogin(ctx, user, now)
+	s.touchCredentialLogin(ctx, credentials, now)
+	s.removeExpiredTokens(ctx, user.ID, now)
+
+	session, err := s.issue(ctx, user, member, now)
+	if err != nil {
+		return nil, fmt.Errorf("login: %w", err)
+	}
+
+	slog.InfoContext(ctx, "user logged in", "uuid", user.ID, "tenant", member.TenantID)
 	s.publish(EventUserLoggedIn)
 
 	return session, nil
@@ -324,7 +366,8 @@ func (s *authService) ChangePassword(
 
 	// Новый пароль проходит те же требования, что и при регистрации; проверка
 	// идёт до записи, чтобы неверный пароль не оставил пользователя без входа.
-	if err := credentials.SetPassword(newPassword, now); err != nil {
+	// Смена пароля перезаписывает срок его действия (expires_at).
+	if err := credentials.SetPassword(newPassword, s.passwordTTL, now); err != nil {
 		return nil, fmt.Errorf("change password: %w", err)
 	}
 
@@ -334,10 +377,15 @@ func (s *authService) ChangePassword(
 
 	// Вход после смены: срок действия пароля сброшен, а новая сессия выдаётся
 	// сразу — иначе пользователю пришлось бы входить повторно.
+	member, err := s.membership(ctx, user, now)
+	if err != nil {
+		return nil, fmt.Errorf("change password: %w", err)
+	}
+
 	s.touchLastLogin(ctx, user, now)
 	s.removeExpiredTokens(ctx, user.ID, now)
 
-	session, err := s.issue(ctx, user, now)
+	session, err := s.issue(ctx, user, member, now)
 	if err != nil {
 		return nil, fmt.Errorf("change password: %w", err)
 	}
@@ -371,12 +419,16 @@ func (s *authService) Logout(ctx context.Context, accessToken string) error {
 
 // Authenticate проверяет токен и возвращает действующего пользователя.
 //
-// Проверок две. Первая — подпись и срок действия: их проверяет кодек, не
+// Проверок три. Первая — подпись и срок действия: их проверяет кодек, не
 // обращаясь к базе. Вторая — состояние сессии: не отозвана ли она. Вторая нужна
-// именно для выхода из системы, потому что подпись отозвать нельзя.
+// именно для выхода из системы, потому что подпись отозвать нельзя. Третья —
+// роль: она берётся из членства в тенанте сессии (tenant_members.role_id), а не
+// из подписи, поэтому изменение роли действует без ожидания истечения уже
+// выданных токенов.
 //
-// Роль берётся из профиля в базе, а не из claim role: тогда изменение роли
-// действует сразу, без ожидания истечения уже выданных токенов.
+// Если членство удалено, остаётся снимок роли из токена (claim role): сессия не
+// «переключается» на другую роль молча, а администратор может отозвать её
+// отдельно (см. user_tokens.revoked_at).
 func (s *authService) Authenticate(ctx context.Context, accessToken string) (*Principal, error) {
 	now := s.now()
 
@@ -419,18 +471,53 @@ func (s *authService) Authenticate(ctx context.Context, accessToken string) (*Pr
 		return nil, fmt.Errorf("authenticate: %w", err)
 	}
 
+	role, err := s.sessionRole(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
 	s.touchToken(ctx, session, now)
 
-	return &Principal{User: user, Token: session}, nil
+	return &Principal{User: user, Token: session, Role: role}, nil
 }
 
-// issue выдаёт токен: сначала запись в базе, затем подпись.
+// sessionRole определяет действующую роль сессии.
+//
+// Источник роли — членство в тенанте сессии: роль в профиле не хранится, а
+// снимок в токене нужен для аудита. Если членства уже нет, роль берётся из
+// снимка, поэтому доступ не «прыгает» на другую роль.
+func (s *authService) sessionRole(ctx context.Context, session *model.Token) (model.Role, error) {
+	member, err := s.tenantRepo.GetMember(ctx, session.TenantID, session.UserID)
+
+	switch {
+	case err == nil:
+		return member.Role, nil
+	case errors.Is(err, database.ErrNotFound):
+		slog.WarnContext(ctx, "tenant membership is not found, the session role snapshot is used",
+			"jti", session.ID, "tenant", session.TenantID, "uuid", session.UserID)
+
+		return session.Role, nil
+	default:
+		return "", fmt.Errorf("authenticate: %w", err)
+	}
+}
+
+// issue выдаёт сессию: сначала запись в базе, затем подпись.
 //
 // Порядок именно такой: неподписанная запись безвредна (без валидного JWT её
 // никто не найдёт), а подписанный токен без записи работать не должен — по нему
 // нечего проверять при аутентификации и нечего отзывать при выходе.
-func (s *authService) issue(ctx context.Context, user *model.User, now time.Time) (*Session, error) {
-	token, err := model.NewToken(user, s.ttl, now)
+//
+// Сессия действует в рамках тенанта членства, а роль фиксируется в токене
+// снимком на момент выдачи (для аудита): если администратор изменит роль
+// позже, действующая роль всё равно будет взята из tenant_members.
+func (s *authService) issue(
+	ctx context.Context,
+	user *model.User,
+	member *model.TenantMember,
+	now time.Time,
+) (*Session, error) {
+	token, err := model.NewToken(user, member.TenantID, member.Role, s.ttl, now)
 	if err != nil {
 		return nil, err
 	}
@@ -445,6 +532,69 @@ func (s *authService) issue(ctx context.Context, user *model.User, now time.Time
 	}
 
 	return &Session{AccessToken: accessToken, Token: token}, nil
+}
+
+// membership возвращает членство пользователя в действующем тенанте, а если его
+// нет — создаёт личный тенант с пользователем-владельцем.
+//
+// Тенант нужен всегда: сессия действует в одном тенанте (user_tokens.tenant_id
+// NOT NULL), а роль — атрибут членства. Профиль, созданный сотрудником
+// (POST /users), члена тенанта не имеет, поэтому вход по нему тоже заводит
+// личный тенант — иначе такой пользователь не смог бы войти.
+func (s *authService) membership(ctx context.Context, user *model.User, now time.Time) (*model.TenantMember, error) {
+	member, err := s.tenantRepo.MemberOfUser(ctx, user.ID)
+	switch {
+	case err == nil:
+		return member, nil
+	case errors.Is(err, database.ErrNotFound):
+		return s.createPersonalTenant(ctx, user, now)
+	default:
+		return nil, fmt.Errorf("resolve tenant membership: %w", err)
+	}
+}
+
+// createPersonalTenant создаёт личный тенант пользователя и членство в нём.
+//
+// Владелец тенанта — сам пользователь с ролью client: сотрудником (оператором,
+// менеджером или администратором) он становится только по решению
+// администратора своего тенанта, поэтому самостоятельная регистрация не даёт
+// прав на чужие профили. Slug строится из идентификатора пользователя: он
+// стабилен, уникален и не зависит от имени, которое пользователь может сменить.
+func (s *authService) createPersonalTenant(
+	ctx context.Context,
+	user *model.User,
+	now time.Time,
+) (*model.TenantMember, error) {
+	slug := personalTenantSlug(user.ID)
+
+	tenant, err := model.NewTenant(user.FullName(), slug, now)
+	if err != nil {
+		return nil, fmt.Errorf("create personal tenant: %w", err)
+	}
+
+	if err := s.tenantRepo.Create(ctx, tenant); err != nil {
+		return nil, fmt.Errorf("create personal tenant: %w", err)
+	}
+
+	member, err := model.NewTenantMember(tenant.ID, user.ID, model.RoleClient, true, now)
+	if err != nil {
+		return nil, fmt.Errorf("create personal tenant: %w", err)
+	}
+
+	if err := s.tenantRepo.AddMember(ctx, member); err != nil {
+		return nil, fmt.Errorf("create personal tenant: %w", err)
+	}
+
+	slog.InfoContext(ctx, "personal tenant created", "tenant", tenant.ID, "uuid", user.ID)
+
+	return member, nil
+}
+
+// personalTenantSlug строит slug личного тенанта из идентификатора владельца:
+// «tenant-<uuid>». Идентификатор уникален и не меняется, поэтому slug не
+// конфликтует с чужими тенантами и переживает смену имени пользователя.
+func personalTenantSlug(userID string) string {
+	return "tenant-" + userID
 }
 
 // removeUser убирает пользователя после неудачной регистрации.
@@ -476,6 +626,19 @@ func (s *authService) upgradeHash(ctx context.Context, credentials *model.Creden
 	if err := s.credentialRepo.Update(ctx, credentials); err != nil {
 		slog.WarnContext(ctx, "failed to persist rehashed password", "uuid", credentials.UserID, "err", err)
 	}
+}
+
+// touchCredentialLogin отмечает вход по учётным данным: в user_credentials
+// хранится время последнего входа именно этим провайдером (ERDB 2.4). Ошибка не
+// отменяет вход: это аудит, а не условие доступа.
+func (s *authService) touchCredentialLogin(ctx context.Context, credentials *model.Credentials, now time.Time) {
+	if err := s.credentialRepo.TouchLastLogin(ctx, credentials.ID, now); err != nil {
+		slog.WarnContext(ctx, "failed to update credentials last login", "uuid", credentials.UserID, "err", err)
+
+		return
+	}
+
+	credentials.TouchLastLogin(now)
 }
 
 // touchLastLogin фиксирует время входа в профиле пользователя.

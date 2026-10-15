@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	testSecret = "test-secret-with-at-least-32-bytes"
-	testIssuer = "bb-core-test"
+	testSecret   = "test-secret-with-at-least-32-bytes"
+	testIssuer   = "bb-core-test"
+	testTenantID = "0f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
 )
 
 // testSigner возвращает подписывальщик с фиксированным секретом и издателем.
@@ -43,9 +44,8 @@ func testToken(t *testing.T) *model.Token {
 		t.Fatalf("model.NewUser() unexpected error = %v", err)
 	}
 
-	user.Role = model.RoleOperator
-
-	token, err := model.NewToken(user, time.Hour, issued)
+	// Роль — атрибут членства в тенанте, поэтому выдаётся сессии явно.
+	token, err := model.NewToken(user, testTenantID, model.RoleOperator, time.Hour, issued)
 	if err != nil {
 		t.Fatalf("model.NewToken() unexpected error = %v", err)
 	}
@@ -62,6 +62,13 @@ func forge(t *testing.T, signer *Signer, rawHeader, rawClaims string) string {
 	signingInput := encode([]byte(rawHeader)) + "." + encode([]byte(rawClaims))
 
 	return signingInput + "." + encode(signer.sign(signingInput))
+}
+
+// forgedClaims собирает нагрузку с произвольными владельцем, тенантом и ролью:
+// тесты разбора подменяют по одному полю и проверяют отказ.
+func forgedClaims(userID, tenant, role, tokenID string) string {
+	return `{"iss":"bb-core-test","sub":"` + userID + `","tenant":"` + tenant + `","role":"` + role +
+		`","jti":"` + tokenID + `","iat":1,"exp":2}`
 }
 
 func TestSigner_SignAndParse(t *testing.T) {
@@ -111,6 +118,9 @@ func TestSigner_SignAndParse(t *testing.T) {
 		if parsedClaims.Role != string(token.Role) {
 			t.Errorf("role = %q, want %q", parsedClaims.Role, token.Role)
 		}
+		if parsedClaims.Tenant != token.TenantID {
+			t.Errorf("tenant = %q, want %q", parsedClaims.Tenant, token.TenantID)
+		}
 		if parsedClaims.TokenID != token.ID {
 			t.Errorf("jti = %q, want %q", parsedClaims.TokenID, token.ID)
 		}
@@ -131,8 +141,10 @@ func TestSigner_SignAndParse(t *testing.T) {
 			t.Fatalf("Parse() unexpected error = %v", err)
 		}
 
-		if parsed.ID != token.ID || parsed.UserID != token.UserID || parsed.Role != token.Role {
-			t.Errorf("Parse() = %+v, want id=%q user=%q role=%q", parsed, token.ID, token.UserID, token.Role)
+		if parsed.ID != token.ID || parsed.UserID != token.UserID || parsed.Role != token.Role ||
+			parsed.TenantID != token.TenantID {
+			t.Errorf("Parse() = %+v, want id=%q user=%q tenant=%q role=%q",
+				parsed, token.ID, token.UserID, token.TenantID, token.Role)
 		}
 		if !parsed.IssuedAt.Equal(token.IssuedAt) || !parsed.ExpiresAt.Equal(token.ExpiresAt) {
 			t.Errorf("Parse() время = %v..%v, want %v..%v",
@@ -280,44 +292,48 @@ func TestSigner_Parse_Errors(t *testing.T) {
 		},
 		{
 			name: "чужой алгоритм",
-			raw: forge(t, signer,
-				`{"alg":"HS512","typ":"JWT"}`,
-				`{"iss":"bb-core-test","sub":"`+token.UserID+`","role":"operator",`+
-					`"jti":"`+token.ID+`","iat":1,"exp":2}`,
-			),
+			raw: forge(t, signer, `{"alg":"HS512","typ":"JWT"}`,
+				forgedClaims(token.UserID, token.TenantID, "operator", token.ID)),
 			now:    token.IssuedAt,
 			signer: signer,
 			want:   ErrUnsupportedAlgorithm,
 		},
 		{
 			name: "alg=none",
-			raw: forge(t, signer,
-				`{"alg":"none","typ":"JWT"}`,
-				`{"iss":"bb-core-test","sub":"`+token.UserID+`","role":"operator",`+
-					`"jti":"`+token.ID+`","iat":1,"exp":2}`,
-			),
+			raw: forge(t, signer, `{"alg":"none","typ":"JWT"}`,
+				forgedClaims(token.UserID, token.TenantID, "operator", token.ID)),
 			now:    token.IssuedAt,
 			signer: signer,
 			want:   ErrUnsupportedAlgorithm,
 		},
 		{
 			name: "нет владельца",
-			raw: forge(t, signer,
-				`{"alg":"HS256","typ":"JWT"}`,
-				`{"iss":"bb-core-test","sub":"","role":"operator","jti":"`+token.ID+`",`+
-					`"iat":1,"exp":2}`,
-			),
+			raw: forge(t, signer, `{"alg":"HS256","typ":"JWT"}`,
+				forgedClaims("", token.TenantID, "operator", token.ID)),
+			now:    token.IssuedAt,
+			signer: signer,
+			want:   model.ErrInvalidToken,
+		},
+		{
+			name: "нет тенанта",
+			raw: forge(t, signer, `{"alg":"HS256","typ":"JWT"}`,
+				forgedClaims(token.UserID, "", "operator", token.ID)),
+			now:    token.IssuedAt,
+			signer: signer,
+			want:   model.ErrInvalidToken,
+		},
+		{
+			name: "тенант не UUID",
+			raw: forge(t, signer, `{"alg":"HS256","typ":"JWT"}`,
+				forgedClaims(token.UserID, "not-a-uuid", "operator", token.ID)),
 			now:    token.IssuedAt,
 			signer: signer,
 			want:   model.ErrInvalidToken,
 		},
 		{
 			name: "неизвестная роль",
-			raw: forge(t, signer,
-				`{"alg":"HS256","typ":"JWT"}`,
-				`{"iss":"bb-core-test","sub":"`+token.UserID+`","role":"wat","jti":"`+token.ID+`",`+
-					`"iat":1,"exp":2}`,
-			),
+			raw: forge(t, signer, `{"alg":"HS256","typ":"JWT"}`,
+				forgedClaims(token.UserID, token.TenantID, "wat", token.ID)),
 			now:    token.IssuedAt,
 			signer: signer,
 			want:   model.ErrInvalidRole,

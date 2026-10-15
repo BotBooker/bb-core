@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -70,6 +71,17 @@ func (c codec) dateArg(date *model.Date) any {
 	}
 
 	return date.String()
+}
+
+// jsonArg кодирует JSON-значение (metadata тенанта, provider_meta учётных
+// данных): пустое значение означает NULL, иначе передаётся JSON-текст —
+// PostgreSQL приводит его к jsonb по типу колонки, SQLite хранит строкой.
+func (c codec) jsonArg(data []byte) any {
+	if len(data) == 0 {
+		return nil
+	}
+
+	return string(data)
 }
 
 // requireAffected превращает «0 изменённых строк» в ErrNotFound: так UPDATE и
@@ -142,4 +154,26 @@ func (n nullTime) ptr() *time.Time {
 	ts := n.ts
 
 	return &ts
+}
+
+// nullBytes принимает JSON-значение в видах, которые отдают диалекты:
+// []byte из PostgreSQL (JSONB) и строку из SQLite (TEXT).
+type nullBytes struct {
+	value []byte
+}
+
+// Scan реализует sql.Scanner.
+func (n *nullBytes) Scan(src any) error {
+	switch value := src.(type) {
+	case nil:
+		n.value = nil
+	case []byte:
+		n.value = bytes.Clone(value)
+	case string:
+		n.value = []byte(value)
+	default:
+		return fmt.Errorf("unsupported json value %T", src)
+	}
+
+	return nil
 }

@@ -21,18 +21,27 @@
 | `has_main_web_app` | Boolean | Нет | `True`, если у бота есть главное Web App (только getMe) |
 | `has_topics_enabled` | Boolean | Нет | `True`, если у бота включён режим тем в личных чатах (только getMe) |
 
-### ERDB — User
+### ERDB — User (таблица `users`) и UserCredentials (`user_credentials`)
 
 | Поле | Тип | Обязательное | Описание |
 | ---- | --- | ------------ | -------- |
-| `user_id` | INT (PK, автоинкремент) | Да | Внутренний первичный ключ пользователя |
-| `full_name` | VARCHAR(100) | Да | Полное имя пользователя |
-| `email` | VARCHAR(255), UNIQUE | Да | Электронная почта |
-| `phone` | VARCHAR(20) | Да | Номер телефона |
-| `password_hash` | VARCHAR(255) | Да | Хеш пароля (bcrypt) |
-| `role` | ENUM('client','operator','admin') | Да | Роль пользователя в системе |
-| `created_at` | TIMESTAMP | Да | Дата и время создания записи |
-| `last_login` | TIMESTAMP | Нет | Дата и время последнего входа |
+| `id` | UUID (PK) | Да | Внутренний первичный ключ; генерирует приложение (UUIDv4) |
+| `email` | VARCHAR(254) | Да | Электронная почта (частичный UNIQUE `users_email_idx`, `WHERE is_active`) |
+| `first_name` | VARCHAR(100) | Да | Имя |
+| `last_name` | VARCHAR(100) | Да | Фамилия |
+| `middle_name` | VARCHAR(100) | Да (`DEFAULT ''`) | Отчество |
+| `phone_number` | VARCHAR(20) | Да (`DEFAULT ''`) | Телефон, E.164 (частичный UNIQUE `WHERE phone_number <> ''`) |
+| `gender` | ENUM('unspecified','male','female') | Да (`DEFAULT 'unspecified'`) | Пол |
+| `birth_date` | DATE | Нет | Дата рождения |
+| `role` | SMALLINT (FK → `roles.id`) | — | Не поле профиля: роль пользователя хранится в `tenant_members.role_id` (роль в тенанте) |
+| `created_at`, `updated_at` | TIMESTAMPTZ | Да | Служебные метки времени (UTC) |
+| `last_login_at` | TIMESTAMPTZ | Нет | Дата и время последнего входа |
+| `is_active`, `is_delete` | BOOLEAN | Да | Признаки мягкого удаления |
+
+Хеш пароля вынесен в отдельную служебную таблицу `user_credentials`
+(`user_id` PK/FK → `users.id` ON DELETE CASCADE, `password_hash` — bcrypt,
+`created_at`, `updated_at`). Полное имя (`full_name`) не хранится — вычисляется
+методом `User.FullName()` из `first_name` + `last_name` + `middle_name`.
 
 ---
 
@@ -40,10 +49,10 @@
 
 | Telegram Bot API поле | ERDB поле | Комментарий |
 | --------------------- | --------- | ----------- |
-| `id` | `user_id` | Аналог по смыслу, но разные значения: Telegram ID vs внутренний PK. Тип отличается (64-bit Integer vs INT) |
+| `id` | — | Нет аналога: Telegram ID — внешний идентификатор, `users.id` — UUID, который генерирует приложение. При необходимости Telegram ID хранится в интеграционной таблице |
 | `is_bot` | — | Нет аналога в ERDB |
-| `first_name` | — | Нет прямого аналога; в ERDB `full_name` — единое поле |
-| `last_name` | — | Нет аналога в ERDB |
+| `first_name` | `first_name` | Совпадает по смыслу (VARCHAR(100)) |
+| `last_name` | `last_name` | Совпадает по смыслу (VARCHAR(100)) |
 | `username` | — | Нет аналога в ERDB |
 | `language_code` | — | Нет аналога в ERDB |
 | `is_premium` | — | Нет аналога в ERDB |
@@ -54,13 +63,16 @@
 | `can_connect_to_business` | — | Нет аналога в ERDB (только для ботов, getMe) |
 | `has_main_web_app` | — | Нет аналога в ERDB (только для ботов, getMe) |
 | `has_topics_enabled` | — | Нет аналога в ERDB (только для ботов, getMe) |
-| — | `full_name` | В ERDB единое поле; в Telegram API разделено на `first_name` + `last_name` |
-| — | `email` | Нет аналога в Telegram API; кастомное поле сервиса |
-| — | `phone` | Нет аналога в Telegram API; кастомное поле сервиса |
-| — | `password_hash` | Нет аналога в Telegram API; служебное поле аутентификации |
-| — | `role` | Нет аналога в Telegram API; кастомное поле ролевой модели |
-| — | `created_at` | Нет аналога в Telegram API; служебное поле |
-| — | `last_login` | Нет аналога в Telegram API; служебное поле |
+| — | `id` | В ERDB — UUID PK (генерирует приложение), а не Telegram ID |
+| — | `middle_name` | Нет аналога в Telegram API; кастомное поле сервиса |
+| — | `email` | Нет аналога в Telegram API; кастомное поле сервиса; частичный UNIQUE |
+| — | `phone_number` | Нет аналога в Telegram API; кастомное поле сервиса; E.164 |
+| — | `gender` | Нет аналога в Telegram API; кастомное поле сервиса |
+| — | `birth_date` | Нет аналога в Telegram API; кастомное поле сервиса |
+| — | `role` | Нет аналога в Telegram API; кастомное поле ролевой модели; хранится в `tenant_members`, а не в `users` |
+| — | `created_at`, `updated_at`, `last_login_at` | Нет аналога в Telegram API; служебные поля |
+| — | `is_active`, `is_delete` | Нет аналога в Telegram API; признаки мягкого удаления |
+| — | `password_hash` | Хранится не в `users`, а в служебной `user_credentials` (bcrypt) |
 
 ---
 
@@ -76,9 +88,9 @@
 
 | Поле ERDB | Причина исключения |
 | ----------- | -------------------- |
-| `user_id` | Дублирует `id` из Telegram API. Telegram ID является каноническим идентификатором. Внутренний ID может храниться отдельно как `user_id_erdb` при необходимости. |
-| `full_name` | Дублирует информацию из `first_name` + `last_name` Telegram API. Полное имя может быть вычислено конкатенацией. |
-| `password_hash` | Служебное поле аутентификации, не относится к профилю пользователя Telegram. Выносится в отдельную таблицу `UserCredentials`. |
+| `id` (UUID) | Дублирует `id` из Telegram API при работе через бот; канонический идентификатор приложения — UUID, Telegram ID хранится в интеграционной таблице при необходимости. |
+| `full_name` | В ERDB не хранится: вычисляется из `first_name` + `last_name` + `middle_name` (`User.FullName()`). |
+| `password_hash` | Служебное поле аутентификации, не относится к профилю пользователя Telegram. Вынесено в отдельную таблицу `user_credentials`. |
 
 ---
 
@@ -86,10 +98,12 @@
 
 | Поле | Тип | Обязательное | Описание | Источник | Примечание |
 | ---- | --- | ------------ | -------- | -------- | ---------- |
-| `id` | Integer (64-bit) | Да | Уникальный идентификатор пользователя Telegram | Telegram API | Основной PK; соответствует `tg_user_id` |
-| `is_bot` | Boolean | Да | `True`, если пользователь — бот | Telegram API | — |
-| `first_name` | String | Да | Имя пользователя или бота | Telegram API | — |
-| `last_name` | String | Нет | Фамилия пользователя или бота | Telegram API | — |
+| `id` | UUID | Да | Канонический идентификатор пользователя приложения | ERDB | Основной PK; генерирует приложение (UUIDv4) |
+| `tg_user_id` | Integer (64-bit) | Нет | Идентификатор пользователя Telegram | Telegram API | Хранится в интеграционной таблице, не PK |
+| `is_bot` | Boolean | Нет | `True`, если пользователь — бот | Telegram API | — |
+| `first_name` | String | Да | Имя пользователя | Telegram API, ERDB | VARCHAR(100) |
+| `last_name` | String | Да | Фамилия пользователя | Telegram API, ERDB | VARCHAR(100) |
+| `middle_name` | String | Нет | Отчество | ERDB | `custom: true`; `DEFAULT ''` |
 | `username` | String | Нет | Юзернейм пользователя или бота | Telegram API | — |
 | `language_code` | String | Нет | IETF language tag языка пользователя | Telegram API | — |
 | `is_premium` | Boolean | Нет | `True`, если пользователь — Telegram Premium | Telegram API | Тип `True` нормализован к `Boolean` |
@@ -100,12 +114,14 @@
 | `can_connect_to_business` | Boolean | Нет | `True`, если бот может быть подключён к Telegram Business | Telegram API | Возвращается только в getMe |
 | `has_main_web_app` | Boolean | Нет | `True`, если у бота есть главное Web App | Telegram API | Возвращается только в getMe |
 | `has_topics_enabled` | Boolean | Нет | `True`, если включён режим тем в личных чатах | Telegram API | Возвращается только в getMe |
-| `email` | String | Нет | Электронная почта пользователя | ERDB | `custom: true`; UNIQUE |
-| `phone` | String | Нет | Номер телефона пользователя | ERDB | `custom: true` |
-| `role` | String (ENUM) | Да | Роль: `client`, `operator`, `admin` | ERDB | `custom: true`; default: `client` |
-| `created_at` | Timestamp | Да | Дата и время создания записи | ERDB | `custom: true`; default: NOW() |
-| `last_login` | Timestamp | Нет | Дата и время последнего входа | ERDB | `custom: true` |
-| `user_id_erdb` | Integer | Нет | Внутренний ID из legacy-системы | ERDB | `custom: true`; преобразовано из `user_id` |
+| `email` | String | Да | Электронная почта пользователя | ERDB | `custom: true`; частичный UNIQUE `WHERE is_active` |
+| `phone_number` | String | Нет | Номер телефона пользователя (E.164) | ERDB | `custom: true`; `DEFAULT ''`, частичный UNIQUE |
+| `gender` | String (ENUM) | Да | Пол: `unspecified`, `male`, `female` | ERDB | `custom: true`; default: `unspecified` |
+| `birth_date` | Date | Нет | Дата рождения | ERDB | `custom: true` |
+| `role` | SMALLINT (FK → `roles.id`) | — | Не поле профиля: роль задаётся членством в тенанте (`tenant_members.role_id`); справочник `roles`: `client` (32767, по умолчанию), `operator`, `manager`, `admin` | ERDB | `custom: true`; вне таблицы `users` |
+| `created_at`, `updated_at` | Timestamp | Да | Метки создания и обновления записи (UTC) | ERDB | `custom: true` |
+| `last_login_at` | Timestamp | Нет | Дата и время последнего входа | ERDB | `custom: true` |
+| `is_active`, `is_delete` | Boolean | Да | Признаки мягкого удаления | ERDB | `custom: true` |
 
 ---
 
@@ -113,9 +129,9 @@
 
 | Поле | Причина |
 | ---- | ------- |
-| `user_id` (ERDB) | Заменён на `id` из Telegram API как канонический идентификатор; сохранён как `user_id_erdb` для обратной совместимости |
-| `full_name` (ERDB) | Заменён на пару `first_name` + `last_name` из Telegram API; полное имя вычисляется |
-| `password_hash` (ERDB) | Вынесен в отдельную таблицу `UserCredentials`; не относится к профилю Telegram-пользователя |
+| `full_name` (ERDB) | Не хранится: вычисляется из `first_name` + `last_name` + `middle_name` (`User.FullName()`) |
+| `password_hash` (ERDB) | Вынесен в отдельную таблицу `user_credentials`; не относится к профилю Telegram-пользователя |
+| `id` (ERDB, UUID) | Канонический идентификатор приложения; Telegram ID при необходимости хранится в интеграционной таблице |
 
 ---
 
@@ -136,9 +152,9 @@
 | `PhoneNumber` | `string` | `phone_number` | NOT NULL DEFAULT `''` + частичный уникальный индекс `users_phone_number_idx` | E.164; необязателен (пусто или E.164); непустые значения уникальны |
 | `Gender` | `Gender` | `gender` (enum) | NOT NULL DEFAULT `'unspecified'` | ENUM `user_gender` в PG, `CHECK` в SQLite: `unspecified` / `male` / `female` |
 | `BirthDate` | `*model.Date` | `birthday` | NULL (`DATE` в PG, `TEXT` `YYYY-MM-DD` в SQLite) | календарная дата без времени; не может быть в будущем. Имя в proto отличается от модели и колонки |
-| `Role` | `Role` | — | NOT NULL DEFAULT `'client'` | служебное поле (ERDB); API роль не задаёт |
+| `Role` | `Role` | — | нет колонки в `users` (роль — в `tenant_members.role_id`) | служебное поле (ERDB); API роль не задаёт |
 | `CreatedAt`, `UpdatedAt` | `time.Time` | `created_at`, `updated_at` | NOT NULL | всегда в UTC |
-| `LastLoginAt` | `*time.Time` | — | NULL | служебное поле (ERDB `last_login`) |
+| `LastLoginAt` | `*time.Time` | — | NULL | служебное поле (ERDB `last_login_at`) |
 | `IsActive` | `bool` | — | NOT NULL DEFAULT `true` (`BOOLEAN` в PG, `INTEGER` 0/1 в SQLite) | служебный признак soft delete: удаление — это `is_active = false`, а не физический `DELETE` |
 
 ### Расхождения с исходными документами
@@ -146,14 +162,14 @@
 | Что | Почему |
 | --- | ------ |
 | `full_name` (ERDB) | не хранится: складывается из фамилии, имени и отчества (`User.FullName()`) |
-| `password_hash` (ERDB) | не относится к профилю: по Шагу 3 выносится в отдельную таблицу `UserCredentials` |
+| `password_hash` (ERDB) | не относится к профилю: по Шагу 3 выносится в отдельную таблицу `user_credentials` |
 | Telegram-поля (`id`, `is_bot`, `username`, `language_code`, `is_premium`, …) | нет в proto v1: канонический идентификатор — UUID, Telegram id при необходимости хранится в интеграционной таблице |
-| `user_id` (ERDB, INT PK) | первичный ключ — `users.id` типа `uuid`: идентификатор один и он же внешний контракт, числовой суррогат не заводится. Если понадобятся целочисленные FK «по стилю ERDB», служебную колонку `user_id BIGSERIAL NOT NULL UNIQUE` можно добавить отдельной миграцией |
+| `id` (ERDB, UUID PK) | первичный ключ — `users.id` типа `uuid`: идентификатор один и он же внешний контракт, числовой суррогат не заводится. Если понадобятся целочисленные FK «по стилю Telegram», служебную колонку `tg_user_id BIGINT NOT NULL UNIQUE` можно добавить в интеграционную таблицу отдельной миграцией |
 | Обязательность телефона | телефон необязателен: в proto у правила `pattern` выставлен `ignore_empty`, поэтому пустая строка допустима при создании и очищает поле при обновлении |
 | Уникальность телефона | уникальность держит частичный индекс (`WHERE phone_number <> ''`): непустые номера не повторяются, а пользователей без телефона может быть сколько угодно. Обычный `UNIQUE` разрешил бы единственную строку с пустым телефоном. Нарушение уникальности СУБД (PG `23505`, SQLite `2067`) при реализации репозитория переводится в доменную ошибку дубликата |
 | Тип даты рождения | в proto дата — `google.type.Date` (год, месяц, день без времени и пояса), в модели и БД — календарная дата (`model.Date`, `DATE`/`YYYY-MM-DD`): `Timestamp` для даты рождения не подходит, потому что он всегда про момент времени, а `google.type.Date` допускает и частичную дату (например, только месяц и день, год 0 — если год рождения скрыт). Пустой объект (все компоненты нулевые) означает «дата не задана» и превращается в `nil`, неполная дата вроде «только год» отклоняется валидацией модели |
 | `gender` — ENUM | в модели это Go-тип `model.Gender`, в PostgreSQL — нативный тип `user_gender`, в SQLite — `TEXT` + `CHECK` (ENUM в SQLite нет). Значение вне набора отклоняет СУБД (в PG — `SQLSTATE 22P02`), а не только модель |
-| `role` — не ENUM | набор ролей служебный и может расширяться административно, поэтому в обоих диалектах это `VARCHAR(20)` + `CHECK`; при необходимости роль переводится в ENUM тем же способом, что и `gender` |
+| `role` — не поле `users` | роль хранится в членстве (`tenant_members.role_id`), а не в профиле: пользователь может состоять в нескольких тенантах и в каждом иметь свою роль. Набор ролей служебный и задан справочником `roles` (проверяется ссылкой, а не `CHECK`) |
 
 ---
 
@@ -186,7 +202,11 @@
   удаляет и тип: `DROP TYPE IF EXISTS user_gender`. Новое значение добавляется
   миграцией `ALTER TYPE user_gender ADD VALUE ...` — в PostgreSQL ≥12 это
   допустимо внутри транзакции, но использовать значение в той же транзакции нельзя;
-- **`role` остаётся `CHECK`**: набор служебный и может расширяться;
+- **`role` уходит из `users`**: роль — атрибут членства в тенанте
+  (`tenant_members.role_id`, FK → `roles.id`), поэтому единый источник роли —
+  `tenant_members`, а не профиль. Действующая миграция `00002_users.sql` пока
+  содержит колонку `role`; её переносит отдельная миграция тенантов
+  (`ERDB.md` — источник истины, см. его примечание 13);
 - **`email` — частичный уникальный индекс `users_email_idx`** вместо `UNIQUE` на
   колонке: гарантия та же (один активный адрес), но имя индекса предсказуемо
   (в PostgreSQL ограничение создавало индекс `users_email_key`, в SQLite —
