@@ -16,10 +16,11 @@ func newTestBootstrapService(
 	t *testing.T,
 	users *mockAuthUserRepository,
 	credentials *mockAuthCredentialRepository,
+	tenants *mockAuthTenantRepository,
 ) *bootstrapService {
 	t.Helper()
 
-	created := NewBootstrapService(users, credentials)
+	created := NewBootstrapService(users, credentials, tenants, testPasswordTTL)
 
 	svc, ok := created.(*bootstrapService)
 	if !ok {
@@ -42,10 +43,12 @@ func testBootstrapInput() BootstrapInput {
 }
 
 func TestBootstrapService_EnsureSuperuser(t *testing.T) {
-	t.Run("создаёт суперпользователя с ролью admin", func(t *testing.T) {
+	t.Run("создаёт суперпользователя, личный тенант и членство с ролью admin", func(t *testing.T) {
 		var (
 			storedUser        *model.User
 			storedCredentials *model.Credentials
+			storedTenant      *model.Tenant
+			storedMember      *model.TenantMember
 		)
 
 		users := &mockAuthUserRepository{
@@ -65,8 +68,20 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 				return nil
 			},
 		}
+		tenants := &mockAuthTenantRepository{
+			createFunc: func(_ context.Context, tenant *model.Tenant) error {
+				storedTenant = tenant
 
-		svc := newTestBootstrapService(t, users, credentials)
+				return nil
+			},
+			addMemberFunc: func(_ context.Context, member *model.TenantMember) error {
+				storedMember = member
+
+				return nil
+			},
+		}
+
+		svc := newTestBootstrapService(t, users, credentials, tenants)
 
 		user, created, err := svc.EnsureSuperuser(context.Background(), testBootstrapInput())
 		if err != nil {
@@ -78,9 +93,6 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 		}
 		if user == nil {
 			t.Fatal("EnsureSuperuser() user = nil")
-		}
-		if user.Role != model.RoleAdmin {
-			t.Errorf("Role = %q, want %q", user.Role, model.RoleAdmin)
 		}
 		if user.Email != "admin@example.com" {
 			t.Errorf("Email = %q, want %q (адрес нормализуется)", user.Email, "admin@example.com")
@@ -97,10 +109,30 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 		if !storedCredentials.CreatedAt.Equal(testNow) {
 			t.Errorf("CreatedAt = %v, want %v", storedCredentials.CreatedAt, testNow)
 		}
+		if !storedCredentials.ExpiresAt.Equal(testNow.Add(testPasswordTTL)) {
+			t.Errorf("ExpiresAt = %v, want %v (PASSWORD_TTL)", storedCredentials.ExpiresAt, testNow.Add(testPasswordTTL))
+		}
+		// Роль admin живёт в членстве, а не в профиле: суперпользователь —
+		// владелец личного тенанта с ролью администратора.
+		if storedTenant == nil {
+			t.Fatal("EnsureSuperuser() не создал тенант суперпользователя")
+		}
+		if storedMember == nil {
+			t.Fatal("EnsureSuperuser() не создал членство")
+		}
+		if storedMember.Role != model.RoleAdmin {
+			t.Errorf("Role = %q, want %q", storedMember.Role, model.RoleAdmin)
+		}
+		if !storedMember.IsOwner {
+			t.Error("IsOwner = false, want true: суперпользователь владеет личным тенантом")
+		}
+		if storedMember.TenantID != storedTenant.ID || storedMember.UserID != user.ID {
+			t.Errorf("членство = %+v, want tenant=%q user=%q", storedMember, storedTenant.ID, user.ID)
+		}
 	})
 
 	t.Run("повторный запуск не создаёт второго", func(t *testing.T) {
-		existing := testAuthUser(t, model.RoleAdmin)
+		existing := testAuthUser(t)
 
 		createCalled := false
 
@@ -119,7 +151,7 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 			},
 		}
 
-		svc := newTestBootstrapService(t, users, &mockAuthCredentialRepository{})
+		svc := newTestBootstrapService(t, users, &mockAuthCredentialRepository{}, &mockAuthTenantRepository{})
 
 		user, created, err := svc.EnsureSuperuser(context.Background(), testBootstrapInput())
 		if err != nil {
@@ -141,7 +173,7 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 // TestBootstrapService_EnsureSuperuser_Race проверяет гонку двух экземпляров:
 // проигравший вставку считает суперпользователя созданным, а не падает.
 func TestBootstrapService_EnsureSuperuser_Race(t *testing.T) {
-	existing := testAuthUser(t, model.RoleAdmin)
+	existing := testAuthUser(t)
 
 	calls := 0
 
@@ -159,7 +191,7 @@ func TestBootstrapService_EnsureSuperuser_Race(t *testing.T) {
 		},
 	}
 
-	svc := newTestBootstrapService(t, users, &mockAuthCredentialRepository{})
+	svc := newTestBootstrapService(t, users, &mockAuthCredentialRepository{}, &mockAuthTenantRepository{})
 
 	user, created, err := svc.EnsureSuperuser(context.Background(), testBootstrapInput())
 	if err != nil {
@@ -194,7 +226,7 @@ func TestBootstrapService_EnsureSuperuser_Rollback(t *testing.T) {
 		},
 	}
 
-	svc := newTestBootstrapService(t, users, credentials)
+	svc := newTestBootstrapService(t, users, credentials, &mockAuthTenantRepository{})
 
 	user, created, err := svc.EnsureSuperuser(context.Background(), testBootstrapInput())
 	if err == nil {
@@ -211,7 +243,7 @@ func TestBootstrapService_EnsureSuperuser_Rollback(t *testing.T) {
 // TestBootstrapService_EnsureSuperuser_InvalidConfig проверяет отсутствие
 // обязательных данных: это ошибка конфигурации, а не запроса.
 func TestBootstrapService_EnsureSuperuser_InvalidConfig(t *testing.T) {
-	svc := newTestBootstrapService(t, &mockAuthUserRepository{}, &mockAuthCredentialRepository{})
+	svc := newTestBootstrapService(t, &mockAuthUserRepository{}, &mockAuthCredentialRepository{}, &mockAuthTenantRepository{})
 
 	tests := []struct {
 		name string
@@ -240,7 +272,7 @@ func TestBootstrapService_EnsureSuperuser_RepositoryError(t *testing.T) {
 		},
 	}
 
-	svc := newTestBootstrapService(t, users, &mockAuthCredentialRepository{})
+	svc := newTestBootstrapService(t, users, &mockAuthCredentialRepository{}, &mockAuthTenantRepository{})
 
 	if _, _, err := svc.EnsureSuperuser(context.Background(), testBootstrapInput()); err == nil {
 		t.Error("EnsureSuperuser() error = nil, want ошибку")

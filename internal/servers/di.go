@@ -114,6 +114,7 @@ type diContainer struct {
 	userRepo         repository.UserRepo
 	tokenRepo        repository.TokenRepo
 	credentialRepo   repository.CredentialRepo
+	tenantRepo       repository.TenantRepo
 	notificationRepo repository.NotificationRepo
 
 	// Сервисы
@@ -234,6 +235,21 @@ func (d *diContainer) TokenRepo(ctx context.Context) repository.TokenRepo {
 	return d.tokenRepo
 }
 
+// TenantRepo возвращает репозиторий тенантов и членства в них.
+//
+// Он нужен сервису авторизации: роль пользователя — атрибут членства
+// (tenant_members.role_id), а сессия действует в рамках одного тенанта.
+func (d *diContainer) TenantRepo(ctx context.Context) repository.TenantRepo {
+	_, spanEnd := observability.TraceSpan(ctx, "TenantRepo")
+	defer spanEnd()
+
+	if d.tenantRepo == nil {
+		d.tenantRepo = repository.NewTenantRepo(d.DB(), d.dialect)
+	}
+
+	return d.tenantRepo
+}
+
 // CredentialRepo возвращает репозиторий учётных данных (хешей паролей).
 func (d *diContainer) CredentialRepo(ctx context.Context) repository.CredentialRepo {
 	_, spanEnd := observability.TraceSpan(ctx, "CredentialRepo")
@@ -268,6 +284,7 @@ func (d *diContainer) AuthService(ctx context.Context) service.AuthService {
 			d.UserRepo(traceCtx),
 			d.CredentialRepo(traceCtx),
 			d.TokenRepo(traceCtx),
+			d.TenantRepo(traceCtx),
 			d.tokenCodec,
 			d.EventBus(traceCtx),
 			config.Auth().TokenTTL,

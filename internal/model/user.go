@@ -84,66 +84,38 @@ func ParseGender(value string) (Gender, error) {
 	return gender, nil
 }
 
-// Role — роль пользователя в системе.
-type Role string
-
-// Известные роли.
-const (
-	RoleClient   Role = "client"
-	RoleOperator Role = "operator"
-	RoleAdmin    Role = "admin"
-)
-
-// Valid сообщает, что значение роли известно модели.
-func (r Role) Valid() bool {
-	switch r {
-	case RoleClient, RoleOperator, RoleAdmin:
-		return true
-	default:
-		return false
-	}
-}
-
-// String реализует fmt.Stringer.
-func (r Role) String() string { return string(r) }
-
-// ParseRole приводит строку к значению роли.
-// Пустая строка — роль по умолчанию (client).
-func ParseRole(value string) (Role, error) {
-	role := Role(strings.TrimSpace(value))
-	if role == "" {
-		return RoleClient, nil
-	}
-
-	if !role.Valid() {
-		return "", fmt.Errorf("%w: %q", ErrInvalidRole, value)
-	}
-
-	return role, nil
-}
-
-// User — доменная модель пользователя.
+// User — доменная модель профиля пользователя (таблица users).
 //
-// Роль и время последнего входа — служебные поля: в proto v1 (UserService)
-// они не отдаются, но нужны ролевой модели и аудиту из ERDB.
+// Роли у профиля нет: роль — атрибут членства в тенанте
+// (tenant_members.role_id, см. TenantMember), поэтому в таблице users колонки
+// с ролью не существует. Действующая роль запроса приходит из сессии
+// (service.Principal), а не из профиля.
+//
+// Время последнего входа и признаки мягкого удаления — служебные поля: в
+// proto v1 (UserService) они не отдаются, но нужны аудиту из ERDB.
 type User struct {
 	// ID — канонический UUID (строка вида 8-4-4-4-12). Это и есть первичный
 	// ключ: в БД он хранится в колонке id (UUID в PostgreSQL, TEXT в SQLite),
 	// в proto v1 отдаётся полем uuid. Генерирует его NewUser (UUIDv4).
-	// BirthDate — календарная дата без времени; nil означает «не задана».
-	ID          string
+	ID string
+	// Email — адрес входа и учётной записи; в БД уникален среди активных
+	// строк (частичный индекс users_email_idx).
 	Email       string
 	FirstName   string
 	LastName    string
 	MiddleName  string
 	PhoneNumber string
 	Gender      Gender
+	// BirthDate — календарная дата без времени; nil означает «не задана».
 	BirthDate   *Date
-	Role        Role
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	LastLoginAt *time.Time
-	IsActive    bool
+	// IsActive — признак «строка живая»: false означает удаление (soft delete).
+	IsActive bool
+	// IsDelete — признак удаления записи. Выставляется вместе с IsActive =
+	// false и означает, что профиль стёрт, а не заблокирован.
+	IsDelete bool
 }
 
 // CreateUserInput — данные для создания пользователя.
@@ -187,8 +159,11 @@ func (in RegisterInput) Validate() error {
 }
 
 // NewUser создаёт активного пользователя: генерирует идентификатор (UUIDv4),
-// задаёт роль client, проставляет время создания/обновления и признак
-// is_active = true (удаление — это отдельная операция soft delete).
+// проставляет время создания/обновления и признак is_active = true (удаление —
+// это отдельная операция soft delete).
+//
+// Роль не проставляется: роль принадлежит членству в тенанте
+// (model.NewTenantMember), и запись в users её не хранит.
 //
 // Вход валидируется теми же правилами, что и proto-запрос на создание:
 // email обязателен, имена — 1..100 рун, телефон необязателен, но если задан —
@@ -218,28 +193,10 @@ func NewUser(in CreateUserInput, now time.Time) (*User, error) {
 		PhoneNumber: in.PhoneNumber,
 		Gender:      gender,
 		BirthDate:   cloneDate(in.BirthDate),
-		Role:        RoleClient,
 		CreatedAt:   ts,
 		UpdatedAt:   ts,
 		IsActive:    true,
 	}, nil
-}
-
-// NewSuperuser создаёт пользователя с ролью admin — первого суперпользователя
-// системы (см. cmd/bootstrap).
-//
-// Роль задаётся здесь, а не через API: самостоятельно стать администратором
-// нельзя, единственный способ завести первого админа — bootstrap. Остальные
-// правила те же, что и у обычного пользователя (валидация профиля, is_active).
-func NewSuperuser(in CreateUserInput, now time.Time) (*User, error) {
-	user, err := NewUser(in, now)
-	if err != nil {
-		return nil, err
-	}
-
-	user.Role = RoleAdmin
-
-	return user, nil
 }
 
 // Validate проверяет вход создания пользователя.
@@ -322,6 +279,7 @@ func (in UpdateUserInput) Validate() error {
 // Телефон может быть пустым: поле необязательное (в proto — ignore_empty),
 // а в ERDB оно тоже не требуется. Проверка «дата рождения не в будущем»
 // выполняется в NewUser и ApplyUpdate, где известен текущий момент.
+// Роль здесь не проверяется: профиль её не хранит (см. User).
 func (u *User) Validate() error {
 	var errs []error
 
@@ -351,10 +309,6 @@ func (u *User) Validate() error {
 
 	if u.Gender == "" || !u.Gender.Valid() {
 		errs = append(errs, fmt.Errorf("%w: %q", ErrInvalidGender, u.Gender))
-	}
-
-	if !u.Role.Valid() {
-		errs = append(errs, fmt.Errorf("%w: %q", ErrInvalidRole, u.Role))
 	}
 
 	return errors.Join(errs...)
@@ -421,42 +375,6 @@ func (u *User) FullName() string {
 func (u *User) SetLastLogin(at time.Time) {
 	ts := at.UTC()
 	u.LastLoginAt = &ts
-}
-
-// IsAdmin сообщает, что пользователь — администратор.
-func (u *User) IsAdmin() bool { return u.Role == RoleAdmin }
-
-// IsStaff сообщает, что пользователь — сотрудник: оператор или администратор.
-func (u *User) IsStaff() bool { return u.Role == RoleOperator || u.Role == RoleAdmin }
-
-// CanCreate сообщает, что пользователь может заводить других пользователей.
-// Это работа сотрудника: клиент регистрируется сам (POST /auth/register).
-func (u *User) CanCreate() bool { return u.IsStaff() }
-
-// CanRead сообщает, что пользователь может смотреть профиль target:
-// свой профиль доступен всегда, чужой — сотрудникам.
-func (u *User) CanRead(target *User) bool {
-	if target == nil {
-		return false
-	}
-
-	return u.IsStaff() || u.ID == target.ID
-}
-
-// CanUpdate сообщает, что пользователь может менять профиль target:
-// свой профиль или любой профиль, если он администратор.
-func (u *User) CanUpdate(target *User) bool {
-	if target == nil {
-		return false
-	}
-
-	return u.IsAdmin() || u.ID == target.ID
-}
-
-// CanDelete сообщает, что пользователь может удалять пользователей: удаление
-// доступно только администратору. Профиль удаляемого для этой проверки не нужен.
-func (u *User) CanDelete() bool {
-	return u.IsAdmin()
 }
 
 // ValidateUUID проверяет, что строка — валидный UUID (любой версии).

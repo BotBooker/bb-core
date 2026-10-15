@@ -24,6 +24,12 @@ const (
 	// хеширование проверяется в тестах модели). Формат намеренно устаревший:
 	// так тесты входа заодно проверяют и совместимость, и пересчёт хеша.
 	testPasswordHash = "pbkdf2_sha256$210000$dQIjm0wTireOlDo8WomRug$+qvx5cWbyYARbq061iEy9aedaWfstobFn25SQIDvZbc"
+	// testCredentialID — идентификатор учётных данных в тестах.
+	testCredentialID = "4f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
+	// testTenantID — тенант сессии в тестах: роль и тенант приходят из членства.
+	testTenantID = "0f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
+	// testEmail — адрес тестового пользователя: он же ключ провайдера email.
+	testEmail = "ivan@example.com"
 )
 
 // testNow — фиксированное «сейчас» сервиса авторизации: так проверки не зависят
@@ -84,6 +90,7 @@ type mockAuthCredentialRepository struct {
 	createFunc      func(ctx context.Context, credentials *model.Credentials) error
 	getByUserIDFunc func(ctx context.Context, userID string) (*model.Credentials, error)
 	updateFunc      func(ctx context.Context, credentials *model.Credentials) error
+	touchFunc       func(ctx context.Context, id string, at time.Time) error
 }
 
 func (m *mockAuthCredentialRepository) Create(ctx context.Context, credentials *model.Credentials) error {
@@ -108,6 +115,57 @@ func (m *mockAuthCredentialRepository) Update(ctx context.Context, credentials *
 	}
 
 	return nil
+}
+
+func (m *mockAuthCredentialRepository) TouchLastLogin(ctx context.Context, id string, at time.Time) error {
+	if m.touchFunc != nil {
+		return m.touchFunc(ctx, id, at)
+	}
+
+	return nil
+}
+
+// mockAuthTenantRepository — мок репозитория тенантов и членства.
+//
+// По умолчанию членства нет (ErrNotFound): так тесты, которым тенант не важен,
+// проходят через ветку создания личного тенанта.
+type mockAuthTenantRepository struct {
+	createFunc       func(ctx context.Context, tenant *model.Tenant) error
+	addMemberFunc    func(ctx context.Context, member *model.TenantMember) error
+	getMemberFunc    func(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
+	memberOfUserFunc func(ctx context.Context, userID string) (*model.TenantMember, error)
+}
+
+func (m *mockAuthTenantRepository) Create(ctx context.Context, tenant *model.Tenant) error {
+	if m.createFunc != nil {
+		return m.createFunc(ctx, tenant)
+	}
+
+	return nil
+}
+
+func (m *mockAuthTenantRepository) AddMember(ctx context.Context, member *model.TenantMember) error {
+	if m.addMemberFunc != nil {
+		return m.addMemberFunc(ctx, member)
+	}
+
+	return nil
+}
+
+func (m *mockAuthTenantRepository) GetMember(ctx context.Context, tenantID, userID string) (*model.TenantMember, error) {
+	if m.getMemberFunc != nil {
+		return m.getMemberFunc(ctx, tenantID, userID)
+	}
+
+	return nil, database.ErrNotFound
+}
+
+func (m *mockAuthTenantRepository) MemberOfUser(ctx context.Context, userID string) (*model.TenantMember, error) {
+	if m.memberOfUserFunc != nil {
+		return m.memberOfUserFunc(ctx, userID)
+	}
+
+	return nil, database.ErrNotFound
 }
 
 // mockAuthTokenRepository — мок репозитория сессий.
@@ -197,6 +255,7 @@ type authMocks struct {
 	users       *mockAuthUserRepository
 	credentials *mockAuthCredentialRepository
 	tokens      *mockAuthTokenRepository
+	tenants     *mockAuthTenantRepository
 	codec       *mockTokenCodec
 	events      *mockAuthEventPublisher
 }
@@ -207,6 +266,7 @@ func newAuthMocks() *authMocks {
 		users:       &mockAuthUserRepository{},
 		credentials: &mockAuthCredentialRepository{},
 		tokens:      &mockAuthTokenRepository{},
+		tenants:     &mockAuthTenantRepository{},
 		codec:       &mockTokenCodec{},
 		events:      &mockAuthEventPublisher{},
 	}
@@ -216,7 +276,8 @@ func newAuthMocks() *authMocks {
 func newTestAuthService(t *testing.T, m *authMocks) *authService {
 	t.Helper()
 
-	created := NewAuthService(m.users, m.credentials, m.tokens, m.codec, m.events, testTokenTTL, testPasswordTTL)
+	created := NewAuthService(m.users, m.credentials, m.tokens, m.tenants, m.codec, m.events,
+		testTokenTTL, testPasswordTTL)
 
 	svc, ok := created.(*authService)
 	if !ok {
@@ -228,12 +289,13 @@ func newTestAuthService(t *testing.T, m *authMocks) *authService {
 	return svc
 }
 
-// testAuthUser — пользователь, которого «нашёл» репозиторий.
-func testAuthUser(t *testing.T, role model.Role) *model.User {
+// testAuthUser — пользователь, которого «нашёл» репозиторий. Роли у профиля нет:
+// она живёт в членстве (tenant_members.role_id).
+func testAuthUser(t *testing.T) *model.User {
 	t.Helper()
 
 	user, err := model.NewUser(model.CreateUserInput{
-		Email:       "ivan@example.com",
+		Email:       testEmail,
 		FirstName:   "Иван",
 		LastName:    "Иванов",
 		PhoneNumber: "+79990000001",
@@ -242,26 +304,44 @@ func testAuthUser(t *testing.T, role model.Role) *model.User {
 		t.Fatalf("model.NewUser() unexpected error = %v", err)
 	}
 
-	user.Role = role
-
 	return user
 }
 
-// testCredentials — учётные данные с известным паролем.
+// testMember собирает членство пользователя в тенанте с заданной ролью: именно
+// отсюда сервис берёт тенант сессии и роль в нём.
+func testMember(userID string, role model.Role) *model.TenantMember {
+	return &model.TenantMember{
+		TenantID: testTenantID,
+		UserID:   userID,
+		Role:     role,
+		JoinedAt: testNow,
+	}
+}
+
+// testCredentials — учётные данные с известным паролем и устаревшим (PBKDF2)
+// хешем: так тесты входа проверяют и совместимость, и пересчёт хеша.
 func testCredentials(userID string) *model.Credentials {
 	return &model.Credentials{
-		UserID:    userID,
-		Hash:      testPasswordHash,
-		CreatedAt: testNow,
-		UpdatedAt: testNow,
+		ID:          testCredentialID,
+		UserID:      userID,
+		Provider:    model.CredentialProviderEmail,
+		ProviderKey: testEmail,
+		Hash:        testPasswordHash,
+		CreatedAt:   testNow,
+		ExpiresAt:   testNow.Add(testPasswordTTL),
+		IsActive:    true,
 	}
 }
 
 func TestAuthService_Register(t *testing.T) {
-	t.Run("создаёт пользователя, пароль и сессию", func(t *testing.T) {
-		var storedUser *model.User
-		var storedCredentials *model.Credentials
-		var storedToken *model.Token
+	t.Run("создаёт пользователя, пароль, личный тенант и сессию", func(t *testing.T) {
+		var (
+			storedUser        *model.User
+			storedCredentials *model.Credentials
+			storedToken       *model.Token
+			storedTenant      *model.Tenant
+			storedMember      *model.TenantMember
+		)
 
 		m := newAuthMocks()
 		m.users.createFunc = func(_ context.Context, user *model.User) error {
@@ -271,6 +351,17 @@ func TestAuthService_Register(t *testing.T) {
 		}
 		m.credentials.createFunc = func(_ context.Context, credentials *model.Credentials) error {
 			storedCredentials = credentials
+
+			return nil
+		}
+		// Членства у нового пользователя нет: сервис создаёт личный тенант.
+		m.tenants.createFunc = func(_ context.Context, tenant *model.Tenant) error {
+			storedTenant = tenant
+
+			return nil
+		}
+		m.tenants.addMemberFunc = func(_ context.Context, member *model.TenantMember) error {
+			storedMember = member
 
 			return nil
 		}
@@ -290,11 +381,19 @@ func TestAuthService_Register(t *testing.T) {
 			t.Fatalf("Register() unexpected error = %v", err)
 		}
 
-		if storedUser == nil || storedUser.Role != model.RoleClient {
-			t.Errorf("созданный пользователь = %+v, want роль %q", storedUser, model.RoleClient)
+		if storedUser == nil {
+			t.Fatal("пользователь не создан")
 		}
-		if storedUser.Email != "ivan@example.com" {
-			t.Errorf("email = %q, want %q", storedUser.Email, "ivan@example.com")
+		if storedUser.Email != testEmail {
+			t.Errorf("email = %q, want %q", storedUser.Email, testEmail)
+		}
+		// Роль у профиля не хранится: владельцем личного тенанта становится
+		// сам пользователь, и роль у него client (сотрудником он не рождается).
+		if storedTenant == nil || storedTenant.Name != storedUser.FullName() {
+			t.Errorf("личный тенант = %+v, want тенант пользователя %q", storedTenant, storedUser.FullName())
+		}
+		if storedMember == nil || storedMember.Role != model.RoleClient || !storedMember.IsOwner {
+			t.Errorf("членство = %+v, want владельца с ролью %q", storedMember, model.RoleClient)
 		}
 		if storedCredentials == nil || storedCredentials.UserID != user.ID {
 			t.Errorf("учётные данные = %+v, want для пользователя %q", storedCredentials, user.ID)
@@ -307,6 +406,9 @@ func TestAuthService_Register(t *testing.T) {
 		}
 		if storedToken == nil || storedToken.UserID != user.ID {
 			t.Errorf("токен = %+v, want для пользователя %q", storedToken, user.ID)
+		}
+		if storedMember != nil && storedToken.TenantID != storedMember.TenantID {
+			t.Errorf("TenantID сессии = %q, want %q", storedToken.TenantID, storedMember.TenantID)
 		}
 		if session.AccessToken == "" || session.Token != storedToken {
 			t.Errorf("сессия = %+v, want подписанный токен с записью %+v", session, storedToken)
@@ -393,7 +495,7 @@ func TestAuthService_Register(t *testing.T) {
 
 func TestAuthService_Login(t *testing.T) {
 	t.Run("выдаёт токен и обновляет время входа", func(t *testing.T) {
-		user := testAuthUser(t, model.RoleClient)
+		user := testAuthUser(t)
 
 		var (
 			updated       *model.User
@@ -483,7 +585,7 @@ func TestAuthService_Login(t *testing.T) {
 	t.Run("у пользователя нет пароля", func(t *testing.T) {
 		m := newAuthMocks()
 		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
-			return testAuthUser(t, model.RoleClient), nil
+			return testAuthUser(t), nil
 		}
 
 		svc := newTestAuthService(t, m)
@@ -496,7 +598,7 @@ func TestAuthService_Login(t *testing.T) {
 	t.Run("неверный пароль", func(t *testing.T) {
 		m := newAuthMocks()
 		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
-			return testAuthUser(t, model.RoleClient), nil
+			return testAuthUser(t), nil
 		}
 		m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
 			return testCredentials(userID), nil
@@ -526,7 +628,7 @@ func TestAuthService_Login(t *testing.T) {
 }
 
 func TestAuthService_Logout(t *testing.T) {
-	user := testAuthUser(t, model.RoleClient)
+	user := testAuthUser(t)
 
 	t.Run("отзывает сессию", func(t *testing.T) {
 		var (
@@ -602,31 +704,38 @@ func TestAuthService_Logout(t *testing.T) {
 }
 
 // testSession собирает запись сессии пользователя: срок действия задаётся явно,
-// чтобы тесты проверяли и действующую, и просроченную сессию.
+// чтобы тесты проверяли и действующую, и просроченную сессию. Роль и тенант
+// сессии хранятся в записи: роль — снимок на момент выдачи, тенант — тот, в
+// котором сессия действует.
 func testSession(user *model.User, expiresAt time.Time) *model.Token {
 	return &model.Token{
 		ID:        "1c9edc8e-1f1c-4d5c-8a5e-6f2f1d3c4b5a",
 		UserID:    user.ID,
-		Role:      user.Role,
+		TenantID:  testTenantID,
+		Role:      model.RoleClient,
 		IssuedAt:  testNow.Add(-time.Minute),
 		ExpiresAt: expiresAt,
 	}
 }
 
 func TestAuthService_Authenticate(t *testing.T) {
-	user := testAuthUser(t, model.RoleOperator)
+	user := testAuthUser(t)
 
 	// newMocksWithSession — моки, в которых подпись сходится, а сессия найдена.
+	// Роль берётся из членства в тенанте сессии, поэтому мок членства отдаёт её.
 	newMocksWithSession := func(session *model.Token) *authMocks {
 		m := newAuthMocks()
 		m.codec.parseFunc = func(string, time.Time) (*model.Token, error) { return session, nil }
 		m.tokens.getByIDFunc = func(context.Context, string) (*model.Token, error) { return session, nil }
 		m.users.getByIDFunc = func(context.Context, string) (*model.User, error) { return user, nil }
+		m.tenants.getMemberFunc = func(context.Context, string, string) (*model.TenantMember, error) {
+			return testMember(user.ID, model.RoleOperator), nil
+		}
 
 		return m
 	}
 
-	t.Run("возвращает действующего пользователя", func(t *testing.T) {
+	t.Run("возвращает действующего пользователя и роль из членства", func(t *testing.T) {
 		session := testSession(user, testNow.Add(time.Hour))
 
 		var touchedAt time.Time
@@ -652,11 +761,61 @@ func TestAuthService_Authenticate(t *testing.T) {
 		if principal.User != user || principal.Token != session {
 			t.Errorf("Principal = %+v, want пользователя %q и сессию %q", principal, user.ID, session.ID)
 		}
-		if principal.ID() != user.ID || principal.Role() != model.RoleOperator {
-			t.Errorf("Principal = %q/%q, want %q/%q", principal.ID(), principal.Role(), user.ID, model.RoleOperator)
+		if principal.ID() != user.ID || principal.Role != model.RoleOperator {
+			t.Errorf("Principal = %q/%q, want %q/%q", principal.ID(), principal.Role, user.ID, model.RoleOperator)
+		}
+		if principal.TenantID() != testTenantID {
+			t.Errorf("TenantID() = %q, want %q", principal.TenantID(), testTenantID)
+		}
+		if !principal.IsStaff() {
+			t.Error("IsStaff() = false для оператора тенанта, want true")
 		}
 		if !touchedAt.Equal(testNow) {
 			t.Errorf("время активности = %v, want %v", touchedAt, testNow)
+		}
+	})
+
+	t.Run("без членства используется снимок роли из токена", func(t *testing.T) {
+		session := testSession(user, testNow.Add(time.Hour))
+		session.Role = model.RoleClient
+
+		m := newAuthMocks()
+		m.codec.parseFunc = func(string, time.Time) (*model.Token, error) { return session, nil }
+		m.tokens.getByIDFunc = func(context.Context, string) (*model.Token, error) { return session, nil }
+		m.users.getByIDFunc = func(context.Context, string) (*model.User, error) { return user, nil }
+		// По умолчанию мок членства отвечает database.ErrNotFound.
+
+		svc := newTestAuthService(t, m)
+
+		principal, err := svc.Authenticate(context.Background(), "access-token")
+		if err != nil {
+			t.Fatalf("Authenticate() unexpected error = %v", err)
+		}
+
+		if principal.Role != model.RoleClient {
+			t.Errorf("Role = %q, want %q (снимок из токена)", principal.Role, model.RoleClient)
+		}
+	})
+
+	t.Run("изменение роли в тенанте действует без перевыпуска токена", func(t *testing.T) {
+		session := testSession(user, testNow.Add(time.Hour))
+		session.Role = model.RoleClient
+
+		m := newMocksWithSession(session)
+		m.tenants.getMemberFunc = func(context.Context, string, string) (*model.TenantMember, error) {
+			return testMember(user.ID, model.RoleAdmin), nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		principal, err := svc.Authenticate(context.Background(), "access-token")
+		if err != nil {
+			t.Fatalf("Authenticate() unexpected error = %v", err)
+		}
+
+		if principal.Role != model.RoleAdmin {
+			t.Errorf("Role = %q, want %q: роль берётся из членства, а не из токена",
+				principal.Role, model.RoleAdmin)
 		}
 	})
 
@@ -795,17 +954,17 @@ func TestAuthService_Authenticate(t *testing.T) {
 	})
 }
 
-// expiredCredentials возвращает учётные данные с просроченным паролем:
-// время последнего изменения старше testPasswordTTL.
+// expiredCredentials возвращает учётные данные с просроченным паролем: срок
+// действия (expires_at) истёк раньше testNow.
 func expiredCredentials(userID string) *model.Credentials {
 	credentials := testCredentials(userID)
-	credentials.UpdatedAt = testNow.Add(-testPasswordTTL - time.Hour)
+	credentials.ExpiresAt = testNow.Add(-time.Hour)
 
 	return credentials
 }
 
 func TestAuthService_Login_PasswordExpired(t *testing.T) {
-	user := testAuthUser(t, model.RoleClient)
+	user := testAuthUser(t)
 
 	tokenCreated := false
 
@@ -838,16 +997,17 @@ func TestAuthService_Login_PasswordExpired(t *testing.T) {
 
 func TestAuthService_Login_UpgradesLegacyHash(t *testing.T) {
 	t.Run("прежний хеш пересчитывается в Argon2id", func(t *testing.T) {
-		user := testAuthUser(t, model.RoleClient)
+		user := testAuthUser(t)
 
+		stored := testCredentials(user.ID)
 		var updated *model.Credentials
 
 		m := newAuthMocks()
 		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
 			return user, nil
 		}
-		m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
-			return testCredentials(userID), nil
+		m.credentials.getByUserIDFunc = func(context.Context, string) (*model.Credentials, error) {
+			return stored, nil
 		}
 		m.credentials.updateFunc = func(_ context.Context, credentials *model.Credentials) error {
 			updated = credentials
@@ -867,14 +1027,14 @@ func TestAuthService_Login_UpgradesLegacyHash(t *testing.T) {
 		if !strings.HasPrefix(updated.Hash, "argon2id$") {
 			t.Errorf("Hash = %q, want Argon2id", updated.Hash)
 		}
-		if !updated.UpdatedAt.Equal(testNow) {
-			t.Errorf("UpdatedAt = %v, want %v: пересчёт не должен сбрасывать срок пароля",
-				updated.UpdatedAt, testNow)
+		if !updated.ExpiresAt.Equal(stored.ExpiresAt) {
+			t.Errorf("ExpiresAt = %v, want %v: пересчёт не должен сбрасывать срок пароля",
+				updated.ExpiresAt, stored.ExpiresAt)
 		}
 	})
 
 	t.Run("актуальный хеш не пересчитывается", func(t *testing.T) {
-		user := testAuthUser(t, model.RoleClient)
+		user := testAuthUser(t)
 
 		hash, err := model.HashPassword(testPassword)
 		if err != nil {
@@ -915,7 +1075,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 	const newPassword = "brand new password phrase"
 
 	t.Run("меняет пароль и выдаёт сессию", func(t *testing.T) {
-		user := testAuthUser(t, model.RoleClient)
+		user := testAuthUser(t)
 
 		var (
 			updated   *model.Credentials
@@ -967,8 +1127,9 @@ func TestAuthService_ChangePassword(t *testing.T) {
 		if err := updated.Verify(newPassword); err != nil {
 			t.Errorf("новый пароль не проходит проверку: %v", err)
 		}
-		if !updated.UpdatedAt.Equal(testNow) {
-			t.Errorf("UpdatedAt = %v, want %v: срок пароля начинается заново", updated.UpdatedAt, testNow)
+		if !updated.ExpiresAt.Equal(testNow.Add(testPasswordTTL)) {
+			t.Errorf("ExpiresAt = %v, want %v: срок пароля начинается заново",
+				updated.ExpiresAt, testNow.Add(testPasswordTTL))
 		}
 		if created == nil || created.UserID != user.ID {
 			t.Errorf("запись сессии = %+v, want для пользователя %q", created, user.ID)
@@ -982,7 +1143,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 	})
 
 	t.Run("неверный текущий пароль", func(t *testing.T) {
-		user := testAuthUser(t, model.RoleClient)
+		user := testAuthUser(t)
 
 		updatedCalled := false
 
@@ -1022,7 +1183,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 	})
 
 	t.Run("слабый новый пароль не сохраняется", func(t *testing.T) {
-		user := testAuthUser(t, model.RoleClient)
+		user := testAuthUser(t)
 
 		updateCalled := false
 

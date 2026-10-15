@@ -17,7 +17,8 @@ import (
 var errNilRequest = errors.New("request is nil")
 
 // UserToProto конвертирует доменную модель пользователя в proto-сообщение User.
-// Служебные поля модели (Role, LastLoginAt) в proto v1 не отдаются.
+// Служебные поля модели (LastLoginAt, IsActive, IsDelete) в proto v1 не
+// отдаются; роли у профиля нет — она принадлежит членству в тенанте.
 func UserToProto(user *model.User) *user_v1.User {
 	if user == nil {
 		return nil

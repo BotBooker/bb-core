@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -96,4 +98,25 @@ func withSearchPath(dsn, schema string) string {
 	}
 
 	return dsn + "?search_path=" + schema
+}
+
+// assertJSONEqual сравнивает JSON-значения по содержимому, а не по строке:
+// PostgreSQL хранит JSONB в нормализованном виде и возвращает его с пробелами
+// после двоеточий, тогда как SQLite отдаёт исходный текст.
+func assertJSONEqual(t *testing.T, got []byte, want string) {
+	t.Helper()
+
+	var gotValue, wantValue any
+
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("json.Unmarshal(got = %q) unexpected error = %v", got, err)
+	}
+
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("json.Unmarshal(want = %q) unexpected error = %v", want, err)
+	}
+
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Errorf("JSON = %s, want %s", got, want)
+	}
 }

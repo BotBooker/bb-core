@@ -51,6 +51,27 @@ func findSuperuser(t *testing.T, cfg config.DatabaseConfig) *model.User {
 	return user
 }
 
+// findMembership читает членство суперпользователя в тенанте: роль admin
+// хранится не в профиле, а в tenant_members.role_id.
+func findMembership(t *testing.T, cfg config.DatabaseConfig, user *model.User) *model.TenantMember {
+	t.Helper()
+
+	ctx := context.Background()
+
+	conn, err := sqlite.New(ctx, cfg)
+	if err != nil {
+		t.Fatalf("sqlite.New() unexpected error = %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	member, err := repository.NewTenantRepo(conn, database.DialectSQLite).MemberOfUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("MemberOfUser() unexpected error = %v", err)
+	}
+
+	return member
+}
+
 func TestRun(t *testing.T) {
 	ctx := context.Background()
 	cfg := sqliteConfig(t)
@@ -60,8 +81,17 @@ func TestRun(t *testing.T) {
 			t.Fatalf("run() unexpected error = %v", err)
 		}
 
-		if user := findSuperuser(t, cfg); user.Role != model.RoleAdmin {
-			t.Errorf("Role = %q, want %q", user.Role, model.RoleAdmin)
+		user := findSuperuser(t, cfg)
+
+		// Роль — атрибут членства в тенанте: суперпользователь владелец
+		// личного тенанта с ролью admin.
+		member := findMembership(t, cfg, user)
+
+		if member.Role != model.RoleAdmin {
+			t.Errorf("Role = %q, want %q", member.Role, model.RoleAdmin)
+		}
+		if !member.IsOwner {
+			t.Error("IsOwner = false, want true: суперпользователь владеет личным тенантом")
 		}
 	})
 
@@ -170,8 +200,10 @@ func TestMain_CreatesSuperuser(t *testing.T) {
 		t.Errorf("Main() = %d, want 0", code)
 	}
 
-	if user := findSuperuser(t, cfg); user.Role != model.RoleAdmin {
-		t.Errorf("Role = %q, want %q", user.Role, model.RoleAdmin)
+	user := findSuperuser(t, cfg)
+
+	if member := findMembership(t, cfg, user); member.Role != model.RoleAdmin {
+		t.Errorf("Role = %q, want %q", member.Role, model.RoleAdmin)
 	}
 }
 

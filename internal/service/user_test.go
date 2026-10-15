@@ -51,18 +51,20 @@ func (m *mockUserRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// testPrincipal возвращает действующего пользователя с заданной ролью.
+// testPrincipal возвращает действующего пользователя с заданной ролью в тенанте.
 //
 // Идентификатор отличается от идентификаторов записей в тестах: иначе проверка
 // прав проходила бы «сама собой» — из-за совпадения действующего пользователя
-// с целью операции.
+// с целью операции. Роль хранится в Principal, а не в профиле: она приходит из
+// членства в тенанте сессии.
 func testPrincipal(t *testing.T, role model.Role) *Principal {
 	t.Helper()
 
-	user := storedUser(t, "7c9e6679-7425-40de-944b-e07fc1f90ae7")
-	user.Role = role
-
-	return &Principal{User: user}
+	return &Principal{
+		User:  storedUser(t, "7c9e6679-7425-40de-944b-e07fc1f90ae7"),
+		Token: &model.Token{TenantID: testTenantID, UserID: "7c9e6679-7425-40de-944b-e07fc1f90ae7"},
+		Role:  role,
+	}
 }
 
 // mockUserEventPublisher запоминает опубликованные события: так проверяется,
@@ -147,12 +149,10 @@ func TestUserService_Create(t *testing.T) {
 			t.Fatalf("Create() unexpected error = %v", err)
 		}
 
-		// Идентификатор и роль проставляет модель, а не репозиторий.
+		// Идентификатор проставляет модель, а не репозиторий; роли у профиля
+		// нет — она принадлежит членству в тенанте.
 		if err := model.ValidateUUID(user.ID); err != nil {
 			t.Errorf("Create() вернул пользователя с невалидным UUID: %v", err)
-		}
-		if user.Role != model.RoleClient {
-			t.Errorf("Role = %q, want %q", user.Role, model.RoleClient)
 		}
 		if stored != user {
 			t.Error("Create() не передал созданного пользователя в репозиторий")

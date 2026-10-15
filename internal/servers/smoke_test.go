@@ -69,15 +69,15 @@ func newSmokeAuthService(t *testing.T) AuthService {
 		t.Fatalf("model.NewUser() unexpected error = %v", err)
 	}
 
-	// NewUser всегда создаёт клиента: роль сотрудника выставляется здесь.
-	admin.Role = model.RoleAdmin
-
+	// Роль в профиле не хранится: администратором пользователь становится
+	// через членство в тенанте (tenant_members.role_id), поэтому роль
+	// задаётся в Principal — так же, как это делает service.Authenticate.
 	return &mockAuthService{authenticateFunc: func(_ context.Context, token string) (*service.Principal, error) {
 		if token == "" {
 			return nil, service.ErrUnauthorized
 		}
 
-		return &service.Principal{User: admin}, nil
+		return testPrincipal(t, admin, model.RoleAdmin), nil
 	}}
 }
 
