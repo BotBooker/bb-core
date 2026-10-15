@@ -5,9 +5,8 @@ import (
 	"unicode/utf8"
 )
 
-// safety: prepare value for print to log
-// SanitizeString очищает строку от спецсимволов, маскирует секреты и ограничивает длину.
-func SanitizeString(value string, key ...string) string {
+// SanitizeInputString очищает строку от спецсимволов, маскирует секреты и ограничивает длину.
+func SanitizeInputString(value string, key ...string) string {
 	// 1. Если ключ передан, проверяем на конфиденциальность
 	if len(key) > 0 && key[0] != "" {
 		keyLower := strings.ToLower(key[0])

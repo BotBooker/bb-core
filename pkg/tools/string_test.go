@@ -9,7 +9,7 @@ import (
 // truncationSuffix добавляется к значению, если оно длиннее 500 байт.
 const truncationSuffix = "... [truncated]"
 
-func TestSanitizeString(t *testing.T) {
+func TestSanitizeInputString(t *testing.T) {
 	tests := []struct {
 		name  string
 		value string
@@ -176,15 +176,15 @@ func TestSanitizeString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := SanitizeString(tt.value, tt.keys...)
+			got := SanitizeInputString(tt.value, tt.keys...)
 			if got != tt.want {
-				t.Errorf("SanitizeString(%q, %v) = %q, want %q", tt.value, tt.keys, got, tt.want)
+				t.Errorf("SanitizeInputString(%q, %v) = %q, want %q", tt.value, tt.keys, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestSanitizeStringTruncation(t *testing.T) {
+func TestSanitizeInputStringTruncation(t *testing.T) {
 	ascii499 := strings.Repeat("a", 499)
 	ascii500 := strings.Repeat("a", 500)
 
@@ -229,18 +229,18 @@ func TestSanitizeStringTruncation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := SanitizeString(tt.value, tt.keys...)
+			got := SanitizeInputString(tt.value, tt.keys...)
 			if got != tt.want {
-				t.Errorf("SanitizeString(len=%d, %v) = %q, want %q", len(tt.value), tt.keys, got, tt.want)
+				t.Errorf("SanitizeInputString(len=%d, %v) = %q, want %q", len(tt.value), tt.keys, got, tt.want)
 			}
 			if strings.ContainsAny(got, "\n\r") {
-				t.Errorf("SanitizeString(len=%d) = %q contains a newline", len(tt.value), got)
+				t.Errorf("SanitizeInputString(len=%d) = %q contains a newline", len(tt.value), got)
 			}
 		})
 	}
 }
 
-func TestSanitizeStringTruncationKeepsValidUTF8(t *testing.T) {
+func TestSanitizeInputStringTruncationKeepsValidUTF8(t *testing.T) {
 	tests := []struct {
 		name  string
 		value string
@@ -274,16 +274,16 @@ func TestSanitizeStringTruncationKeepsValidUTF8(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := SanitizeString(tt.value)
+			got := SanitizeInputString(tt.value)
 
 			if got != tt.want {
-				t.Errorf("SanitizeString(len=%d bytes) = %q, want %q", len(tt.value), got, tt.want)
+				t.Errorf("SanitizeInputString(len=%d bytes) = %q, want %q", len(tt.value), got, tt.want)
 			}
 			if !utf8.ValidString(got) {
-				t.Errorf("SanitizeString(len=%d bytes) returned invalid UTF-8: %q", len(tt.value), got)
+				t.Errorf("SanitizeInputString(len=%d bytes) returned invalid UTF-8: %q", len(tt.value), got)
 			}
 			if !strings.HasSuffix(got, truncationSuffix) {
-				t.Errorf("SanitizeString(len=%d bytes) = %q, want suffix %q", len(tt.value), got, truncationSuffix)
+				t.Errorf("SanitizeInputString(len=%d bytes) = %q, want suffix %q", len(tt.value), got, truncationSuffix)
 			}
 
 			body := strings.TrimSuffix(got, truncationSuffix)

@@ -265,7 +265,7 @@ func bearerTokenFromMetadata(ctx context.Context) (string, error) {
 // Схема сравнивается без учёта регистра (RFC 6750 разрешает её любой вариант),
 // а пустой токен после схемы невалиден: "Bearer" без значения — не токен.
 func parseBearer(value string) (string, bool) {
-	value = tools.SanitizeString(value)
+	value = tools.SanitizeInputString(value)
 	if len(value) <= len(bearerPrefix) || !strings.EqualFold(value[:len(bearerPrefix)], bearerPrefix) {
 		return "", false
 	}
@@ -482,7 +482,7 @@ func writeServiceError(w http.ResponseWriter, err error, action string) {
 	case isInvalidArgument(err):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
-		slog.Error(action+" failed", "err", tools.SanitizeString(err.Error(), "error"))
+		slog.Error(action+" failed", "err", tools.SanitizeInputString(err.Error(), "error"))
 		writeError(w, http.StatusInternalServerError, internalErrorMessage)
 	}
 }

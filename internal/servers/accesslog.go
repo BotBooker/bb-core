@@ -40,15 +40,15 @@ const (
 
 // Значения поля protocol.
 const (
-	protocolHTTP = "http"
-	protocolGRPC = "grpc"
+	protocolHTTP = "HTTP"
+	protocolGRPC = "gRPC"
 )
 
 // Тексты записей access-лога: свой у каждого транспорта, чтобы по сообщению
 // сразу читалось, откуда пришёл запрос.
 const (
-	httpRequestMessage = "http request"
-	grpcRequestMessage = "grpc request"
+	httpRequestMessage = "HTTP request"
+	grpcRequestMessage = "gRPC request"
 )
 
 // logMiddleware пишет access-лог каждого HTTP-запроса: метод, путь, статус
@@ -76,14 +76,14 @@ func logMiddleware(next http.Handler) http.Handler {
 		}
 
 		slog.Log(r.Context(), requestLogLevel(isServicePath(r.URL.Path)), httpRequestMessage,
-			logFieldProtocol, protocolHTTP,
-			logFieldMethod, r.Method,
-			logFieldPath, tools.SanitizeString(r.URL.Path),
-			logFieldStatus, interceptor.statusCode,
-			logFieldBytes, interceptor.bytes,
-			logFieldRemoteAddr, r.RemoteAddr,
-			logFieldUserAgent, tools.SanitizeString(r.UserAgent()),
-			logFieldDuration, time.Since(start),
+			slog.String(logFieldProtocol, protocolHTTP),
+			slog.String(logFieldMethod, r.Method),
+			slog.String(logFieldPath, tools.SanitizeInputString(r.URL.Path)),
+			slog.Int(logFieldStatus, interceptor.statusCode),
+			slog.Int(logFieldBytes, interceptor.bytes),
+			slog.String(logFieldRemoteAddr, r.RemoteAddr),
+			slog.String(logFieldUserAgent, tools.SanitizeInputString(r.UserAgent())),
+			slog.Duration(logFieldDuration, time.Since(start)),
 		)
 	})
 }
@@ -110,11 +110,11 @@ func NewLogInterceptor() grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 
 		slog.Log(ctx, requestLogLevel(isServiceGRPCMethod(info.FullMethod)), grpcRequestMessage,
-			logFieldProtocol, protocolGRPC,
-			logFieldMethod, info.FullMethod,
-			logFieldCode, status.Code(err).String(),
-			logFieldRemoteAddr, peerAddr(ctx),
-			logFieldDuration, time.Since(start),
+			slog.String(logFieldProtocol, protocolGRPC),
+			slog.String(logFieldMethod, info.FullMethod),
+			slog.String(logFieldCode, status.Code(err).String()),
+			slog.String(logFieldRemoteAddr, peerAddr(ctx)),
+			slog.Duration(logFieldDuration, time.Since(start)),
 		)
 
 		return resp, err

@@ -78,7 +78,7 @@ func ParseGender(value string) (Gender, error) {
 	}
 
 	if !gender.Valid() {
-		return "", fmt.Errorf("%w: %q", ErrInvalidGender, tools.SanitizeString(value))
+		return "", fmt.Errorf("%w: %q", ErrInvalidGender, tools.SanitizeInputString(value))
 	}
 
 	return gender, nil

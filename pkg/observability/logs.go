@@ -45,7 +45,7 @@ func setupLogs(ctx context.Context) (func(context.Context) error, error) {
 
 	logger.SetOTelHandler(otelslog.NewHandler(instrumentationScope, otelslog.WithLoggerProvider(provider)))
 
-	slog.Info("otlp logs export enabled", "endpoint", endpoint, "protocol", "grpc")
+	slog.Info("otlp logs export enabled", slog.String("endpoint", endpoint), "protocol", "gRPC")
 
 	return provider.Shutdown, nil
 }

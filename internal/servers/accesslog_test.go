@@ -47,14 +47,14 @@ func TestLogMiddleware(t *testing.T) {
 			path:       "/users/me",
 			handler:    statusHandler(http.StatusUnauthorized),
 			wantLevel:  "level=INFO",
-			wantFields: []string{"protocol=http", "method=GET", "path=/users/me", "status=401"},
+			wantFields: []string{"protocol=HTTP", "method=GET", "path=/users/me", "status=401"},
 		},
 		{
 			name:       "служебная ручка пишется на DEBUG",
 			path:       healthPath,
 			handler:    bodyHandler("ok"),
 			wantLevel:  "level=DEBUG",
-			wantFields: []string{"protocol=http", "path=/health", "status=200", "bytes=2"},
+			wantFields: []string{"protocol=HTTP", "path=/health", "status=200", "bytes=2"},
 		},
 	}
 
@@ -84,7 +84,7 @@ func TestNewLogInterceptor(t *testing.T) {
 			name:       "успешный бизнес-метод пишется на INFO",
 			fullMethod: "/user.v1.UserService/Get",
 			wantLevel:  "level=INFO",
-			wantFields: []string{"protocol=grpc", "method=/user.v1.UserService/Get", "code=OK"},
+			wantFields: []string{"protocol=gRPC", "method=/user.v1.UserService/Get", "code=OK"},
 		},
 		{
 			name:       "ошибка вызова видна в логе",
@@ -97,7 +97,7 @@ func TestNewLogInterceptor(t *testing.T) {
 			name:       "служебный метод пишется на DEBUG",
 			fullMethod: healthMethodPrefix + "Check",
 			wantLevel:  "level=DEBUG",
-			wantFields: []string{"protocol=grpc", "method=/grpc.health.v1.Health/Check"},
+			wantFields: []string{"protocol=gRPC", "method=/grpc.health.v1.Health/Check"},
 		},
 	}
 

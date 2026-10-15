@@ -48,7 +48,7 @@ func setupMetrics(ctx context.Context) (func(context.Context) error, error) {
 
 	otel.SetMeterProvider(provider)
 
-	slog.Info("otlp metrics export enabled", "endpoint", endpoint, "protocol", "grpc")
+	slog.Info("otlp metrics export enabled", slog.String("endpoint", endpoint), "protocol", "gRPC")
 
 	return provider.Shutdown, nil
 }
