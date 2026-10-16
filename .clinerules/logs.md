@@ -42,13 +42,12 @@
 ```go
 // Одна запись «export enabled» на сигнал может быть на Info (§2).
 logger.InfoContext(ctx, "otlp traces export enabled",
-	slog.String("endpoint", endpoint), slog.String("protocol", "gRPC"))
+ slog.String("endpoint", endpoint), slog.String("protocol", "gRPC"))
 
 // Любая другая диагностика состояния экспортёра — Debug.
 logger.DebugContext(ctx, "OpenTelemetry exporter state", slog.Bool("enabled", isOtelEnabled))
 
 // Пользовательское значение — через санитайзер.
 logger.InfoContext(ctx, "Processing user request",
-	slog.String("user_id", tools.SanitizeInputString(req.UserID)))
+ slog.String("user_id", tools.SanitizeInputString(req.UserID)))
 ```
-
