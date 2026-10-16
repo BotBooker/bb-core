@@ -6,7 +6,7 @@
 //   - SetOTelHandler: подключает к глобальному логгеру обработчик OpenTelemetry,
 //     сохраняя привычный вывод в stdout.
 //   - MultiHandler: отправляет записи сразу нескольким обработчикам.
-//   - TraceHandler: добавляет к записям trace_id и span_id активного спана,
+//   - TraceHandler: добавляет к записям trace_id активной трассы,
 //     чтобы логи можно было связать с трассой OpenTelemetry.
 package logger
 
@@ -38,7 +38,7 @@ var (
 // Init инициализирует slog логгер с обработчиком вывода (текстовым или JSON).
 //
 // Контекстные вызовы логгера (slog.InfoContext и подобные) получают в записи
-// trace_id и span_id активного спана — их добавляет TraceHandler (см. initHandler).
+// trace_id активной трассы — его добавляет TraceHandler (см. initHandler).
 //
 // Параметры:
 //   - level: уровень логирования (например, slog.LevelInfo, slog.LevelDebug).
@@ -56,7 +56,7 @@ func Init(level slog.Level, format LogFormat) *slog.Logger {
 }
 
 // initHandler собирает обработчик вывода логов приложения: json или plain по
-// формату, с добавлением trace_id и span_id активного спана к каждой записи.
+// формату, с добавлением trace_id активной трассы к каждой записи.
 //
 // writer вынесен параметром, чтобы тесты проверяли обработчик на буфере, а не
 // на os.Stdout.
@@ -125,7 +125,7 @@ func SetOTelHandler(handler slog.Handler) {
 	if baseHandler == nil {
 		// InitAndSetDefault ещё не вызывался (например, в тестах): пишем в stdout
 		// обычным текстовым обработчиком через initHandler — он же добавляет
-		// trace_id и span_id активного спана. Брать slog.Default().Handler()
+		// trace_id активной трассы. Брать slog.Default().Handler()
 		// нельзя: это stdlib defaultHandler, который выводит через пакет log, а
 		// slog.SetDefault переводит log.SetOutput на итоговый обработчик — вышла
 		// бы бесконечная рекурсия и дедлок на mutex пакета log.

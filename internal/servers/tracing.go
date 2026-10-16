@@ -14,13 +14,17 @@ import (
 )
 
 // traceMiddleware извлекает контекст трассировки из заголовков запроса и
-// запускает серверный спан.
+// запускает серверный спан, если трасса уже есть.
 //
 // Сценарий 2: W3C Trace Context (traceparent/tracestate) разбирается
-// otel.GetTextMapPropagator().Extract() — если передан валидный Traceparent,
-// сэмплер pkg/observability запишет спан как продолжение входящей трассы.
-// Сценарий 1: при ENABLE_FORCE_TRACE=true записываются все запросы, даже без
-// заголовков трассировки.
+// otel.GetTextMapPropagator().Extract() — валидный Traceparent продолжает
+// входящую трассу.
+// Сценарий 1: при ENABLE_FORCE_TRACE=true спан стартует и без заголовков
+// трассировки — записываются все запросы.
+//
+// Во всех остальных случаях запрос идёт вне трассы (см. startServerSpan): спан не
+// создаётся, поэтому в логи не попадает сгенерированный TraceID, по которому в
+// коллекторе нет трассы.
 //
 // Если адрес коллектора не задан, трейсер no-op и middleware почти ничего не
 // делает: пропагатор всё равно извлекает контекст, чтобы он остался доступен
@@ -30,13 +34,8 @@ func traceMiddleware(next http.Handler) http.Handler {
 		// 1. Извлекаем контекст трассировки из заголовков запроса
 		ctx := otel.GetTextMapPropagator().Extract(req.Context(), propagation.HeaderCarrier(req.Header))
 
-		// 2. Стартуем серверный спан. Имя собирается из нормализованного
-		// маршрута (normalizePath), а не из сырого пути: идентификаторы в пути
-		// иначе множили бы число разных имён спанов. Request.Pattern здесь ещё
-		// пуст — его проставляет mux ниже по стеку, поэтому берём путь.
-		ctx, span := observability.Tracer().Start(ctx, req.Method+" "+normalizePath(req.URL.Path),
-			trace.WithSpanKind(trace.SpanKindServer),
-		)
+		// 2. Стартуем серверный спан, если трасса есть
+		ctx, span := startServerSpan(ctx, req)
 		defer span.End()
 
 		// 3. Оборачиваем оригинальный response writer в наш интерцептор
@@ -58,6 +57,29 @@ func traceMiddleware(next http.Handler) http.Handler {
 			span.SetStatus(codes.Error, "HTTP server error")
 		}
 	})
+}
+
+// startServerSpan стартует серверный спан запроса, если трасса есть: запрос
+// продолжает входящую трассу (валидный родитель из traceparent, сценарий 2) или
+// включена форс-трассировка (сценарий 1).
+//
+// Если трассы нет, возвращается no-op спан, то есть запрос обслуживается вне
+// трассировки. Так SDK не генерирует TraceID для корневого спана, который сэмплер
+// всё равно отбрасывает (см. traceSampler): иначе в access-лог попадал бы
+// trace_id, по которому в коллекторе нет трассы.
+//
+// Имя спана собирается из нормализованного маршрута (normalizePath), а не из
+// сырого пути: идентификаторы в пути иначе множили бы число разных имён спанов.
+// Request.Pattern здесь ещё пуст — его проставляет mux ниже по стеку, поэтому
+// берём путь.
+func startServerSpan(ctx context.Context, req *http.Request) (context.Context, trace.Span) {
+	if !trace.SpanContextFromContext(ctx).IsValid() && !observability.ForceTraceEnabled() {
+		return ctx, trace.SpanFromContext(ctx)
+	}
+
+	return observability.Tracer().Start(ctx, req.Method+" "+normalizePath(req.URL.Path),
+		trace.WithSpanKind(trace.SpanKindServer),
+	)
 }
 
 // startStartupSpan открывает стартовый спан приложения (сценарий 3).

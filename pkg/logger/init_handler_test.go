@@ -38,8 +38,8 @@ func TestInitHandler_Plain_AddsTraceIDs(t *testing.T) {
 	if !strings.Contains(out, "trace_id="+initHandlerTraceID.String()) {
 		t.Errorf("trace_id не попал в plain-вывод: %q", out)
 	}
-	if !strings.Contains(out, "span_id="+initHandlerSpanID.String()) {
-		t.Errorf("span_id не попал в plain-вывод: %q", out)
+	if strings.Contains(out, "span_id") {
+		t.Errorf("span_id не должен попадать в plain-вывод: %q", out)
 	}
 }
 
@@ -53,8 +53,8 @@ func TestInitHandler_JSON_AddsTraceIDs(t *testing.T) {
 	if !strings.Contains(out, `"trace_id":"`+initHandlerTraceID.String()+`"`) {
 		t.Errorf("trace_id не попал в json-вывод: %q", out)
 	}
-	if !strings.Contains(out, `"span_id":"`+initHandlerSpanID.String()+`"`) {
-		t.Errorf("span_id не попал в json-вывод: %q", out)
+	if strings.Contains(out, `"span_id"`) {
+		t.Errorf("span_id не должен попадать в json-вывод: %q", out)
 	}
 }
 

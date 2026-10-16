@@ -10,29 +10,29 @@ import (
 const (
 	// traceIDKey — имя атрибута записи с TraceID активной трассы.
 	traceIDKey = "trace_id"
-	// spanIDKey — имя атрибута записи с SpanID текущего спана.
-	spanIDKey = "span_id"
 )
 
 // TraceHandler — реализация slog.Handler, которая добавляет к каждой записи
-// trace_id и span_id активного спана OpenTelemetry.
+// trace_id активной трассы OpenTelemetry.
 //
-// Спан берётся из контекста записи (trace.SpanContextFromContext), поэтому
+// TraceID берётся из контекста записи (trace.SpanContextFromContext), поэтому
 // контекст до обработчика доносят только контекстные вызовы логгера —
 // slog.InfoContext, slog.ErrorContext, slog.WarnContext, slog.DebugContext.
-// Записи вне активной трассы (без контекстного вызова или без спана) уходят
-// без этих атрибутов: пустых trace_id и span_id в логах не появляется.
+// Записи вне активной трассы (без контекстного вызова или без TraceID) уходят
+// без атрибута: пустого trace_id в логах не появляется.
 //
-// Атрибуты нужны для stdout, где у slog нет отдельного поля с трассой: в
-// OTLP-логи TraceID и SpanID подставляет SDK логов OpenTelemetry из того же
-// контекста (см. pkg/observability). Если запись уже содержит trace_id или
-// span_id, готовое значение не перезаписывается.
+// span_id в stdout-логи не пишется: для связки записи с трассой достаточно
+// trace_id, а SpanID нужен только внутри самой трассы. Атрибут нужен для
+// stdout, где у slog нет отдельного поля с трассой: в OTLP-логи TraceID
+// подставляет SDK логов OpenTelemetry из того же контекста
+// (см. pkg/observability). Если запись уже содержит trace_id, готовое значение
+// не перезаписывается.
 type TraceHandler struct {
 	handler slog.Handler
 }
 
-// NewTraceHandler оборачивает обработчик, добавляя к записям trace_id и span_id
-// активного спана из контекста.
+// NewTraceHandler оборачивает обработчик, добавляя к записям trace_id активной
+// трассы из контекста.
 func NewTraceHandler(handler slog.Handler) *TraceHandler {
 	return &TraceHandler{handler: handler}
 }
@@ -42,8 +42,8 @@ func (h *TraceHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.handler.Enabled(ctx, level)
 }
 
-// Handle дописывает в запись trace_id и span_id активного спана и передаёт её
-// вложенному обработчику.
+// Handle дописывает в запись trace_id активной трассы и передаёт её вложенному
+// обработчику.
 func (h *TraceHandler) Handle(ctx context.Context, record slog.Record) error {
 	record.AddAttrs(traceAttrs(ctx, record)...)
 
@@ -62,27 +62,22 @@ func (h *TraceHandler) WithGroup(name string) slog.Handler {
 	return &TraceHandler{handler: h.handler.WithGroup(name)}
 }
 
-// traceAttrs возвращает атрибуты трассы для записи: trace_id и span_id активного
-// спана из контекста. Вне активной трассы спан невалиден, и функция возвращает
-// nil — приложение без адреса OTel Collector пишет логи, как раньше, без пустых
-// атрибутов. Уже добавленные вручную trace_id и span_id не перезаписываются.
+// traceAttrs возвращает атрибуты трассы для записи: trace_id активной трассы из
+// контекста. Если TraceID в контексте отсутствует (трасса не инициализирована),
+// функция возвращает nil — приложение без адреса OTel Collector пишет логи, как
+// раньше, без пустого атрибута. Уже добавленный вручную trace_id не
+// перезаписывается.
 func traceAttrs(ctx context.Context, record slog.Record) []slog.Attr {
 	spanCtx := trace.SpanContextFromContext(ctx)
-	if !spanCtx.IsValid() {
+	if !spanCtx.HasTraceID() {
 		return nil
 	}
 
-	attrs := make([]slog.Attr, 0, 2)
-
-	if !hasAttr(record, traceIDKey) {
-		attrs = append(attrs, slog.String(traceIDKey, spanCtx.TraceID().String()))
+	if hasAttr(record, traceIDKey) {
+		return nil
 	}
 
-	if !hasAttr(record, spanIDKey) {
-		attrs = append(attrs, slog.String(spanIDKey, spanCtx.SpanID().String()))
-	}
-
-	return attrs
+	return []slog.Attr{slog.String(traceIDKey, spanCtx.TraceID().String())}
 }
 
 // hasAttr сообщает, есть ли у записи атрибут с ключом key.

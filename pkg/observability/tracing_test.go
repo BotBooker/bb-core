@@ -138,8 +138,8 @@ func TestForceTraceEnabled(t *testing.T) {
 		t.Run("value="+value, func(t *testing.T) {
 			t.Setenv(envForceTrace, value)
 
-			if got := forceTraceEnabled(); got != want {
-				t.Errorf("forceTraceEnabled() = %t при %s=%q, ожидалось %t", got, envForceTrace, value, want)
+			if got := ForceTraceEnabled(); got != want {
+				t.Errorf("ForceTraceEnabled() = %t при %s=%q, ожидалось %t", got, envForceTrace, value, want)
 			}
 		})
 	}

@@ -70,7 +70,7 @@ func NewHandler(authService AuthService, userServiceServer user_v1.UserServiceSe
 // аутентификации и покрывает весь путь запроса.
 //
 // logMiddleware стоит между трассировкой и аутентификацией: запись access-лога
-// попадает в span-context (trace_id/span_id добавляет TraceHandler) и видит
+// попадает в контекст трассы (trace_id добавляет TraceHandler) и видит
 // статус отказа 401/403, который выставляет authenticate.
 //
 // metricsMiddleware стоит внутри authenticate — непосредственно вокруг mux, —
