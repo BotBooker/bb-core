@@ -30,9 +30,14 @@ func SanitizeInputString(value string, key ...string) string {
 		}
 	}
 
-	// 2. Защита от Log Injection: заменяем переносы строк на пробелы
-	replacer := strings.NewReplacer("\n", " ", "\r", " ")
-	sanitized := replacer.Replace(value)
+	// 2. Защита от Log Injection: убираем управляющие символы (включая \n, \r)
+	// чтобы пользовательский ввод не мог подделывать структуру логов.
+	sanitized := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, value)
 
 	// 3. Ограничение длины в байтах (Защита от DoS)
 	const maxLogLength = 500
