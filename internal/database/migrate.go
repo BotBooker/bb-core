@@ -45,7 +45,7 @@ func Migrate(ctx context.Context, db DB, dialect string) error {
 	}
 
 	for _, result := range results {
-		slog.Info("migration applied",
+		slog.InfoContext(ctx, "migration applied",
 			"version", result.Source.Version,
 			"name", result.Source.Path,
 			"duration", result.Duration,
@@ -68,7 +68,7 @@ func MigrateDown(ctx context.Context, db DB, dialect string) error {
 	result, err := provider.Down(ctx)
 	if err != nil {
 		if errors.Is(err, goose.ErrNoNextVersion) {
-			slog.Debug("no migrations to roll back")
+			slog.DebugContext(ctx, "no migrations to roll back")
 
 			return nil
 		}
@@ -76,7 +76,7 @@ func MigrateDown(ctx context.Context, db DB, dialect string) error {
 		return fmt.Errorf("roll back migration: %w", err)
 	}
 
-	slog.Info("migration rolled back",
+	slog.InfoContext(ctx, "migration rolled back",
 		"version", result.Source.Version,
 		"name", result.Source.Path,
 		"duration", result.Duration,

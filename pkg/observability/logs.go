@@ -29,7 +29,7 @@ const (
 func setupLogs(ctx context.Context) (func(context.Context) error, error) {
 	endpoint, enabled := logsEndpoint()
 	if !enabled {
-		slog.Debug("otlp logs export disabled")
+		slog.DebugContext(ctx, "otlp logs export disabled")
 
 		return func(context.Context) error { return nil }, nil
 	}
@@ -45,7 +45,8 @@ func setupLogs(ctx context.Context) (func(context.Context) error, error) {
 
 	logger.SetOTelHandler(otelslog.NewHandler(instrumentationScope, otelslog.WithLoggerProvider(provider)))
 
-	slog.Info("otlp logs export enabled", slog.String("endpoint", endpoint), "protocol", "gRPC")
+	slog.InfoContext(ctx, "otlp logs export enabled",
+		slog.String("endpoint", endpoint), slog.String("protocol", protocolGRPC))
 
 	return provider.Shutdown, nil
 }

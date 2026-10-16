@@ -167,3 +167,38 @@ func assertLogContains(t *testing.T, log string, want []string) {
 		}
 	}
 }
+
+// TestLogMiddlewareSanitizesUserInput проверяет, что пользовательские значения
+// access-лога очищены: перевод строки не создаёт вторую запись, а path и
+// user_agent записаны с заменёнными переводами строк (см. решения ревью, C2).
+func TestLogMiddlewareSanitizesUserInput(t *testing.T) {
+	buffer := captureLogs(t)
+
+	const (
+		rawPath      = "/users/me\nX-Injected: true"
+		rawUserAgent = "curl/8.0\r\nX-Injected: true"
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/users/me", nil)
+	// Значения подставляются напрямую: httptest.NewRequest не примет перевод
+	// строки в request-line, а middleware читает уже разобранные поля.
+	req.URL.Path = rawPath
+	req.Header.Set("User-Agent", rawUserAgent)
+
+	logMiddleware(statusHandler(http.StatusOK)).ServeHTTP(httptest.NewRecorder(), req)
+
+	log := buffer.String()
+
+	if got := strings.Count(log, httpRequestMessage); got != 1 {
+		t.Errorf("записей access-лога = %d, ожидалась 1: %q", got, log)
+	}
+	// Если бы санитайзера не было, в записи оказалось бы значение с переводом
+	// строки: без пробелов на их месте эти подстроки не нашлись бы. У
+	// user_agent в примере "\r\n" — два разделителя, каждый заменён пробелом.
+	if !strings.Contains(log, "/users/me X-Injected: true") {
+		t.Errorf("path не очищен от перевода строки: %q", log)
+	}
+	if !strings.Contains(log, "curl/8.0  X-Injected: true") {
+		t.Errorf("user_agent не очищен от перевода строки: %q", log)
+	}
+}

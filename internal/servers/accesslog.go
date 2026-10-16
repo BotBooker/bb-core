@@ -75,6 +75,14 @@ func logMiddleware(next http.Handler) http.Handler {
 			interceptor.statusCode = http.StatusOK
 		}
 
+		// Санитизации подлежат только значения, пришедшие от пользователя:
+		// path и user_agent. Остальные поля считаются доверенными и берутся
+		// как есть: method валидируется net/http по RFC 7230 (токен без CTL и
+		// разделителей), remote_addr берётся из соединения, а не из запроса.
+		// Значит log-injection через них невозможен, и правило §2.1 к ним не
+		// применяется (см. решения ревью, П.5 A2). Обязательство: если в лог
+		// начнёт попадать X-Forwarded-For (HTTP_HEADER_CLIENT_IP), это будет
+		// пользовательское значение и его придётся санитизировать.
 		slog.Log(r.Context(), requestLogLevel(isServicePath(r.URL.Path)), httpRequestMessage,
 			slog.String(logFieldProtocol, protocolHTTP),
 			slog.String(logFieldMethod, r.Method),

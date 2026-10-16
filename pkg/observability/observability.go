@@ -36,6 +36,11 @@ const (
 	// defaultCollectorPort — порт OTLP/gRPC, на котором по умолчанию слушает
 	// OTel Collector.
 	defaultCollectorPort = "4317"
+
+	// protocolGRPC — транспорт OTLP-экспортёров приложения: все три сигнала
+	// уходят по gRPC (otlptracegrpc, otlpmetricgrpc, otlploggrpc). Значение
+	// поля protocol в единственной Info-записи о включении экспорта.
+	protocolGRPC = "gRPC"
 )
 
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
@@ -69,7 +74,7 @@ func SetupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	// трассировки не создаётся вовсе и глобальный трейсер остаётся no-op.
 	traceShutdown, traceErr := setupTraces(ctx)
 	if traceErr != nil {
-		slog.Error("Create trace exporter", "error", traceErr)
+		slog.ErrorContext(ctx, "Create trace exporter", "error", traceErr)
 		err = errors.Join(err, traceErr)
 	}
 	shutdownFuncs = append(shutdownFuncs, traceShutdown)
@@ -79,7 +84,7 @@ func SetupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	// не создаётся вовсе и глобальный meter provider остаётся no-op.
 	metricShutdown, metricErr := setupMetrics(ctx)
 	if metricErr != nil {
-		slog.Error("Create metric exporter", "error", metricErr)
+		slog.ErrorContext(ctx, "Create metric exporter", "error", metricErr)
 		err = errors.Join(err, metricErr)
 	}
 	shutdownFuncs = append(shutdownFuncs, metricShutdown)
@@ -88,7 +93,7 @@ func SetupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	// Логи уходят в коллектор только когда задан его адрес, см. setupLogs.
 	logShutdown, logErr := setupLogs(ctx)
 	if logErr != nil {
-		slog.Error("Create log exporter", "error", logErr)
+		slog.ErrorContext(ctx, "Create log exporter", "error", logErr)
 		err = errors.Join(err, logErr)
 	}
 	shutdownFuncs = append(shutdownFuncs, logShutdown)

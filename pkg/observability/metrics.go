@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -28,7 +29,7 @@ const (
 func setupMetrics(ctx context.Context) (func(context.Context) error, error) {
 	endpoint, enabled := metricsEndpoint()
 	if !enabled {
-		slog.Debug("otlp metrics export disabled")
+		slog.DebugContext(ctx, "otlp metrics export disabled")
 
 		return func(context.Context) error { return nil }, nil
 	}
@@ -48,9 +49,17 @@ func setupMetrics(ctx context.Context) (func(context.Context) error, error) {
 
 	otel.SetMeterProvider(provider)
 
-	slog.Info("otlp metrics export enabled", slog.String("endpoint", endpoint), "protocol", "gRPC")
+	slog.InfoContext(ctx, "otlp metrics export enabled",
+		slog.String("endpoint", endpoint), slog.String("protocol", protocolGRPC))
 
 	return provider.Shutdown, nil
+}
+
+// Meter возвращает инструментарий метрик приложения. Если провайдер метрик не
+// настроен (нет адреса коллектора), это no-op meter: инструменты создаются, но
+// измерения не записываются и не экспортируются.
+func Meter() metric.Meter {
+	return otel.Meter(instrumentationScope)
 }
 
 // metricsEndpoint возвращает адрес OTLP-коллектора для метрик и признак того, что

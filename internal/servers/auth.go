@@ -260,12 +260,30 @@ func bearerTokenFromMetadata(ctx context.Context) (string, error) {
 	return "", errNoToken
 }
 
-// parseBearer выделяет токен из значения заголовка.
+// maxAuthorizationLength — предел длины значения заголовка Authorization.
+//
+// Ограничение защищает от разбора и хеширования огромного значения (DoS), но
+// не искажает его: слишком длинный заголовок отвергается, а не обрезается, и
+// клиент получает 401, а не загадочный отказ проверки подписи. 8 КиБ — запас
+// больше чем в 20 раз к реальному JWT при дефолтных claim'ах, при этом
+// совпадает с дефолтом nginx (large_client_header_buffers).
+const maxAuthorizationLength = 8 << 10
+
+// parseBearer выделяет токен из значения заголовка как есть.
+//
+// Санитайзер здесь намеренно не применяется: значение — учётные данные, а
+// санитизация (замена переводов строк и обрезка до 500 байт) — операция уровня
+// логирования; на пути проверки креденшла она испортила бы валидный токен.
+// Защита от log-injection тоже не нужна: net/http и HTTP/2 отклоняют значения
+// заголовков с управляющими символами, а значение нигде не логируется.
 //
 // Схема сравнивается без учёта регистра (RFC 6750 разрешает её любой вариант),
 // а пустой токен после схемы невалиден: "Bearer" без значения — не токен.
 func parseBearer(value string) (string, bool) {
-	value = tools.SanitizeInputString(value)
+	if len(value) > maxAuthorizationLength {
+		return "", false
+	}
+
 	if len(value) <= len(bearerPrefix) || !strings.EqualFold(value[:len(bearerPrefix)], bearerPrefix) {
 		return "", false
 	}
