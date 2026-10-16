@@ -1,29 +1,41 @@
-You are a senior software engineer reviewing a code submission. Check and confirm the following requirements:
+# Code Review Checklist
 
-Provide a concise report with a pass/fail verdict for each item. If any item fails, include a brief explanation and actionable suggestions for fixing it.
+Полная спецификация — в [docs/specification/programming.md](../../docs/specification/programming.md); здесь краткая
+выжимка для ревью. При расхождении источник истины — документ.
 
-1. Code Quality:
-   - The code is clean, well‑structured, and follows the project's style guide.
-   - There are no known CVE vulnerabilities present.
-   - Code is properly documented (complex logic, public APIs).
-   - Error handling is implemented correctly with meaningful error messages.
+Ты — senior software engineer, ревьюишь изменение. Дай краткий отчёт с verdict
+pass/fail по каждому пункту; при fail — объяснение и что исправить.
 
-2. Observability:
-   - OpenTelemetry integration is fully implemented (traces and structured logs).
-   - Key metrics are exported to Prometheus.
-   - Logs include context: `trace_id` and `span_id` of the active span are added by `pkg/logger.TraceHandler`. A separate request ID
-     is not required yet — the application does not run a request-ID middleware (see `docs/specification/programming.md`).
+## 1. Качество кода
 
-3. Testing:
-   - Test coverage is at or above 80 % for business logic.
-   - Unit and integration tests are present.
-   - Running `make test` produces no errors.
-   - A coverage report is generated via `make coverage`.
+- Код чистый, соответствует стилю проекта (KISS/SOLID, см. документ §1).
+- Нет известных CVE (`govulncheck`).
+- Сложная логика и публичные API документированы.
+- Ошибки обрабатываются корректно, сообщения осмысленны (`%w`, `errors.Is`,
+  фиксированные тексты наружу).
 
-4. Build & Deployment:
-   - `make build` completes successfully.
-   - If Docker is used, the image is based on a minimal base (e.g., Alpine) and free of critical vulnerabilities.
-   - The CI pipeline passes all checks (lint, tests, security).
+## 2. Наблюдаемость
 
-5. Linting:
-   - Running `make lint` produces no errors or warnings.
+- OpenTelemetry внедрён полностью (traces, метрики, структурные логи по OTLP).
+- Метрики экспортируются в Prometheus.
+- Логи содержат `trace_id` и `span_id` активного спана — их добавляет
+  `pkg/logger.TraceHandler`. Отдельный request ID не требуется: middleware
+  request-ID в приложении нет (см. документ §2.2).
+
+## 3. Тестирование
+
+- Покрытие бизнес-логики ≥ 80 %.
+- Есть unit- и интеграционные тесты.
+- `make test` без ошибок; отчёт покрытия — `make coverage`.
+
+## 4. Сборка и деплой
+
+- `make build` проходит (DEV-сборка; релиз — `make build-release`, см. документ
+  §5.1).
+- Если используется Docker — минимальная база и нет критичных уязвимостей.
+- CI проходит все проверки (lint, tests, security).
+
+## 5. Линтинг
+
+- `make lint` без ошибок и предупреждений.
+
