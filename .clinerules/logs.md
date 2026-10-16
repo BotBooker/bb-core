@@ -32,8 +32,9 @@
 
 - **Structured logging.** Только стандартный `log/slog`.
 - **Context-aware.** Логируй через `slog.InfoContext`, `slog.DebugContext`,
-  `slog.WarnContext`, `slog.ErrorContext`: `trace_id`/`span_id` активного спана
-  добавляет `pkg/logger.TraceHandler` из контекста записи.
+  `slog.WarnContext`, `slog.ErrorContext`: `trace_id` активной трассы (если он
+  есть в контексте) добавляет `pkg/logger.TraceHandler` из контекста записи;
+  `span_id` в логи не пишется.
 - **Sanitization helper.** Перед записью пользовательской строки — санитизация
   через `tools.SanitizeInputString` или `slog.LogValuer`.
 

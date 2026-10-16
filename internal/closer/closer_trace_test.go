@@ -12,15 +12,12 @@ import (
 	"github.com/botbooker/bb-core/pkg/logger"
 )
 
-var (
-	// traceID и spanID — валидные идентификаторы тестовой трассы shutdown.
-	traceID = trace.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
-	spanID  = trace.SpanID{1, 2, 3, 4, 5, 6, 7, 8}
-)
+// traceID — валидный идентификатор тестовой трассы shutdown.
+var traceID = trace.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 
 // TestCloseAllLogsTraceID проверяет, что записи завершения ресурсов несут
-// trace_id/span_id активного спана: логи shutdown (см. startShutdownSpan)
-// должны быть связаны с трассой, а не теряться вне контекста.
+// trace_id активной трассы: логи shutdown (см. startShutdownSpan) должны быть
+// связаны с трассой, а не теряться вне контекста. span_id в логи не пишется.
 func TestCloseAllLogsTraceID(t *testing.T) {
 	original := globalCloser
 	t.Cleanup(func() { globalCloser = original })
@@ -38,7 +35,7 @@ func TestCloseAllLogsTraceID(t *testing.T) {
 
 	spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
-		SpanID:     spanID,
+		SpanID:     trace.SpanID{8, 7, 6, 5, 4, 3, 2, 1},
 		TraceFlags: trace.FlagsSampled,
 	})
 	ctx := trace.ContextWithSpanContext(context.Background(), spanCtx)
@@ -51,7 +48,7 @@ func TestCloseAllLogsTraceID(t *testing.T) {
 	if !strings.Contains(log, "trace_id="+traceID.String()) {
 		t.Errorf("trace_id не добавлен в логи closer: %q", log)
 	}
-	if !strings.Contains(log, "span_id="+spanID.String()) {
-		t.Errorf("span_id не добавлен в логи closer: %q", log)
+	if strings.Contains(log, "span_id") {
+		t.Errorf("span_id не должен попадать в логи closer: %q", log)
 	}
 }

@@ -18,9 +18,10 @@ pass/fail по каждому пункту; при fail — объяснение
 
 - OpenTelemetry внедрён полностью (traces, метрики, структурные логи по OTLP).
 - Метрики экспортируются в Prometheus.
-- Логи содержат `trace_id` и `span_id` активного спана — их добавляет
-  `pkg/logger.TraceHandler`. Отдельный request ID не требуется: middleware
-  request-ID в приложении нет (см. документ §2.2).
+- Логи содержат `trace_id` активной трассы (если он есть в контексте) — его
+  добавляет `pkg/logger.TraceHandler`; `span_id` в логи не пишется. Отдельный
+  request ID не требуется: middleware request-ID в приложении нет (см. документ
+  §2.2).
 
 ## 3. Тестирование
 

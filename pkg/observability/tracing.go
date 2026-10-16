@@ -91,9 +91,13 @@ func traceExporterOptions(endpoint string) []otlptracegrpc.Option {
 	return []otlptracegrpc.Option{otlptracegrpc.WithEndpointURL(normalizeEndpoint(endpoint))}
 }
 
-// forceTraceEnabled сообщает, включена ли форс-трассировка (сценарий 1):
+// ForceTraceEnabled сообщает, включена ли форс-трассировка (сценарий 1):
 // ENABLE_FORCE_TRACE=true заставляет сэмплер записывать все спаны.
-func forceTraceEnabled() bool {
+//
+// Экспортируется для кода приложения: middleware запроса решает по этому признаку,
+// стартовать ли серверный спан, когда входящей трассы нет (см.
+// internal/servers.traceMiddleware).
+func ForceTraceEnabled() bool {
 	return strings.EqualFold(os.Getenv(envForceTrace), forceTraceValue)
 }
 
@@ -103,7 +107,7 @@ func forceTraceEnabled() bool {
 // Экспортируется, чтобы код приложения мог собрать собственный провайдер
 // трассировки с теми же правилами (например, в тестах).
 func NewTraceSampler() sdktrace.Sampler {
-	return traceSampler{force: forceTraceEnabled()}
+	return traceSampler{force: ForceTraceEnabled()}
 }
 
 // Tracer возвращает инструментарий приложения. Если провайдер трассировки не
