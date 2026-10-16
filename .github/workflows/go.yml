@@ -7,21 +7,15 @@ on:
   push:
     branches:
       - main
-    paths:
-      - go.mod
-      - go.sum
-      - cmd/**
-      - internal/**
-      - .github/workflows/**
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
   pull_request:
     branches:
       - main
-    paths:
-      - go.mod
-      - go.sum
-      - cmd/**
-      - internal/**
-      - .github/workflows/**
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,11 +33,28 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.2"
+          # Версия — из go.mod: .go-version в репозиторий не версионируется
+          # (в .gitignore), поэтому в CI его нет. Матрица тестов ниже
+          # дополнительно проверяет версию на шаг вперёд.
+          go-version-file: go.mod
           cache: true
+
+      - name: Cache Go tools
+        uses: actions/cache@v6
+        with:
+          path: ~/go/bin
+          key: ${{ runner.os }}-gobin-${{ hashFiles('tools.mk', 'go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gobin-
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          # Версия зафиксирована и совпадает с tools.mk: без неё экшен ставит latest.
+          version: v2.14.0
+
+      - name: govulncheck
+        run: make go-check
 
       - name: Bearer
         uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
@@ -100,6 +111,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-${{ matrix.go }}-
 
+      - name: Cache Go tools
+        uses: actions/cache@v6
+        with:
+          path: ~/go/bin
+          key: ${{ runner.os }}-gobin-${{ hashFiles('tools.mk', 'go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gobin-
+
       - name: Download dependencies
         run: go mod download
 
@@ -122,7 +141,7 @@ jobs:
           REDIS_HOST: redis://default:redis#password@localhost:6379/0
         run: |
           go mod edit -go=${{ matrix.go }}
-          GO_TESTTAGS='-failfast -shuffle=off' make coverage
+          GO_TEST_ARGS='-failfast -shuffle=off' make coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

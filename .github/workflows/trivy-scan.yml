@@ -16,6 +16,10 @@ permissions:
   contents: read
   security-events: write # Required for uploading SARIF results
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   trivy-scan:
     name: Trivy Security Scan
