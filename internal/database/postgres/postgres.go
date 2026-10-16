@@ -78,6 +78,17 @@ func defaultConnector(ctx context.Context, cfg config.DatabaseConfig) (database.
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
+	// RecordStats регистрирует 13 асинхронных инструментов пула
+	// (pgxpool.acquires, acquire_duration, idle/max/total_connections и др.).
+	// Вызывать его нужно после того, как SetupOTelSDK выставил глобальный
+	// провайдер метрик: инструменты биндятся к провайдеру в момент вызова, и
+	// более ранний вызов навсегда закрепил бы их за no-op супервайзером.
+	// Диагностика экспорта — не критичный для работы пул, поэтому сообщение
+	// идёт на уровне Debug (см. docs/specification/programming.md §2.3).
+	if err := otelpgx.RecordStats(pool); err != nil {
+		slog.DebugContext(ctx, "failed to record pgx pool stats", "err", err)
+	}
+
 	sqlPool := stdlib.OpenDBFromPool(pool)
 	// Фасад берёт соединения из пула pgx: лимит должен совпадать,
 	// иначе database/sql начнёт ждать свободное соединение у пула.

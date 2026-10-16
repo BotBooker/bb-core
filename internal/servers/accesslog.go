@@ -40,15 +40,15 @@ const (
 
 // Значения поля protocol.
 const (
-	protocolHTTP = "http"
-	protocolGRPC = "grpc"
+	protocolHTTP = "HTTP"
+	protocolGRPC = "gRPC"
 )
 
 // Тексты записей access-лога: свой у каждого транспорта, чтобы по сообщению
 // сразу читалось, откуда пришёл запрос.
 const (
-	httpRequestMessage = "http request"
-	grpcRequestMessage = "grpc request"
+	httpRequestMessage = "HTTP request"
+	grpcRequestMessage = "gRPC request"
 )
 
 // logMiddleware пишет access-лог каждого HTTP-запроса: метод, путь, статус
@@ -75,15 +75,23 @@ func logMiddleware(next http.Handler) http.Handler {
 			interceptor.statusCode = http.StatusOK
 		}
 
+		// Санитизации подлежат только значения, пришедшие от пользователя:
+		// path и user_agent. Остальные поля считаются доверенными и берутся
+		// как есть: method валидируется net/http по RFC 7230 (токен без CTL и
+		// разделителей), remote_addr берётся из соединения, а не из запроса.
+		// Значит log-injection через них невозможен, и правило §2.1 к ним не
+		// применяется (см. решения ревью, П.5 A2). Обязательство: если в лог
+		// начнёт попадать X-Forwarded-For (HTTP_HEADER_CLIENT_IP), это будет
+		// пользовательское значение и его придётся санитизировать.
 		slog.Log(r.Context(), requestLogLevel(isServicePath(r.URL.Path)), httpRequestMessage,
-			logFieldProtocol, protocolHTTP,
-			logFieldMethod, r.Method,
-			logFieldPath, tools.SanitizeString(r.URL.Path),
-			logFieldStatus, interceptor.statusCode,
-			logFieldBytes, interceptor.bytes,
-			logFieldRemoteAddr, r.RemoteAddr,
-			logFieldUserAgent, tools.SanitizeString(r.UserAgent()),
-			logFieldDuration, time.Since(start),
+			slog.String(logFieldProtocol, protocolHTTP),
+			slog.String(logFieldMethod, r.Method),
+			slog.String(logFieldPath, tools.SanitizeInputString(r.URL.Path)),
+			slog.Int(logFieldStatus, interceptor.statusCode),
+			slog.Int(logFieldBytes, interceptor.bytes),
+			slog.String(logFieldRemoteAddr, r.RemoteAddr),
+			slog.String(logFieldUserAgent, tools.SanitizeInputString(r.UserAgent())),
+			slog.Duration(logFieldDuration, time.Since(start)),
 		)
 	})
 }
@@ -110,11 +118,11 @@ func NewLogInterceptor() grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 
 		slog.Log(ctx, requestLogLevel(isServiceGRPCMethod(info.FullMethod)), grpcRequestMessage,
-			logFieldProtocol, protocolGRPC,
-			logFieldMethod, info.FullMethod,
-			logFieldCode, status.Code(err).String(),
-			logFieldRemoteAddr, peerAddr(ctx),
-			logFieldDuration, time.Since(start),
+			slog.String(logFieldProtocol, protocolGRPC),
+			slog.String(logFieldMethod, info.FullMethod),
+			slog.String(logFieldCode, status.Code(err).String()),
+			slog.String(logFieldRemoteAddr, peerAddr(ctx)),
+			slog.Duration(logFieldDuration, time.Since(start)),
 		)
 
 		return resp, err

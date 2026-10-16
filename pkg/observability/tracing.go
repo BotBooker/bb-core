@@ -39,7 +39,7 @@ const (
 func setupTraces(ctx context.Context) (func(context.Context) error, error) {
 	endpoint, enabled := tracesEndpoint()
 	if !enabled {
-		slog.Debug("otlp traces export disabled")
+		slog.DebugContext(ctx, "otlp traces export disabled")
 
 		return func(context.Context) error { return nil }, nil
 	}
@@ -65,7 +65,8 @@ func setupTraces(ctx context.Context) (func(context.Context) error, error) {
 
 	otel.SetTracerProvider(provider)
 
-	slog.Info("otlp traces export enabled", "endpoint", endpoint, "protocol", "grpc")
+	slog.InfoContext(ctx, "otlp traces export enabled",
+		slog.String("endpoint", endpoint), slog.String("protocol", protocolGRPC))
 
 	return provider.Shutdown, nil
 }

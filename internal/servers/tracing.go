@@ -30,8 +30,11 @@ func traceMiddleware(next http.Handler) http.Handler {
 		// 1. Извлекаем контекст трассировки из заголовков запроса
 		ctx := otel.GetTextMapPropagator().Extract(req.Context(), propagation.HeaderCarrier(req.Header))
 
-		// 2. Стартуем серверный спан
-		ctx, span := observability.Tracer().Start(ctx, req.Method+" "+req.URL.Path,
+		// 2. Стартуем серверный спан. Имя собирается из нормализованного
+		// маршрута (normalizePath), а не из сырого пути: идентификаторы в пути
+		// иначе множили бы число разных имён спанов. Request.Pattern здесь ещё
+		// пуст — его проставляет mux ниже по стеку, поэтому берём путь.
+		ctx, span := observability.Tracer().Start(ctx, req.Method+" "+normalizePath(req.URL.Path),
 			trace.WithSpanKind(trace.SpanKindServer),
 		)
 		defer span.End()

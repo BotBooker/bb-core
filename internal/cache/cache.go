@@ -50,8 +50,13 @@ func (c *redisCache) Get(key string) (string, error) {
 }
 
 // Set устанавливает значение по ключу.
+//
+// Значение намеренно не логируется: в кэше бывают токены сессий и персональные
+// данные, а правило §2.1 (docs/specification/programming.md) требует не
+// передавать наружу raw-данные. Диагностическую ценность сохраняют ключ и длина
+// значения (см. решения ревью, П.5 A1).
 func (c *redisCache) Set(key, value string) error {
-	slog.Debug("cache.Set", key, value)
+	slog.Debug("cache.Set", slog.String("key", key), slog.Int("value_len", len(value)))
 	return nil
 }
 

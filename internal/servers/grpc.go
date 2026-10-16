@@ -58,10 +58,11 @@ func (a *ServerAPI) initGRPCServer(ctx context.Context) error {
 //
 // Интерцепторы объединяются в цепочку, а не устанавливаются по одному: порядок
 // значим. Access-лог (см. NewLogInterceptor) стоит первым — снаружи проверки
-// токена, поэтому в лог попадают и вызовы, отклонённые без токена.
+// токена, поэтому в лог попадают и вызовы, отклонённые без токена. Метрики
+// (см. NewMetricsInterceptor) идут следом и тоже охватывают аутентификацию.
 func newGRPCServer(userServiceServer user_v1.UserServiceServer, authService AuthService) *grpc.Server {
 	server := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(NewLogInterceptor(), NewAuthInterceptor(authService)),
+		grpc.ChainUnaryInterceptor(NewLogInterceptor(), NewMetricsInterceptor(), NewAuthInterceptor(authService)),
 	)
 
 	user_v1.RegisterUserServiceServer(server, userServiceServer)

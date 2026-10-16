@@ -107,13 +107,13 @@ deps: ## Install dependencies
 	$(GO) mod verify
 	$(GO) mod tidy
 
-.PHONY: build-debug
-build-debug: ## Build for DEV
+.PHONY: build
+build: ## Build for DEV
 	@rm -f ./build/api
 	$(GO) build -ldflags='$(GO_LD_FLAGS)' -o ./build/api ./cmd/api
 
-.PHONY: build
-build: ## Build for release
+.PHONY: build-release
+build-release: ## Build for release
 	@rm -f ./build/api
 	CGO_ENABLED=0 $(GO) build -mod=readonly -tags netgo -trimpath -ldflags='-s -w -extldflags "-static" $(GO_LD_FLAGS)' -o ./build/api ./cmd/api
 
@@ -129,7 +129,7 @@ run: ## Run API Server
 .PHONY: debug
 debug: ## Run API Server (mode=debug)
 ifeq ($(BIN_FILE_API), 0)
-debug: build-debug
+debug: build
 else
 debug:
 endif

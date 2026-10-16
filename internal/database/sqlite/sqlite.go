@@ -150,7 +150,7 @@ func newWithFactory(ctx context.Context, cfg config.DatabaseConfig, factory pool
 		return nil, fmt.Errorf("create database connection: %w", err)
 	}
 
-	slog.Debug("connected to the database", "driver", DriverName)
+	slog.DebugContext(ctx, "connected to the database", "driver", DriverName)
 
 	return db, nil
 }

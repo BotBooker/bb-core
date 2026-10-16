@@ -72,6 +72,10 @@ func NewHandler(authService AuthService, userServiceServer user_v1.UserServiceSe
 // logMiddleware стоит между трассировкой и аутентификацией: запись access-лога
 // попадает в span-context (trace_id/span_id добавляет TraceHandler) и видит
 // статус отказа 401/403, который выставляет authenticate.
+//
+// metricsMiddleware стоит внутри authenticate — непосредственно вокруг mux, —
+// чтобы после обслуживания запроса был доступен Request.Pattern и метка
+// маршрута не зависела от конкретных идентификаторов (см. metricsMiddleware).
 func (h *handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+healthPath, h.healthHandler)
@@ -88,7 +92,7 @@ func (h *handler) Routes() http.Handler {
 	// Swagger UI эндпоинты
 	mux.Handle(SwaggerPrefix, http.StripPrefix("/api/swagger", swagger.Routes("/api/swagger")))
 
-	return traceMiddleware(logMiddleware(h.authenticate(mux)))
+	return traceMiddleware(logMiddleware(h.authenticate(metricsMiddleware(mux))))
 }
 
 func (h *handler) healthHandler(w http.ResponseWriter, _ *http.Request) {

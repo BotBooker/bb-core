@@ -98,4 +98,28 @@ DSN=sqlite:/tmp/database.db \
 меняется и пароль ему не сбрасывается. Завести администратора через API нельзя —
 роль `admin` назначается только при bootstrap.
 
-Подробности по наблюдаемости — в [docs/HOWTO.md](docs/HOWTO.md).
+## Сборка
+
+| Цель | Назначение |
+| --- | --- |
+| `make build` | DEV-сборка `./build/api` с ldflags (версия, дата, хост) |
+| `make build-release` | Релизная статическая сборка (`CGO_ENABLED=0`, `-trimpath`, `-s -w`) |
+| `make run` | Запуск через `go run ./cmd/api` |
+| `make debug` | Сборка (если нужно) и запуск `./build/api` с `LOG_LEVEL=DEBUG` |
+| `make test` | Тесты с профилем покрытия |
+| `make coverage` | Проверка порога покрытия (≥80 %) |
+| `make lint` | `golangci-lint` и `bearer` |
+| `make go-check` | `govulncheck` — уязвимости зависимостей |
+
+**Обратите внимание:** `make build` больше не релизная сборка, а DEV-бинарник с
+ldflags; релиз собирается целью `make build-release`. Цель `build-debug` удалена.
+
+## Документация
+
+- [docs/specification/programming.md](docs/specification/programming.md) —
+  правила кода: принципы, логирование и санитизация, обработка ошибок, тесты,
+  сборка и CI.
+- [docs/specification/architecture.md](docs/specification/architecture.md) —
+  архитектура приложения.
+- [docs/HOWTO.md](docs/HOWTO.md) — наблюдаемость (трассировка, метрики, логи).
+

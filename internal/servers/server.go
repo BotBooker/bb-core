@@ -84,6 +84,12 @@ func (a *ServerAPI) initHTTPServer(ctx context.Context) error {
 		Addr:              config.AppConfig().HTTPAddr,
 		Handler:           handler.Routes(),
 		ReadHeaderTimeout: 3 * time.Second,
+		// MaxHeaderBytes ограничивает суммарный размер заголовков запроса и
+		// работает как для HTTP/1.1, так и для HTTP/2: без него действует
+		// дефолт в 1 МБ. 32 КиБ на все заголовки запроса — с запасом, а
+		// разбор отдельного значения Authorization дополнительно ограничен
+		// maxAuthorizationLength (см. parseBearer).
+		MaxHeaderBytes: 32 << 10,
 	}
 
 	return nil
@@ -131,7 +137,7 @@ func (a *ServerAPI) Run() error {
 		defer otelCancel()
 
 		if shutdownErr := otelShutdown(otelCtx); shutdownErr != nil {
-			slog.Error("failed to shutdown opentelemetry", "err", shutdownErr)
+			slog.ErrorContext(otelCtx, "failed to shutdown opentelemetry", "err", shutdownErr)
 		}
 	}()
 
@@ -148,7 +154,7 @@ func (a *ServerAPI) Run() error {
 		return err
 	}
 
-	slog.Info("the server is running",
+	slog.InfoContext(startupCtx, "the server is running",
 		"http_addr", config.AppConfig().HTTPAddr,
 		"grpc_addr", config.AppConfig().GRPCAddr,
 	)
@@ -160,13 +166,13 @@ func (a *ServerAPI) Run() error {
 	// (остановку запросили мы сами), а не ошибка.
 	go func() {
 		if err := a.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("http server error", "err", err)
+			slog.ErrorContext(ctx, "http server error", "err", err)
 		}
 	}()
 
 	go func() {
 		if err := a.grpcServer.Serve(a.grpcListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			slog.Error("grpc server error", "err", err)
+			slog.ErrorContext(ctx, "grpc server error", "err", err)
 		}
 	}()
 
@@ -175,7 +181,7 @@ func (a *ServerAPI) Run() error {
 
 	// 4. Ожидание сигнала.
 	<-ctx.Done()
-	slog.Info("signal received, shutting down...")
+	slog.InfoContext(ctx, "signal received, shutting down...")
 
 	// Сценарий 4: трасса graceful shutdown. Перехвачен SIGINT/SIGTERM — начинаем
 	// новую трассу с собственным TraceID и закрываем её перед выходом процесса,
@@ -199,16 +205,16 @@ func (a *ServerAPI) Run() error {
 	defer shutdownCancel()
 
 	if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
-		slog.Error("error while stopping the server", "err", err)
+		slog.ErrorContext(shutdownCtx, "error while stopping the server", "err", err)
 	}
 
-	slog.Info("http server stopped")
+	slog.InfoContext(shutdownTraceCtx, "http server stopped")
 
 	// 6. Graceful shutdown gRPC-сервера: ждём завершения текущих вызовов
 	// (с ограничением по времени, см. stopGRPC).
 	a.stopGRPC()
 
-	slog.Info("grpc server stopped")
+	slog.InfoContext(shutdownTraceCtx, "grpc server stopped")
 
 	// 7. Закрытие всех ресурсов через глобальный closer (LIFO).
 	// Отдельный контекст с таймаутом 10 секунд — свой бюджет для ресурсов.
@@ -217,7 +223,7 @@ func (a *ServerAPI) Run() error {
 	defer closerCancel()
 
 	if err := closer.CloseAll(closerCtx); err != nil {
-		slog.Error("failed to close resources", "err", err)
+		slog.ErrorContext(closerCtx, "failed to close resources", "err", err)
 	}
 
 	return nil

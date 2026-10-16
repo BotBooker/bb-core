@@ -40,7 +40,7 @@ func applyMigrations(ctx context.Context, db database.DB) error {
 
 	cfg := config.DBConfig()
 	if !cfg.MigrateOnStart {
-		slog.Debug("migrations on start are disabled")
+		slog.DebugContext(ctx, "migrations on start are disabled")
 
 		return nil
 	}
