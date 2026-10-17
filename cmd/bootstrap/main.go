@@ -41,7 +41,7 @@ func main() {
 // Вынесена из main, чтобы её можно было тестировать напрямую.
 func Main() int {
 	if err := run(context.Background(), *config.DBConfig(), *config.Bootstrap()); err != nil {
-		slog.Error("bootstrap failed", "error", err)
+		slog.ErrorContext(context.Background(), "bootstrap failed", "error", err)
 
 		return 1
 	}
@@ -62,16 +62,17 @@ func run(ctx context.Context, dbCfg config.DatabaseConfig, superuser config.Boot
 	}
 	defer func() { _ = db.Close() }()
 
-	slog.Info("applying migrations", "dialect", dialect)
+	slog.InfoContext(ctx, "applying migrations", "dialect", dialect)
 
 	if err := database.Migrate(ctx, db, dialect); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
 	svc := service.NewBootstrapService(
-		repository.NewUserRepo(db, dialect),
-		repository.NewCredentialRepo(db, dialect),
-		repository.NewTenantRepo(db, dialect),
+		ctx,
+		repository.NewUserRepo(ctx, db, dialect),
+		repository.NewCredentialRepo(ctx, db, dialect),
+		repository.NewTenantRepo(ctx, db, dialect),
 		config.Auth().PasswordTTL,
 	)
 
@@ -85,7 +86,7 @@ func run(ctx context.Context, dbCfg config.DatabaseConfig, superuser config.Boot
 		return fmt.Errorf("ensure superuser: %w", err)
 	}
 
-	slog.Info("bootstrap finished", "email", user.Email, "uuid", user.ID, "created", created)
+	slog.InfoContext(ctx, "bootstrap finished", "email", user.Email, "uuid", user.ID, "created", created)
 
 	return nil
 }

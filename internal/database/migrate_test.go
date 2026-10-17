@@ -459,7 +459,7 @@ func TestMigrateUnsupportedDialect(t *testing.T) {
 }
 
 func TestMigrateWithoutStdDB(t *testing.T) {
-	conn, err := database.New(fakePool{})
+	conn, err := database.New(context.Background(), fakePool{})
 	if err != nil {
 		t.Fatalf("database.New() unexpected error = %v", err)
 	}

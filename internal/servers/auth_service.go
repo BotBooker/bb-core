@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/botbooker/bb-core/internal/service"
+	"github.com/botbooker/bb-core/pkg/observability"
 	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
 )
 
@@ -48,12 +49,12 @@ func (s *authServiceServer) Register(
 
 	in, err := RegisterInputFromProto(req)
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	user, session, err := s.auth.Register(ctx, in)
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	return &auth_v1.AuthServiceRegisterResponse{
@@ -73,7 +74,7 @@ func (s *authServiceServer) Login(
 
 	session, err := s.auth.Login(ctx, req.GetEmail(), req.GetPassword())
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	return &auth_v1.AuthServiceLoginResponse{Session: SessionToProto(session)}, nil
@@ -87,13 +88,16 @@ func (s *authServiceServer) ChangePassword(
 	ctx context.Context,
 	req *auth_v1.AuthServiceChangePasswordRequest,
 ) (*auth_v1.AuthServiceChangePasswordResponse, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "ChangePassword")
+	defer spanEnd()
+
 	if err := req.Validate(); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	session, err := s.auth.ChangePassword(ctx, req.GetEmail(), req.GetCurrentPassword(), req.GetNewPassword())
+	session, err := s.auth.ChangePassword(traceCtx, req.GetEmail(), req.GetCurrentPassword(), req.GetNewPassword())
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(traceCtx, err)
 	}
 
 	return &auth_v1.AuthServiceChangePasswordResponse{Session: SessionToProto(session)}, nil
@@ -108,13 +112,16 @@ func (s *authServiceServer) Logout(
 	ctx context.Context,
 	_ *auth_v1.AuthServiceLogoutRequest,
 ) (*emptypb.Empty, error) {
-	token, err := bearerTokenFromMetadata(ctx)
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Logout")
+	defer spanEnd()
+
+	token, err := bearerTokenFromMetadata(traceCtx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, unauthorizedMessage)
 	}
 
-	if err := s.auth.Logout(ctx, token); err != nil {
-		return nil, toStatusError(err)
+	if err := s.auth.Logout(traceCtx, token); err != nil {
+		return nil, toStatusError(ctx, err)
 	}
 
 	return &emptypb.Empty{}, nil
@@ -130,7 +137,10 @@ func (s *authServiceServer) GetCurrentUser(
 	ctx context.Context,
 	_ *auth_v1.AuthServiceGetCurrentUserRequest,
 ) (*auth_v1.AuthServiceGetCurrentUserResponse, error) {
-	principal, ok := service.PrincipalFromContext(ctx)
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetCurrentUser")
+	defer spanEnd()
+
+	principal, ok := service.PrincipalFromContext(traceCtx)
 	if !ok || principal.User == nil {
 		return nil, status.Error(codes.Unauthenticated, unauthorizedMessage)
 	}

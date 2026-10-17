@@ -158,13 +158,21 @@ func newDIContainer(ctx context.Context) (*diContainer, error) {
 	}
 
 	// При создании — сразу регистрируем Close() в глобальном closer.
-	closer.Add("database", func(_ context.Context) error {
+	closer.Add("database", func(ctx context.Context) error {
+		traceCtx, spanEnd := observability.TraceSpan(ctx, "closer.database.Close")
+		defer spanEnd()
+
+		// Закрытие подключения логируем здесь: у db.Close() нет контекста
+		// (сигнатуру задаёт контракт SQLDB — *sql.DB), а запись о закрытии
+		// должна нести trace_id активной трассы.
+		slog.DebugContext(traceCtx, "connection to the database closed")
+
 		return db.Close()
 	})
 
 	// Подпись токенов настраивается здесь же: секрет из конфигурации, а ошибка
 	// его подготовки должна валить старт, а не выясняться при первом входе.
-	tokenCodec, err := jwt.NewSigner(config.Auth().JWTSecret, config.Auth().Issuer)
+	tokenCodec, err := jwt.NewSigner(traceCtx, config.Auth().JWTSecret, config.Auth().Issuer)
 	if err != nil {
 		_ = db.Close()
 
@@ -181,11 +189,11 @@ func (d *diContainer) DB() database.DB {
 
 // EventBus возвращает шину событий.
 func (d *diContainer) EventBus(ctx context.Context) events.EventBus {
-	_, spanEnd := observability.TraceSpan(ctx, "EventBus")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "EventBus")
 	defer spanEnd()
 
 	if d.eventBus == nil {
-		d.eventBus = events.NewEventBus()
+		d.eventBus = events.NewEventBus(traceCtx)
 	}
 
 	return d.eventBus
@@ -195,14 +203,14 @@ func (d *diContainer) EventBus(ctx context.Context) events.EventBus {
 // При создании — сразу регистрирует Close() в глобальном closer.
 // Кэш создаётся после БД — значит закроется раньше БД (LIFO).
 func (d *diContainer) Cache(ctx context.Context) cache.Cache {
-	_, spanEnd := observability.TraceSpan(ctx, "Cache")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Cache")
 	defer spanEnd()
 
 	if d.cache == nil {
-		c := cache.New(config.AppConfig().RedisAddr)
+		c := cache.New(traceCtx, config.AppConfig().RedisAddr)
 
-		closer.Add("cache", func(_ context.Context) error {
-			return c.Close()
+		closer.Add("cache", func(ctx context.Context) error {
+			return c.Close(ctx)
 		})
 
 		d.cache = c
@@ -213,11 +221,11 @@ func (d *diContainer) Cache(ctx context.Context) cache.Cache {
 
 // UserRepo возвращает репозиторий пользователей.
 func (d *diContainer) UserRepo(ctx context.Context) repository.UserRepo {
-	_, spanEnd := observability.TraceSpan(ctx, "UserRepo")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "UserRepo")
 	defer spanEnd()
 
 	if d.userRepo == nil {
-		d.userRepo = repository.NewUserRepo(d.DB(), d.dialect)
+		d.userRepo = repository.NewUserRepo(traceCtx, d.DB(), d.dialect)
 	}
 
 	return d.userRepo
@@ -225,11 +233,11 @@ func (d *diContainer) UserRepo(ctx context.Context) repository.UserRepo {
 
 // TokenRepo возвращает репозиторий сессий (токенов доступа).
 func (d *diContainer) TokenRepo(ctx context.Context) repository.TokenRepo {
-	_, spanEnd := observability.TraceSpan(ctx, "TokenRepo")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "TokenRepo")
 	defer spanEnd()
 
 	if d.tokenRepo == nil {
-		d.tokenRepo = repository.NewTokenRepo(d.DB(), d.dialect)
+		d.tokenRepo = repository.NewTokenRepo(traceCtx, d.DB(), d.dialect)
 	}
 
 	return d.tokenRepo
@@ -240,11 +248,11 @@ func (d *diContainer) TokenRepo(ctx context.Context) repository.TokenRepo {
 // Он нужен сервису авторизации: роль пользователя — атрибут членства
 // (tenant_members.role_id), а сессия действует в рамках одного тенанта.
 func (d *diContainer) TenantRepo(ctx context.Context) repository.TenantRepo {
-	_, spanEnd := observability.TraceSpan(ctx, "TenantRepo")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "TenantRepo")
 	defer spanEnd()
 
 	if d.tenantRepo == nil {
-		d.tenantRepo = repository.NewTenantRepo(d.DB(), d.dialect)
+		d.tenantRepo = repository.NewTenantRepo(traceCtx, d.DB(), d.dialect)
 	}
 
 	return d.tenantRepo
@@ -252,11 +260,11 @@ func (d *diContainer) TenantRepo(ctx context.Context) repository.TenantRepo {
 
 // CredentialRepo возвращает репозиторий учётных данных (хешей паролей).
 func (d *diContainer) CredentialRepo(ctx context.Context) repository.CredentialRepo {
-	_, spanEnd := observability.TraceSpan(ctx, "CredentialRepo")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "CredentialRepo")
 	defer spanEnd()
 
 	if d.credentialRepo == nil {
-		d.credentialRepo = repository.NewCredentialRepo(d.DB(), d.dialect)
+		d.credentialRepo = repository.NewCredentialRepo(traceCtx, d.DB(), d.dialect)
 	}
 
 	return d.credentialRepo
@@ -264,11 +272,11 @@ func (d *diContainer) CredentialRepo(ctx context.Context) repository.CredentialR
 
 // NotificationRepo возвращает репозиторий уведомлений.
 func (d *diContainer) NotificationRepo(ctx context.Context) repository.NotificationRepo {
-	_, spanEnd := observability.TraceSpan(ctx, "NotificationRepo")
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "NotificationRepo")
 	defer spanEnd()
 
 	if d.notificationRepo == nil {
-		d.notificationRepo = repository.NewNotificationRepo(d.DB())
+		d.notificationRepo = repository.NewNotificationRepo(traceCtx, d.DB())
 	}
 
 	return d.notificationRepo
@@ -281,6 +289,7 @@ func (d *diContainer) AuthService(ctx context.Context) service.AuthService {
 
 	if d.authService == nil {
 		d.authService = service.NewAuthService(
+			traceCtx,
 			d.UserRepo(traceCtx),
 			d.CredentialRepo(traceCtx),
 			d.TokenRepo(traceCtx),
@@ -301,7 +310,7 @@ func (d *diContainer) UserService(ctx context.Context) service.UserService {
 	defer spanEnd()
 
 	if d.userService == nil {
-		d.userService = service.NewUserService(d.UserRepo(traceCtx), d.EventBus(traceCtx))
+		d.userService = service.NewUserService(traceCtx, d.UserRepo(traceCtx), d.EventBus(traceCtx))
 	}
 
 	return d.userService
@@ -313,7 +322,7 @@ func (d *diContainer) NotificationService(ctx context.Context) service.Notificat
 	defer spanEnd()
 
 	if d.notificationService == nil {
-		d.notificationService = service.NewNotificationService(d.NotificationRepo(traceCtx), d.UserService(traceCtx), d.EventBus(traceCtx))
+		d.notificationService = service.NewNotificationService(traceCtx, d.NotificationRepo(traceCtx), d.UserService(traceCtx), d.EventBus(traceCtx))
 	}
 
 	return d.notificationService

@@ -134,12 +134,12 @@ func newWithConnector(ctx context.Context, cfg config.DatabaseConfig, connect co
 	}
 
 	// database.New закрывает пул, если менеджер транзакций создать не удалось.
-	db, err := database.New(pool)
+	db, err := database.New(ctx, pool)
 	if err != nil {
 		return nil, fmt.Errorf("create database connection: %w", err)
 	}
 
-	slog.Debug("connected to the database", "driver", "pgx")
+	slog.DebugContext(ctx, "connected to the database", "driver", "pgx")
 
 	return db, nil
 }

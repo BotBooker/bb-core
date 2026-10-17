@@ -43,7 +43,7 @@ func newTestPool(t *testing.T) *sql.DB {
 func newTestDB(t *testing.T) DB {
 	t.Helper()
 
-	database, err := New(newTestPool(t))
+	database, err := New(context.Background(), newTestPool(t))
 	if err != nil {
 		t.Fatalf("New() unexpected error = %v", err)
 	}
@@ -95,7 +95,7 @@ func (f *fakePool) Close() error {
 
 func TestNew(t *testing.T) {
 	t.Run("nil pool", func(t *testing.T) {
-		got, err := New(nil)
+		got, err := New(context.Background(), nil)
 
 		if err == nil {
 			t.Fatal("New() error = nil, want error")
@@ -106,7 +106,7 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("real pool", func(t *testing.T) {
-		got, err := New(newTestPool(t))
+		got, err := New(context.Background(), newTestPool(t))
 		if err != nil {
 			t.Fatalf("New() unexpected error = %v", err)
 		}
@@ -166,7 +166,7 @@ func TestDBDelegatesToPool(t *testing.T) {
 
 func TestDBClose(t *testing.T) {
 	ctx := context.Background()
-	database, err := New(newTestPool(t))
+	database, err := New(context.Background(), newTestPool(t))
 	if err != nil {
 		t.Fatalf("New() unexpected error = %v", err)
 	}

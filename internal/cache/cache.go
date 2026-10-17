@@ -1,15 +1,20 @@
 package cache
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 )
 
 // Cache — интерфейс подключения к кэшу.
+//
+// Методы принимают context.Context: через него в записи логов добавляется
+// trace_id активной трассы (см. pkg/logger.TraceHandler), поэтому записи
+// делаются контекстными вызовами slog.
 type Cache interface {
-	Get(key string) (string, error)
-	Set(key, value string) error
-	Close() error
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key, value string) error
+	Close(ctx context.Context) error
 }
 
 // redisCache — конкретная реализация, скрыта от внешних пакетов.
@@ -18,8 +23,8 @@ type redisCache struct {
 }
 
 // New создаёт подключение к кэшу.
-func New(addr string) Cache {
-	slog.Debug("connected to the cache", "addr", redactAddr(addr))
+func New(ctx context.Context, addr string) Cache {
+	slog.DebugContext(ctx, "connected to the cache", "addr", redactAddr(addr))
 	return &redisCache{addr: addr}
 }
 
@@ -45,7 +50,7 @@ func redactAddr(addr string) string {
 }
 
 // Get получает значение по ключу.
-func (c *redisCache) Get(key string) (string, error) {
+func (c *redisCache) Get(_ context.Context, key string) (string, error) {
 	return key, nil
 }
 
@@ -55,13 +60,13 @@ func (c *redisCache) Get(key string) (string, error) {
 // данные, а правило §2.1 (docs/specification/programming.md) требует не
 // передавать наружу raw-данные. Диагностическую ценность сохраняют ключ и длина
 // значения (см. решения ревью, П.5 A1).
-func (c *redisCache) Set(key, value string) error {
-	slog.Debug("cache.Set", slog.String("key", key), slog.Int("value_len", len(value)))
+func (c *redisCache) Set(ctx context.Context, key, value string) error {
+	slog.DebugContext(ctx, "cache.Set", slog.String("key", key), slog.Int("value_len", len(value)))
 	return nil
 }
 
 // Close закрывает подключение к кэшу.
-func (c *redisCache) Close() error {
-	slog.Debug("connection to the cache closed")
+func (c *redisCache) Close(ctx context.Context) error {
+	slog.DebugContext(ctx, "connection to the cache closed")
 	return nil
 }

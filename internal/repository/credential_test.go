@@ -38,7 +38,7 @@ func TestNewCredentialRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewCredentialRepo(nil, tt.dialect); got == nil {
+			if got := NewCredentialRepo(context.Background(), nil, tt.dialect); got == nil {
 				t.Error("NewCredentialRepo() returned nil")
 			}
 		})
@@ -59,8 +59,8 @@ func runCredentialRepoScenario(t *testing.T, conn database.DB, dialect string) {
 
 	ctx := context.Background()
 
-	userRepo := NewUserRepo(conn, dialect)
-	credentialRepo := NewCredentialRepo(conn, dialect)
+	userRepo := NewUserRepo(context.Background(), conn, dialect)
+	credentialRepo := NewCredentialRepo(context.Background(), conn, dialect)
 
 	user := testUser(t, "credentials@example.com", "+79990000126")
 	if err := userRepo.Create(ctx, user); err != nil {
@@ -242,8 +242,8 @@ func TestCredentialRepo_UserSoftDelete(t *testing.T) {
 	ctx := context.Background()
 
 	conn := newSQLiteTestDB(t)
-	userRepo := NewUserRepo(conn, database.DialectSQLite)
-	credentialRepo := NewCredentialRepo(conn, database.DialectSQLite)
+	userRepo := NewUserRepo(context.Background(), conn, database.DialectSQLite)
+	credentialRepo := NewCredentialRepo(context.Background(), conn, database.DialectSQLite)
 
 	user := testUser(t, "credentials-cascade@example.com", "+79990000127")
 	if err := userRepo.Create(ctx, user); err != nil {

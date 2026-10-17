@@ -40,7 +40,7 @@ func TestNewTokenRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewTokenRepo(nil, tt.dialect); got == nil {
+			if got := NewTokenRepo(context.Background(), nil, tt.dialect); got == nil {
 				t.Error("NewTokenRepo() returned nil")
 			}
 		})
@@ -65,9 +65,9 @@ func runTokenRepoScenario(t *testing.T, conn database.DB, dialect string) {
 
 	ctx := context.Background()
 
-	userRepo := NewUserRepo(conn, dialect)
-	tokenRepo := NewTokenRepo(conn, dialect)
-	tenantRepo := NewTenantRepo(conn, dialect)
+	userRepo := NewUserRepo(context.Background(), conn, dialect)
+	tokenRepo := NewTokenRepo(context.Background(), conn, dialect)
+	tenantRepo := NewTenantRepo(context.Background(), conn, dialect)
 
 	user := testUser(t, "token-owner@example.com", "+79990000123")
 	if err := userRepo.Create(ctx, user); err != nil {
@@ -197,9 +197,9 @@ func TestTokenRepo_DeleteExpired(t *testing.T) {
 	ctx := context.Background()
 
 	conn := newSQLiteTestDB(t)
-	userRepo := NewUserRepo(conn, database.DialectSQLite)
-	tokenRepo := NewTokenRepo(conn, database.DialectSQLite)
-	tenant := testTenant(t, NewTenantRepo(conn, database.DialectSQLite), "expired-tokens")
+	userRepo := NewUserRepo(context.Background(), conn, database.DialectSQLite)
+	tokenRepo := NewTokenRepo(context.Background(), conn, database.DialectSQLite)
+	tenant := testTenant(t, NewTenantRepo(context.Background(), conn, database.DialectSQLite), "expired-tokens")
 
 	user := testUser(t, "expired-tokens@example.com", "+79990000124")
 	if err := userRepo.Create(ctx, user); err != nil {
@@ -248,9 +248,9 @@ func TestTokenRepo_UserSoftDelete(t *testing.T) {
 	ctx := context.Background()
 
 	conn := newSQLiteTestDB(t)
-	userRepo := NewUserRepo(conn, database.DialectSQLite)
-	tokenRepo := NewTokenRepo(conn, database.DialectSQLite)
-	tenant := testTenant(t, NewTenantRepo(conn, database.DialectSQLite), "cascade")
+	userRepo := NewUserRepo(context.Background(), conn, database.DialectSQLite)
+	tokenRepo := NewTokenRepo(context.Background(), conn, database.DialectSQLite)
+	tenant := testTenant(t, NewTenantRepo(context.Background(), conn, database.DialectSQLite), "cascade")
 
 	user := testUser(t, "cascade@example.com", "+79990000125")
 	if err := userRepo.Create(ctx, user); err != nil {

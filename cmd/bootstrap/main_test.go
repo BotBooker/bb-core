@@ -43,7 +43,7 @@ func findSuperuser(t *testing.T, cfg config.DatabaseConfig) *model.User {
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 
-	user, err := repository.NewUserRepo(conn, database.DialectSQLite).GetByEmail(ctx, "admin@example.com")
+	user, err := repository.NewUserRepo(ctx, conn, database.DialectSQLite).GetByEmail(ctx, "admin@example.com")
 	if err != nil {
 		t.Fatalf("GetByEmail() unexpected error = %v", err)
 	}
@@ -64,7 +64,7 @@ func findMembership(t *testing.T, cfg config.DatabaseConfig, user *model.User) *
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 
-	member, err := repository.NewTenantRepo(conn, database.DialectSQLite).MemberOfUser(ctx, user.ID)
+	member, err := repository.NewTenantRepo(ctx, conn, database.DialectSQLite).MemberOfUser(ctx, user.ID)
 	if err != nil {
 		t.Fatalf("MemberOfUser() unexpected error = %v", err)
 	}

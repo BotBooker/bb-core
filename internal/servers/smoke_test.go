@@ -121,13 +121,13 @@ func newSmokeApp(t *testing.T) *smokeApp {
 		t.Fatalf("database.Migrate() unexpected error = %v", err)
 	}
 
-	userRepo := repository.NewUserRepo(conn, database.DialectSQLite)
-	eventBus := events.NewEventBus()
+	userRepo := repository.NewUserRepo(ctx, conn, database.DialectSQLite)
+	eventBus := events.NewEventBus(ctx)
 
 	// Авторизация мокается (см. newSmokeAuthService), но транспорт, сервис
 	// пользователей и репозиторий — настоящие.
 	authService := newSmokeAuthService(t)
-	userService := service.NewUserService(userRepo, eventBus)
+	userService := service.NewUserService(ctx, userRepo, eventBus)
 	userServiceServer := NewUserServiceServer(userService)
 
 	// gRPC: тот же сервер, что создаёт initGRPCServer, — с health и reflection.

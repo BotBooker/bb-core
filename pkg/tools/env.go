@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math"
@@ -47,7 +48,7 @@ func GetEnvOrDefaultToBool(key string, defaultValue bool) bool {
 	if v := os.Getenv(key); v != "" {
 		val, err := strconv.ParseBool(v)
 		if err != nil {
-			slog.Error("failed to parse environment variable", "key", key, "value", v, "error", err)
+			slog.ErrorContext(context.Background(), "failed to parse environment variable", "key", key, "value", v, "error", err)
 			return defaultValue
 		}
 		return val
@@ -62,7 +63,7 @@ func GetEnvOrDefaultToInt32(key string, defaultValue int32) int32 {
 	if v := os.Getenv(key); v != "" {
 		val, err := strconv.ParseInt(v, 10, 32)
 		if err != nil {
-			slog.Error("failed to parse environment variable", "key", key, "value", v, "error", err)
+			slog.ErrorContext(context.Background(), "failed to parse environment variable", "key", key, "value", v, "error", err)
 			return defaultValue
 		}
 		return int32(val)
@@ -109,7 +110,7 @@ func GetEnvOrDefaultToDuration(key string, defaultValue time.Duration) time.Dura
 	if v := os.Getenv(key); v != "" {
 		val, err := parseDurationWithDays(v)
 		if err != nil {
-			slog.Error("failed to parse environment variable", "key", key, "value", v, "error", err)
+			slog.ErrorContext(context.Background(), "failed to parse environment variable", "key", key, "value", v, "error", err)
 			return defaultValue
 		}
 		return val

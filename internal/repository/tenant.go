@@ -8,6 +8,7 @@ import (
 
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/model"
+	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // TenantDB — интерфейс базы данных, который нужен TenantRepo.
@@ -54,18 +55,24 @@ type tenantRepo struct {
 }
 
 // NewTenantRepo создаёт репозиторий тенантов.
-func NewTenantRepo(db TenantDB, dialect string) TenantRepo {
-	slog.Debug("tenant repository created", "dialect", dialect)
+func NewTenantRepo(ctx context.Context, db TenantDB, dialect string) TenantRepo {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewTenantRepo")
+	defer spanEnd()
+
+	slog.DebugContext(traceCtx, "tenant repository created", "dialect", dialect)
 
 	return &tenantRepo{db: db, codec: codec{dialect: dialect}}
 }
 
 // Create вставляет тенант.
 func (r *tenantRepo) Create(ctx context.Context, tenant *model.Tenant) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Create")
+	defer spanEnd()
+
 	const query = `INSERT INTO tenants (id, name, slug, status, metadata, created_at, updated_at)` +
 		` VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := r.db.ExecContext(ctx, r.rebind(query),
+	_, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		tenant.ID,
 		tenant.Name,
 		tenant.Slug,
@@ -83,6 +90,9 @@ func (r *tenantRepo) Create(ctx context.Context, tenant *model.Tenant) error {
 
 // GetByID возвращает тенант по идентификатору.
 func (r *tenantRepo) GetByID(ctx context.Context, id string) (*model.Tenant, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetByID")
+	defer spanEnd()
+
 	const query = "SELECT " + tenantColumns + " FROM tenants WHERE id = ?"
 
 	// Значение приходит от вызывающего слоя, поэтому проверяется до запроса:
@@ -91,14 +101,17 @@ func (r *tenantRepo) GetByID(ctx context.Context, id string) (*model.Tenant, err
 		return nil, fmt.Errorf("select tenant: %w", err)
 	}
 
-	return scanTenant(r.db.QueryRowContext(ctx, r.rebind(query), id))
+	return scanTenant(r.db.QueryRowContext(traceCtx, r.rebind(query), id))
 }
 
 // GetBySlug возвращает тенант по slug: он уникален (tenants_slug_idx).
 func (r *tenantRepo) GetBySlug(ctx context.Context, slug string) (*model.Tenant, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetBySlug")
+	defer spanEnd()
+
 	const query = "SELECT " + tenantColumns + " FROM tenants WHERE slug = ?"
 
-	return scanTenant(r.db.QueryRowContext(ctx, r.rebind(query), model.NormalizeSlug(slug)))
+	return scanTenant(r.db.QueryRowContext(traceCtx, r.rebind(query), model.NormalizeSlug(slug)))
 }
 
 // AddMember добавляет пользователя в тенант.
@@ -107,6 +120,9 @@ func (r *tenantRepo) GetBySlug(ctx context.Context, slug string) (*model.Tenant,
 // модель (model.Role.ID), поэтому в базу не может попасть роль, которой нет в
 // справочнике.
 func (r *tenantRepo) AddMember(ctx context.Context, member *model.TenantMember) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "AddMember")
+	defer spanEnd()
+
 	const query = "INSERT INTO tenant_members (" + memberColumns + ") VALUES (?, ?, ?, ?, ?)"
 
 	roleID, err := member.Role.ID()
@@ -114,7 +130,7 @@ func (r *tenantRepo) AddMember(ctx context.Context, member *model.TenantMember) 
 		return fmt.Errorf("insert tenant member: %w", err)
 	}
 
-	_, err = r.db.ExecContext(ctx, r.rebind(query),
+	_, err = r.db.ExecContext(traceCtx, r.rebind(query),
 		member.TenantID,
 		member.UserID,
 		roleID,
@@ -130,6 +146,9 @@ func (r *tenantRepo) AddMember(ctx context.Context, member *model.TenantMember) 
 
 // GetMember возвращает членство пользователя в тенанте.
 func (r *tenantRepo) GetMember(ctx context.Context, tenantID, userID string) (*model.TenantMember, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetMember")
+	defer spanEnd()
+
 	const query = "SELECT " + memberColumns + " FROM tenant_members" +
 		" WHERE tenant_id = ? AND user_id = ?"
 
@@ -141,7 +160,7 @@ func (r *tenantRepo) GetMember(ctx context.Context, tenantID, userID string) (*m
 		return nil, fmt.Errorf("select tenant member: %w", err)
 	}
 
-	return scanTenantMember(r.db.QueryRowContext(ctx, r.rebind(query), tenantID, userID))
+	return scanTenantMember(r.db.QueryRowContext(traceCtx, r.rebind(query), tenantID, userID))
 }
 
 // MemberOfUser возвращает членство пользователя в действующем тенанте.
@@ -152,6 +171,9 @@ func (r *tenantRepo) GetMember(ctx context.Context, tenantID, userID string) (*m
 // приостановленном или удалённом тенанте не выдаётся, поэтому такие членства
 // JOIN не возвращает.
 func (r *tenantRepo) MemberOfUser(ctx context.Context, userID string) (*model.TenantMember, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "MemberOfUser")
+	defer spanEnd()
+
 	const query = "SELECT m.tenant_id, m.user_id, m.role_id, m.is_owner, m.joined_at" +
 		" FROM tenant_members m JOIN tenants t ON t.id = m.tenant_id" +
 		" WHERE m.user_id = ? AND t.status = ? ORDER BY m.joined_at ASC LIMIT 1"
@@ -160,7 +182,7 @@ func (r *tenantRepo) MemberOfUser(ctx context.Context, userID string) (*model.Te
 		return nil, fmt.Errorf("select tenant member: %w", err)
 	}
 
-	return scanTenantMember(r.db.QueryRowContext(ctx, r.rebind(query),
+	return scanTenantMember(r.db.QueryRowContext(traceCtx, r.rebind(query),
 		userID, string(model.TenantStatusActive)))
 }
 

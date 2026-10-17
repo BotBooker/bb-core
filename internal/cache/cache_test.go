@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"testing"
 )
 
@@ -34,7 +35,7 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := New(tt.addr)
+			got := New(context.Background(), tt.addr)
 			if tt.wantNotNil && got == nil {
 				t.Error("New() returned nil, expected non-nil Cache")
 			}
@@ -43,7 +44,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestRedisCache_Get(t *testing.T) {
-	c := New("localhost:6379")
+	c := New(context.Background(), "localhost:6379")
 
 	tests := []struct {
 		name    string
@@ -79,7 +80,7 @@ func TestRedisCache_Get(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := c.Get(tt.key)
+			got, err := c.Get(context.Background(), tt.key)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Get() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -93,7 +94,7 @@ func TestRedisCache_Get(t *testing.T) {
 }
 
 func TestRedisCache_Set(t *testing.T) {
-	c := New("localhost:6379")
+	c := New(context.Background(), "localhost:6379")
 
 	tests := []struct {
 		name    string
@@ -141,7 +142,7 @@ func TestRedisCache_Set(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := c.Set(tt.key, tt.value)
+			err := c.Set(context.Background(), tt.key, tt.value)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Set() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -150,7 +151,7 @@ func TestRedisCache_Set(t *testing.T) {
 }
 
 func TestRedisCache_Close(t *testing.T) {
-	c := New("localhost:6379")
+	c := New(context.Background(), "localhost:6379")
 
 	tests := []struct {
 		name    string
@@ -168,13 +169,13 @@ func TestRedisCache_Close(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := c.Close()
+			err := c.Close(context.Background())
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Close() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			// Second close
 			if tt.name == "close twice" {
-				err = c.Close()
+				err = c.Close(context.Background())
 				if (err != nil) != tt.wantErr {
 					t.Errorf("Close() second call error = %v, wantErr %v", err, tt.wantErr)
 				}

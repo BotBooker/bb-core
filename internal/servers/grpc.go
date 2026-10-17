@@ -95,7 +95,10 @@ func registerHealth(server grpc.ServiceRegistrar) {
 //
 // GracefulStop ждёт завершения текущих вызовов, поэтому ожидание ограничено:
 // иначе выключение «зависнет» на клиенте, который держит долгий запрос.
-func (a *ServerAPI) stopGRPC() {
+//
+// ctx нужен для логирования: trace_id активной трассы (трассы shutdown)
+// добавляет обработчик логов (см. pkg/logger.TraceHandler).
+func (a *ServerAPI) stopGRPC(ctx context.Context) {
 	stopped := make(chan struct{})
 
 	go func() {
@@ -106,7 +109,7 @@ func (a *ServerAPI) stopGRPC() {
 	select {
 	case <-stopped:
 	case <-time.After(grpcStopTimeout):
-		slog.Warn("grpc graceful stop timed out, forcing stop")
+		slog.WarnContext(ctx, "grpc graceful stop timed out, forcing stop")
 		a.grpcServer.Stop()
 	}
 }

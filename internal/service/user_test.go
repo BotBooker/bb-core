@@ -73,7 +73,7 @@ type mockUserEventPublisher struct {
 	events []string
 }
 
-func (m *mockUserEventPublisher) Publish(event string) {
+func (m *mockUserEventPublisher) Publish(_ context.Context, event string) {
 	m.events = append(m.events, event)
 }
 
@@ -92,7 +92,7 @@ func testCreateInput() model.CreateUserInput {
 func newTestUserService(repo UserRepository) (UserService, *mockUserEventPublisher) {
 	events := &mockUserEventPublisher{}
 
-	return NewUserService(repo, events), events
+	return NewUserService(context.Background(), repo, events), events
 }
 
 func TestNewUserService(t *testing.T) {
@@ -125,7 +125,7 @@ func TestNewUserService(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewUserService(tt.userRepo, tt.events)
+			got := NewUserService(context.Background(), tt.userRepo, tt.events)
 			if got == nil {
 				t.Error("NewUserService() returned nil")
 			}
@@ -433,7 +433,7 @@ func TestUserService_Permissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("Get: "+tt.name, func(t *testing.T) {
-			svc := NewUserService(newRepo(), &mockUserEventPublisher{})
+			svc := NewUserService(context.Background(), newRepo(), &mockUserEventPublisher{})
 
 			_, err := svc.Get(context.Background(), testPrincipal(t, tt.role), id)
 			if !errors.Is(err, tt.wantErr) {
@@ -454,7 +454,7 @@ func TestUserService_Permissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("Create: "+tt.name, func(t *testing.T) {
-			svc := NewUserService(newRepo(), &mockUserEventPublisher{})
+			svc := NewUserService(context.Background(), newRepo(), &mockUserEventPublisher{})
 
 			_, err := svc.Create(context.Background(), testPrincipal(t, tt.role), testCreateInput())
 			if !errors.Is(err, tt.wantErr) {
@@ -475,7 +475,7 @@ func TestUserService_Permissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("Update: "+tt.name, func(t *testing.T) {
-			svc := NewUserService(newRepo(), &mockUserEventPublisher{})
+			svc := NewUserService(context.Background(), newRepo(), &mockUserEventPublisher{})
 
 			_, err := svc.Update(context.Background(), testPrincipal(t, tt.role), id, model.UpdateUserInput{})
 			if !errors.Is(err, tt.wantErr) {
@@ -496,7 +496,7 @@ func TestUserService_Permissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("Delete: "+tt.name, func(t *testing.T) {
-			svc := NewUserService(newRepo(), &mockUserEventPublisher{})
+			svc := NewUserService(context.Background(), newRepo(), &mockUserEventPublisher{})
 
 			err := svc.Delete(context.Background(), testPrincipal(t, tt.role), id)
 			if !errors.Is(err, tt.wantErr) {
@@ -517,7 +517,7 @@ func TestUserService_OwnProfile(t *testing.T) {
 				getByIDFunc: func(context.Context, string) (*model.User, error) { return actor.User, nil },
 				updateFunc:  func(context.Context, *model.User) error { return nil },
 			}
-			svc := NewUserService(repo, &mockUserEventPublisher{})
+			svc := NewUserService(context.Background(), repo, &mockUserEventPublisher{})
 
 			if _, err := svc.Get(context.Background(), actor, actor.ID()); err != nil {
 				t.Errorf("Get() своего профиля unexpected error = %v", err)
@@ -533,7 +533,7 @@ func TestUserService_OwnProfile(t *testing.T) {
 // TestUserService_NoPrincipal проверяет запрос без действующего пользователя:
 // сервис отвечает ErrUnauthorized, а не падает с разыменованием nil.
 func TestUserService_NoPrincipal(t *testing.T) {
-	svc := NewUserService(&mockUserRepository{}, &mockUserEventPublisher{})
+	svc := NewUserService(context.Background(), &mockUserRepository{}, &mockUserEventPublisher{})
 
 	if _, err := svc.Create(context.Background(), nil, testCreateInput()); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("Create() error = %v, want %v", err, ErrUnauthorized)

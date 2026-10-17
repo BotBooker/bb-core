@@ -95,8 +95,10 @@ type AuthTokenCodec interface {
 }
 
 // AuthEventPublisher — публикация событий авторизации.
+// Метод принимает контекст: через него в запись лога добавляется trace_id
+// активной трассы (см. pkg/logger.TraceHandler).
 type AuthEventPublisher interface {
-	Publish(event string)
+	Publish(ctx context.Context, event string)
 }
 
 // События авторизации: их публикует сервис после успешной операции, чтобы
@@ -172,6 +174,7 @@ type authService struct {
 // в expires_at учётных данных, поэтому после его истечения вход превращается в
 // принудительную смену пароля.
 func NewAuthService(
+	ctx context.Context,
 	userRepo AuthUserRepository,
 	credentialRepo AuthCredentialRepository,
 	tokenRepo AuthTokenRepository,
@@ -181,7 +184,7 @@ func NewAuthService(
 	ttl time.Duration,
 	passwordTTL time.Duration,
 ) AuthService {
-	slog.Debug("auth service created", "token_ttl", ttl.String(), "password_ttl_enabled", passwordTTL > 0)
+	slog.DebugContext(ctx, "auth service created", "token_ttl", ttl.String(), "password_ttl_enabled", passwordTTL > 0)
 
 	return &authService{
 		userRepo:       userRepo,
@@ -250,7 +253,7 @@ func (s *authService) Register(ctx context.Context, in model.RegisterInput) (*mo
 	}
 
 	slog.InfoContext(ctx, "user registered", "uuid", user.ID, "tenant", member.TenantID)
-	s.publish(EventUserRegistered)
+	s.publish(ctx, EventUserRegistered)
 
 	return user, session, nil
 }
@@ -320,7 +323,7 @@ func (s *authService) Login(ctx context.Context, email, password string) (*Sessi
 	}
 
 	slog.InfoContext(ctx, "user logged in", "uuid", user.ID, "tenant", member.TenantID)
-	s.publish(EventUserLoggedIn)
+	s.publish(ctx, EventUserLoggedIn)
 
 	return session, nil
 }
@@ -391,7 +394,7 @@ func (s *authService) ChangePassword(
 	}
 
 	slog.InfoContext(ctx, "user password changed", "uuid", user.ID)
-	s.publish(EventUserPasswordChanged)
+	s.publish(ctx, EventUserPasswordChanged)
 
 	return session, nil
 }
@@ -412,7 +415,7 @@ func (s *authService) Logout(ctx context.Context, accessToken string) error {
 	}
 
 	slog.InfoContext(ctx, "user logged out")
-	s.publish(EventUserLoggedOut)
+	s.publish(ctx, EventUserLoggedOut)
 
 	return nil
 }
@@ -685,10 +688,10 @@ func (s *authService) removeExpiredTokens(ctx context.Context, id string, now ti
 
 // publish публикует событие, если шина подключена: сервис не должен падать
 // из-за отсутствия подписчиков (в тестах или на раннем этапе сборки).
-func (s *authService) publish(event string) {
+func (s *authService) publish(ctx context.Context, event string) {
 	if s.events == nil {
 		return
 	}
 
-	s.events.Publish(event)
+	s.events.Publish(ctx, event)
 }
