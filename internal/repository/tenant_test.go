@@ -69,7 +69,7 @@ func TestNewTenantRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewTenantRepo(nil, tt.dialect); got == nil {
+			if got := NewTenantRepo(context.Background(), nil, tt.dialect); got == nil {
 				t.Error("NewTenantRepo() returned nil")
 			}
 		})
@@ -90,8 +90,8 @@ func runTenantRepoScenario(t *testing.T, conn database.DB, dialect string) {
 
 	ctx := context.Background()
 
-	userRepo := NewUserRepo(conn, dialect)
-	tenantRepo := NewTenantRepo(conn, dialect)
+	userRepo := NewUserRepo(context.Background(), conn, dialect)
+	tenantRepo := NewTenantRepo(context.Background(), conn, dialect)
 
 	user := testUser(t, "tenant-owner@example.com", "+79990000020")
 	if err := userRepo.Create(ctx, user); err != nil {
@@ -200,8 +200,8 @@ func TestTenantRepo_MemberOfUser(t *testing.T) {
 	ctx := context.Background()
 
 	conn := newSQLiteTestDB(t)
-	userRepo := NewUserRepo(conn, database.DialectSQLite)
-	tenantRepo := NewTenantRepo(conn, database.DialectSQLite)
+	userRepo := NewUserRepo(context.Background(), conn, database.DialectSQLite)
+	tenantRepo := NewTenantRepo(context.Background(), conn, database.DialectSQLite)
 
 	user := testUser(t, "member-of@example.com", "+79990000021")
 	if err := userRepo.Create(ctx, user); err != nil {

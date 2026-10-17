@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 )
 
@@ -13,7 +14,8 @@ type mockNotificationUserService struct{}
 // mockNotificationEventSubscriber is a mock implementation of NotificationEventSubscriber for testing.
 type mockNotificationEventSubscriber struct{}
 
-func (m *mockNotificationEventSubscriber) Subscribe(event string, handler func()) {}
+func (m *mockNotificationEventSubscriber) Subscribe(_ context.Context, event string, handler func()) {
+}
 
 func TestNewNotificationService(t *testing.T) {
 	tests := []struct {
@@ -56,7 +58,7 @@ func TestNewNotificationService(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewNotificationService(tt.notifRepo, tt.userService, tt.events)
+			got := NewNotificationService(context.Background(), tt.notifRepo, tt.userService, tt.events)
 			if got == nil {
 				t.Error("NewNotificationService() returned nil")
 			}

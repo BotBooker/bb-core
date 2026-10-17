@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/botbooker/bb-core/internal/model"
+	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // UserRepository — интерфейс репозитория пользователей для UserService.
@@ -21,8 +22,10 @@ type UserRepository interface {
 }
 
 // UserEventPublisher — интерфейс для публикации событий пользователей.
+// Метод принимает контекст: через него в запись лога добавляется trace_id
+// активной трассы (см. pkg/logger.TraceHandler).
 type UserEventPublisher interface {
-	Publish(event string)
+	Publish(ctx context.Context, event string)
 }
 
 // События жизненного цикла пользователя: их публикует сервис после успешной
@@ -63,8 +66,11 @@ type userService struct {
 }
 
 // NewUserService создаёт сервис пользователей.
-func NewUserService(userRepo UserRepository, events UserEventPublisher) UserService {
-	slog.Debug("user service created")
+func NewUserService(ctx context.Context, userRepo UserRepository, events UserEventPublisher) UserService {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewUserService")
+	defer spanEnd()
+
+	slog.DebugContext(traceCtx, "user service created")
 
 	return &userService{userRepo: userRepo, events: events}
 }
@@ -95,6 +101,9 @@ func (s *userService) Create(
 	actor *Principal,
 	in model.CreateUserInput,
 ) (*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Create")
+	defer spanEnd()
+
 	current, err := principalUser(actor)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
@@ -108,12 +117,12 @@ func (s *userService) Create(
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
-	if err := s.userRepo.Create(ctx, user); err != nil {
+	if err := s.userRepo.Create(traceCtx, user); err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
-	slog.InfoContext(ctx, "user created", "uuid", user.ID, "actor", current.ID)
-	s.publish(EventUserCreated)
+	slog.InfoContext(traceCtx, "user created", "uuid", user.ID, "actor", current.ID)
+	s.publish(traceCtx, EventUserCreated)
 
 	return user, nil
 }
@@ -124,6 +133,9 @@ func (s *userService) Create(
 // не похожую на UUID, ответил бы ошибкой приведения типа, а не «не найдено».
 // Чужой профиль доступен только сотруднику (оператору или администратору).
 func (s *userService) Get(ctx context.Context, actor *Principal, id string) (*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Get")
+	defer spanEnd()
+
 	if _, err := principalUser(actor); err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
@@ -132,7 +144,7 @@ func (s *userService) Get(ctx context.Context, actor *Principal, id string) (*mo
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
-	user, err := s.userRepo.GetByID(ctx, id)
+	user, err := s.userRepo.GetByID(traceCtx, id)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
@@ -158,12 +170,15 @@ func (s *userService) Update(
 	id string,
 	in model.UpdateUserInput,
 ) (*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Update")
+	defer spanEnd()
+
 	current, err := principalUser(actor)
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	user, err := s.Get(ctx, actor, id)
+	user, err := s.Get(traceCtx, actor, id)
 	if err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
@@ -176,12 +191,12 @@ func (s *userService) Update(
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	if err := s.userRepo.Update(ctx, user); err != nil {
+	if err := s.userRepo.Update(traceCtx, user); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}
 
-	slog.InfoContext(ctx, "user updated", "uuid", user.ID, "actor", current.ID)
-	s.publish(EventUserUpdated)
+	slog.InfoContext(traceCtx, "user updated", "uuid", user.ID, "actor", current.ID)
+	s.publish(traceCtx, EventUserUpdated)
 
 	return user, nil
 }
@@ -192,6 +207,9 @@ func (s *userService) Update(
 // Удалять может только администратор, поэтому запись заранее не читается:
 // отдельный SELECT не дал бы ничего, а лишний запрос в базу — дал.
 func (s *userService) Delete(ctx context.Context, actor *Principal, id string) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Delete")
+	defer spanEnd()
+
 	current, err := principalUser(actor)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
@@ -205,22 +223,25 @@ func (s *userService) Delete(ctx context.Context, actor *Principal, id string) e
 		return fmt.Errorf("delete user: %w", err)
 	}
 
-	if err := s.userRepo.Delete(ctx, id); err != nil {
+	if err := s.userRepo.Delete(traceCtx, id); err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
 
-	slog.InfoContext(ctx, "user deleted", "uuid", id, "actor", current.ID)
-	s.publish(EventUserDeleted)
+	slog.InfoContext(traceCtx, "user deleted", "uuid", id, "actor", current.ID)
+	s.publish(traceCtx, EventUserDeleted)
 
 	return nil
 }
 
 // publish публикует событие, если шина подключена: сервис не должен падать
 // из-за отсутствия подписчиков (в тестах или на раннем этапе сборки).
-func (s *userService) publish(event string) {
+func (s *userService) publish(ctx context.Context, event string) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "publish")
+	defer spanEnd()
+
 	if s.events == nil {
 		return
 	}
 
-	s.events.Publish(event)
+	s.events.Publish(traceCtx, event)
 }

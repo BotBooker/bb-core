@@ -19,6 +19,7 @@ import (
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/internal/service"
+	"github.com/botbooker/bb-core/pkg/observability"
 	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
 	"github.com/botbooker/bb-core/pkg/tools"
 )
@@ -114,7 +115,7 @@ func (h *handler) registerHandler(w http.ResponseWriter, r *http.Request) {
 	var request registerRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, badRequestMessage)
+		writeError(r.Context(), w, http.StatusBadRequest, badRequestMessage)
 		return
 	}
 
@@ -123,7 +124,7 @@ func (h *handler) registerHandler(w http.ResponseWriter, r *http.Request) {
 	if request.Gender != "" {
 		parsed, err := model.ParseGender(request.Gender)
 		if err != nil {
-			writeServiceError(w, err, "register user")
+			writeServiceError(r.Context(), w, err, "register user")
 
 			return
 		}
@@ -145,12 +146,12 @@ func (h *handler) registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, session, err := h.authService.Register(r.Context(), in)
 	if err != nil {
-		writeServiceError(w, err, "register user")
+		writeServiceError(r.Context(), w, err, "register user")
 
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, newSessionResponse(session))
+	writeJSON(r.Context(), w, http.StatusCreated, newSessionResponse(session))
 }
 
 // loginHandler — POST /auth/login: вход по email и паролю.
@@ -158,18 +159,18 @@ func (h *handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 	var request loginRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, badRequestMessage)
+		writeError(r.Context(), w, http.StatusBadRequest, badRequestMessage)
 		return
 	}
 
 	session, err := h.authService.Login(r.Context(), request.Email, request.Password)
 	if err != nil {
-		writeServiceError(w, err, "login user")
+		writeServiceError(r.Context(), w, err, "login user")
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, newSessionResponse(session))
+	writeJSON(r.Context(), w, http.StatusOK, newSessionResponse(session))
 }
 
 // changePasswordHandler — POST /auth/password: смена пароля по текущему паролю.
@@ -180,7 +181,7 @@ func (h *handler) changePasswordHandler(w http.ResponseWriter, r *http.Request) 
 	var request changePasswordRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, badRequestMessage)
+		writeError(r.Context(), w, http.StatusBadRequest, badRequestMessage)
 		return
 	}
 
@@ -188,12 +189,12 @@ func (h *handler) changePasswordHandler(w http.ResponseWriter, r *http.Request) 
 		r.Context(), request.Email, request.CurrentPassword, request.NewPassword,
 	)
 	if err != nil {
-		writeServiceError(w, err, "change password")
+		writeServiceError(r.Context(), w, err, "change password")
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, newSessionResponse(session))
+	writeJSON(r.Context(), w, http.StatusOK, newSessionResponse(session))
 }
 
 // logoutHandler — POST /auth/logout: выход из системы.
@@ -203,12 +204,12 @@ func (h *handler) changePasswordHandler(w http.ResponseWriter, r *http.Request) 
 func (h *handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
 	token, err := bearerToken(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, unauthorizedMessage)
+		writeError(r.Context(), w, http.StatusUnauthorized, unauthorizedMessage)
 		return
 	}
 
 	if err := h.authService.Logout(r.Context(), token); err != nil {
-		writeServiceError(w, err, "logout user")
+		writeServiceError(r.Context(), w, err, "logout user")
 
 		return
 	}
@@ -224,13 +225,13 @@ func (h *handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
 func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
 	principal, ok := service.PrincipalFromContext(r.Context())
 	if !ok || principal.User == nil {
-		writeError(w, http.StatusUnauthorized, unauthorizedMessage)
+		writeError(r.Context(), w, http.StatusUnauthorized, unauthorizedMessage)
 		return
 	}
 
 	// Ответ в том же формате, что у GET /api/v1/users/{uuid}: обе ручки отдают
 	// одно proto-сообщение, поэтому клиенту не нужно знать два формата.
-	writeProtoJSON(w, http.StatusOK, UserToProto(principal.User))
+	writeProtoJSON(r.Context(), w, http.StatusOK, UserToProto(principal.User))
 }
 
 // bearerToken достаёт токен из заголовка Authorization HTTP-запроса.
@@ -246,7 +247,10 @@ func bearerToken(r *http.Request) (string, error) {
 // bearerTokenFromMetadata достаёт токен из метаданных gRPC-вызова: в gRPC нет
 // заголовков HTTP, их роль играют метаданные с тем же ключом.
 func bearerTokenFromMetadata(ctx context.Context) (string, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "bearerTokenFromMetadata")
+	defer spanEnd()
+
+	md, ok := metadata.FromIncomingContext(traceCtx)
 	if !ok {
 		return "", errNoToken
 	}
@@ -341,14 +345,14 @@ func (h *handler) authenticate(next http.Handler) http.Handler {
 
 		token, err := bearerToken(r)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, unauthorizedMessage)
+			writeError(r.Context(), w, http.StatusUnauthorized, unauthorizedMessage)
 
 			return
 		}
 
 		principal, err := h.authService.Authenticate(r.Context(), token)
 		if err != nil {
-			writeServiceError(w, err, "authenticate request")
+			writeServiceError(r.Context(), w, err, "authenticate request")
 
 			return
 		}
@@ -382,7 +386,7 @@ func NewAuthInterceptor(auth AuthService) grpc.UnaryServerInterceptor {
 
 		principal, err := auth.Authenticate(ctx, token)
 		if err != nil {
-			return nil, toStatusError(err)
+			return nil, toStatusError(ctx, err)
 		}
 
 		return handler(service.WithPrincipal(ctx, principal), req)
@@ -437,35 +441,39 @@ type errorResponse struct {
 }
 
 // writeError отправляет ошибку в JSON.
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, errorResponse{Error: message})
+//
+// ctx нужен для логирования: trace_id активной трассы добавляет обработчик
+// логов (см. pkg/logger.TraceHandler), поэтому записи делаются контекстными
+// вызовами slog.
+func writeError(ctx context.Context, w http.ResponseWriter, status int, message string) {
+	writeJSON(ctx, w, status, errorResponse{Error: message})
 }
 
 // writeErrorCode отправляет ошибку в JSON с машиночитаемым признаком.
-func writeErrorCode(w http.ResponseWriter, status int, message, code string) {
-	writeJSON(w, status, errorResponse{Error: message, Code: code})
+func writeErrorCode(ctx context.Context, w http.ResponseWriter, status int, message, code string) {
+	writeJSON(ctx, w, status, errorResponse{Error: message, Code: code})
 }
 
 // writeJSON отправляет ответ в JSON.
 //
 // Content-Type ставится всегда: клиент не должен угадывать формат по телу, а
 // ошибки кодирования логируются — ответ уже начат, и заменить его нечем.
-func writeJSON(w http.ResponseWriter, status int, body any) {
+func writeJSON(ctx context.Context, w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 
 	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Error("failed to write json response", "err", err)
+		slog.ErrorContext(ctx, "failed to write json response", "err", err)
 	}
 }
 
 // writeProtoJSON отправляет proto-сообщение в JSON так же, как это делает
 // grpc-gateway: /users/me отвечает в том же формате, что GET /api/v1/users/{uuid}.
-func writeProtoJSON(w http.ResponseWriter, status int, message proto.Message) {
+func writeProtoJSON(ctx context.Context, w http.ResponseWriter, status int, message proto.Message) {
 	body, err := protojson.Marshal(message)
 	if err != nil {
-		slog.Error("failed to marshal proto response", "err", err)
-		writeError(w, http.StatusInternalServerError, internalErrorMessage)
+		slog.ErrorContext(ctx, "failed to marshal proto response", "err", err)
+		writeError(ctx, w, http.StatusInternalServerError, internalErrorMessage)
 
 		return
 	}
@@ -474,7 +482,7 @@ func writeProtoJSON(w http.ResponseWriter, status int, message proto.Message) {
 	w.WriteHeader(status)
 
 	if _, err := w.Write(body); err != nil {
-		slog.Error("failed to write proto response", "err", err)
+		slog.ErrorContext(ctx, "failed to write proto response", "err", err)
 	}
 }
 
@@ -483,24 +491,24 @@ func writeProtoJSON(w http.ResponseWriter, status int, message proto.Message) {
 // Соответствие статусов то же, что у grpc-gateway в toStatusError: 401, 403,
 // 404, 409, 400 и 500. Тексты для 401 и 403 фиксированные — иначе по ответу
 // можно было бы отличить «пользователя нет» от «пароль не тот».
-func writeServiceError(w http.ResponseWriter, err error, action string) {
+func writeServiceError(ctx context.Context, w http.ResponseWriter, err error, action string) {
 	switch {
 	case errors.Is(err, service.ErrPasswordExpired):
 		// 403 с признаком password_expired: полного доступа нет, но клиент
 		// знает, что делать — отправить пользователя на смену пароля.
-		writeErrorCode(w, http.StatusForbidden, passwordExpiredMessage, passwordExpiredCode)
+		writeErrorCode(ctx, w, http.StatusForbidden, passwordExpiredMessage, passwordExpiredCode)
 	case errors.Is(err, service.ErrUnauthorized), errors.Is(err, service.ErrInvalidCredentials):
-		writeError(w, http.StatusUnauthorized, unauthorizedMessage)
+		writeError(ctx, w, http.StatusUnauthorized, unauthorizedMessage)
 	case errors.Is(err, service.ErrForbidden):
-		writeError(w, http.StatusForbidden, forbiddenMessage)
+		writeError(ctx, w, http.StatusForbidden, forbiddenMessage)
 	case errors.Is(err, database.ErrNotFound):
-		writeError(w, http.StatusNotFound, notFoundMessage)
+		writeError(ctx, w, http.StatusNotFound, notFoundMessage)
 	case errors.Is(err, database.ErrDuplicate):
-		writeError(w, http.StatusConflict, conflictMessage)
+		writeError(ctx, w, http.StatusConflict, conflictMessage)
 	case isInvalidArgument(err):
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(ctx, w, http.StatusBadRequest, err.Error())
 	default:
-		slog.Error(action+" failed", "err", tools.SanitizeInputString(err.Error(), "error"))
-		writeError(w, http.StatusInternalServerError, internalErrorMessage)
+		slog.ErrorContext(ctx, action+" failed", "err", tools.SanitizeInputString(err.Error(), "error"))
+		writeError(ctx, w, http.StatusInternalServerError, internalErrorMessage)
 	}
 }

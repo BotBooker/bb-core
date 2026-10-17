@@ -478,7 +478,7 @@ func TestToStatusError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := toStatusError(tt.err)
+			err := toStatusError(context.Background(), tt.err)
 			if status.Code(err) != tt.wantCode {
 				t.Errorf("toStatusError() code = %v, want %v", status.Code(err), tt.wantCode)
 			}

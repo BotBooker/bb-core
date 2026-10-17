@@ -245,7 +245,7 @@ type mockAuthEventPublisher struct {
 	events []string
 }
 
-func (m *mockAuthEventPublisher) Publish(event string) {
+func (m *mockAuthEventPublisher) Publish(_ context.Context, event string) {
 	m.events = append(m.events, event)
 }
 
@@ -276,7 +276,7 @@ func newAuthMocks() *authMocks {
 func newTestAuthService(t *testing.T, m *authMocks) *authService {
 	t.Helper()
 
-	created := NewAuthService(m.users, m.credentials, m.tokens, m.tenants, m.codec, m.events,
+	created := NewAuthService(context.Background(), m.users, m.credentials, m.tokens, m.tenants, m.codec, m.events,
 		testTokenTTL, testPasswordTTL)
 
 	svc, ok := created.(*authService)

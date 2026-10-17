@@ -145,7 +145,7 @@ func newWithFactory(ctx context.Context, cfg config.DatabaseConfig, factory pool
 	}
 
 	// database.New закрывает пул, если менеджер транзакций создать не удалось.
-	db, err := database.New(pool)
+	db, err := database.New(ctx, pool)
 	if err != nil {
 		return nil, fmt.Errorf("create database connection: %w", err)
 	}

@@ -50,12 +50,13 @@ type bootstrapService struct {
 
 // NewBootstrapService создаёт сервис первичной инициализации.
 func NewBootstrapService(
+	ctx context.Context,
 	userRepo AuthUserRepository,
 	credentialRepo AuthCredentialRepository,
 	tenantRepo AuthTenantRepository,
 	passwordTTL time.Duration,
 ) BootstrapService {
-	slog.Debug("bootstrap service created")
+	slog.DebugContext(ctx, "bootstrap service created")
 
 	return &bootstrapService{
 		userRepo:       userRepo,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/model"
+	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // CredentialDB — интерфейс базы данных, который нужен CredentialRepo.
@@ -53,8 +54,11 @@ type credentialRepo struct {
 }
 
 // NewCredentialRepo создаёт репозиторий учётных данных.
-func NewCredentialRepo(db CredentialDB, dialect string) CredentialRepo {
-	slog.Debug("credential repository created", "dialect", dialect)
+func NewCredentialRepo(ctx context.Context, db CredentialDB, dialect string) CredentialRepo {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewCredentialRepo")
+	defer spanEnd()
+
+	slog.DebugContext(traceCtx, "credential repository created", "dialect", dialect)
 
 	return &credentialRepo{db: db, codec: codec{dialect: dialect}}
 }
@@ -64,10 +68,13 @@ func NewCredentialRepo(db CredentialDB, dialect string) CredentialRepo {
 // Хеш пароля считает модель (model.NewCredentials): в репозиторий попадает уже
 // готовый хеш, поэтому открытый пароль до базы не доходит.
 func (r *credentialRepo) Create(ctx context.Context, credentials *model.Credentials) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Create")
+	defer spanEnd()
+
 	const query = "INSERT INTO user_credentials (" + credentialColumns +
 		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
-	_, err := r.db.ExecContext(ctx, r.rebind(query),
+	_, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		credentials.ID,
 		credentials.UserID,
 		credentials.Provider,
@@ -94,11 +101,14 @@ func (r *credentialRepo) Create(ctx context.Context, credentials *model.Credenti
 // обоих случаях меняются хеш и срок действия. Провайдер и его ключ не
 // обновляются — они описывают, чьи это учётные данные, а не их состояние.
 func (r *credentialRepo) Update(ctx context.Context, credentials *model.Credentials) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Update")
+	defer spanEnd()
+
 	const query = "UPDATE user_credentials SET password_hash = ?, provider_meta = ?," +
 		" expires_at = ?, last_login_at = ?, revoked_at = ?, is_active = ?, is_delete = ?" +
 		" WHERE id = ?"
 
-	result, err := r.db.ExecContext(ctx, r.rebind(query),
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		credentials.Hash,
 		r.jsonArg(credentials.Meta),
 		r.timeArg(credentials.ExpiresAt),
@@ -123,6 +133,9 @@ func (r *credentialRepo) Update(ctx context.Context, credentials *model.Credenti
 // Если записей несколько (схема этого не запрещает: уникальность задана только
 // первичным ключом), берётся последняя созданная — то есть действующая.
 func (r *credentialRepo) GetByUserID(ctx context.Context, userID string) (*model.Credentials, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetByUserID")
+	defer spanEnd()
+
 	const query = "SELECT " + credentialColumns + " FROM user_credentials" +
 		" WHERE user_id = ? AND provider = ? AND is_active = true AND is_delete = false" +
 		" ORDER BY created_at DESC LIMIT 1"
@@ -133,11 +146,14 @@ func (r *credentialRepo) GetByUserID(ctx context.Context, userID string) (*model
 		return nil, fmt.Errorf("select credentials: %w", err)
 	}
 
-	return r.getBy(ctx, query, userID, string(model.CredentialProviderEmail))
+	return r.getBy(traceCtx, query, userID, string(model.CredentialProviderEmail))
 }
 
 // GetByProvider находит учётные данные по паре «провайдер + ключ провайдера».
 func (r *credentialRepo) GetByProvider(ctx context.Context, provider, providerKey string) (*model.Credentials, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetByProvider")
+	defer spanEnd()
+
 	const query = "SELECT " + credentialColumns + " FROM user_credentials" +
 		" WHERE provider = ? AND provider_key = ? AND is_active = true AND is_delete = false" +
 		" ORDER BY created_at DESC LIMIT 1"
@@ -147,14 +163,17 @@ func (r *credentialRepo) GetByProvider(ctx context.Context, provider, providerKe
 			model.ErrInvalidCredential)
 	}
 
-	return r.getBy(ctx, query, provider, providerKey)
+	return r.getBy(traceCtx, query, provider, providerKey)
 }
 
 // TouchLastLogin отмечает вход по учётным данным.
 func (r *credentialRepo) TouchLastLogin(ctx context.Context, id string, at time.Time) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "TouchLastLogin")
+	defer spanEnd()
+
 	const query = "UPDATE user_credentials SET last_login_at = ? WHERE id = ?"
 
-	result, err := r.db.ExecContext(ctx, r.rebind(query), r.timeArg(at), id)
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
 	if err != nil {
 		return fmt.Errorf("touch credentials: %w", database.MapError(err))
 	}
@@ -164,7 +183,10 @@ func (r *credentialRepo) TouchLastLogin(ctx context.Context, id string, at time.
 
 // getBy выполняет SELECT одной строки и читает её в модель.
 func (r *credentialRepo) getBy(ctx context.Context, query string, args ...any) (*model.Credentials, error) {
-	credentials, err := scanCredentials(r.db.QueryRowContext(ctx, r.rebind(query), args...))
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "getBy")
+	defer spanEnd()
+
+	credentials, err := scanCredentials(traceCtx, r.db.QueryRowContext(traceCtx, r.rebind(query), args...))
 	if err != nil {
 		return nil, fmt.Errorf("select credentials: %w", database.MapError(err))
 	}
@@ -177,7 +199,10 @@ func (r *credentialRepo) getBy(ctx context.Context, query string, args ...any) (
 // Время разбирает nullTime: PostgreSQL отдаёт time.Time, SQLite — строку
 // RFC3339. Метаданные провайдера принимает nullBytes: JSONB приходит как
 // []byte, TEXT — как строка.
-func scanCredentials(row *sql.Row) (*model.Credentials, error) {
+func scanCredentials(ctx context.Context, row *sql.Row) (*model.Credentials, error) {
+	_, spanEnd := observability.TraceSpan(ctx, "scanCredentials")
+	defer spanEnd()
+
 	var (
 		credentials          model.Credentials
 		meta                 nullBytes

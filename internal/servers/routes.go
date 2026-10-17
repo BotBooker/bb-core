@@ -95,10 +95,10 @@ func (h *handler) Routes() http.Handler {
 	return traceMiddleware(logMiddleware(h.authenticate(metricsMiddleware(mux))))
 }
 
-func (h *handler) healthHandler(w http.ResponseWriter, _ *http.Request) {
+func (h *handler) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := fmt.Fprintln(w, "ok"); err != nil {
-		slog.Error("failed to write response", "err", err)
+		slog.ErrorContext(r.Context(), "failed to write response", "err", err)
 	}
 }

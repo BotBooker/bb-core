@@ -168,7 +168,11 @@ type db struct {
 
 // New создаёт подключение поверх готового пула database/sql,
 // добавляя к нему менеджер транзакций.
-func New(pool SQLDB) (DB, error) {
+//
+// ctx нужен для логирования готовности подключения: trace_id активной трассы
+// добавляет обработчик логов (см. pkg/logger.TraceHandler), поэтому запись
+// делается контекстным вызовом.
+func New(ctx context.Context, pool SQLDB) (DB, error) {
 	if pool == nil {
 		return nil, errors.New("database pool is nil")
 	}
@@ -180,7 +184,7 @@ func New(pool SQLDB) (DB, error) {
 		return nil, fmt.Errorf("create transaction manager: %w", err)
 	}
 
-	slog.Debug("database connection is ready")
+	slog.DebugContext(ctx, "database connection is ready")
 
 	return &db{pool: pool, trManager: trManager}, nil
 }
@@ -231,8 +235,11 @@ func (d *db) PingContext(ctx context.Context) error {
 }
 
 // Close закрывает пул соединений.
+//
+// Сигнатура без контекста задана контрактом SQLDB: его реализует *sql.DB,
+// у которого Close() error, поэтому изменить сигнатуру нельзя. Запись о
+// закрытии с trace_id активной трассы делает вызывающий, у которого есть
+// контекст, — регистрация ресурса в closer (см. internal/servers/di.go).
 func (d *db) Close() error {
-	slog.Debug("connection to the database closed")
-
 	return d.pool.Close()
 }

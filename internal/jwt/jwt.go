@@ -11,6 +11,7 @@
 package jwt
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/botbooker/bb-core/internal/model"
+	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 const (
@@ -79,14 +81,20 @@ type Signer struct {
 // предупреждение. Так приложение работает в разработке без настройки, но
 // токены не переживут перезапуск и не будут приниматься другими экземплярами
 // приложения, поэтому в промышленной среде секрет задают явно (JWT_SECRET).
-func NewSigner(secret, issuer string) (*Signer, error) {
+//
+// ctx нужен для записи предупреждения: trace_id активной трассы добавляет
+// обработчик логов (см. pkg/logger.TraceHandler).
+func NewSigner(ctx context.Context, secret, issuer string) (*Signer, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewSigner")
+	defer spanEnd()
+
 	if secret == "" {
 		generated := make([]byte, secretMinLen)
 		if _, err := rand.Read(generated); err != nil {
 			return nil, fmt.Errorf("generate jwt secret: %w", err)
 		}
 
-		slog.Warn("JWT_SECRET is not set: a random secret is generated, tokens will not survive a restart")
+		slog.WarnContext(traceCtx, "JWT_SECRET is not set: a random secret is generated, tokens will not survive a restart")
 
 		secret = encode(generated)
 	}

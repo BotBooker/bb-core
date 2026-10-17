@@ -74,7 +74,7 @@ func (s *userServiceServer) Create(
 
 	in, err := CreateInputFromProto(req)
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	current, err := actor(ctx)
@@ -84,7 +84,7 @@ func (s *userServiceServer) Create(
 
 	user, err := s.users.Create(ctx, current, in)
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	return &user_v1.UserServiceCreateResponse{User: UserToProto(user)}, nil
@@ -106,7 +106,7 @@ func (s *userServiceServer) Get(
 
 	user, err := s.users.Get(ctx, current, req.GetUuid())
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	return &user_v1.UserServiceGetResponse{User: UserToProto(user)}, nil
@@ -123,7 +123,7 @@ func (s *userServiceServer) Update(
 
 	in, err := UpdateInputFromProto(req)
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	current, err := actor(ctx)
@@ -133,7 +133,7 @@ func (s *userServiceServer) Update(
 
 	user, err := s.users.Update(ctx, current, req.GetUuid(), in)
 	if err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	return &user_v1.UserServiceUpdateResponse{User: UserToProto(user)}, nil
@@ -154,7 +154,7 @@ func (s *userServiceServer) Delete(
 	}
 
 	if err := s.users.Delete(ctx, current, req.GetUuid()); err != nil {
-		return nil, toStatusError(err)
+		return nil, toStatusError(ctx, err)
 	}
 
 	return &emptypb.Empty{}, nil
@@ -181,7 +181,10 @@ var invalidArgumentErrors = []error{
 // 400/401/403/404/409. Текст внутренних ошибок не отдаётся клиенту: он только
 // логируется, чтобы наружу не утекли детали SQL. Для 401 и 403 текст вообще
 // фиксированный: по нему нельзя отличить «пользователя нет» от «пароль не тот».
-func toStatusError(err error) error {
+//
+// ctx нужен для логирования внутренней ошибки: trace_id активной трассы
+// добавляет обработчик логов (см. pkg/logger.TraceHandler).
+func toStatusError(ctx context.Context, err error) error {
 	switch {
 	case err == nil:
 		return nil
@@ -202,7 +205,7 @@ func toStatusError(err error) error {
 	case isInvalidArgument(err):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
-		slog.Error("user service call failed", "err", err)
+		slog.ErrorContext(ctx, "user service call failed", "err", err)
 
 		return status.Error(codes.Internal, internalErrorMessage)
 	}

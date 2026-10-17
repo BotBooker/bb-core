@@ -181,13 +181,17 @@ func (a *ServerAPI) Run() error {
 
 	// 4. Ожидание сигнала.
 	<-ctx.Done()
-	slog.InfoContext(ctx, "signal received, shutting down...")
 
 	// Сценарий 4: трасса graceful shutdown. Перехвачен SIGINT/SIGTERM — начинаем
 	// новую трассу с собственным TraceID и закрываем её перед выходом процесса,
 	// когда серверы остановлены, а ресурсы закрыты.
+	//
+	// Трасса открывается до записи «signal received»: так и она попадает в
+	// shutdown-трассу и несёт trace_id (его добавляет обработчик логов).
 	shutdownTraceCtx, shutdownSpan := startShutdownSpan(context.Background())
 	defer shutdownSpan.End()
+
+	slog.InfoContext(shutdownTraceCtx, "signal received, shutting down...")
 
 	// Паттерн "двойной Ctrl+C": снимаем custom handler.
 	// Теперь второй Ctrl+C убьёт процесс мгновенно (дефолтное поведение ОС).
@@ -212,7 +216,7 @@ func (a *ServerAPI) Run() error {
 
 	// 6. Graceful shutdown gRPC-сервера: ждём завершения текущих вызовов
 	// (с ограничением по времени, см. stopGRPC).
-	a.stopGRPC()
+	a.stopGRPC(shutdownTraceCtx)
 
 	slog.InfoContext(shutdownTraceCtx, "grpc server stopped")
 

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"testing"
 )
 
@@ -17,16 +18,16 @@ func TestEventBus_NewEventBus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewEventBus()
+			got := NewEventBus(context.Background())
 			if tt.wantNotNil && got == nil {
-				t.Error("NewEventBus() returned nil, expected non-nil EventBus")
+				t.Error("NewEventBus(context.Background()) returned nil, expected non-nil EventBus")
 			}
 		})
 	}
 }
 
 func TestEventBus_Publish(t *testing.T) {
-	b := NewEventBus()
+	b := NewEventBus(context.Background())
 
 	tests := []struct {
 		name  string
@@ -57,13 +58,13 @@ func TestEventBus_Publish(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Should not panic
-			b.Publish(tt.event)
+			b.Publish(context.Background(), tt.event)
 		})
 	}
 }
 
 func TestEventBus_Subscribe(t *testing.T) {
-	b := NewEventBus()
+	b := NewEventBus(context.Background())
 
 	handler := func() {}
 
@@ -97,7 +98,7 @@ func TestEventBus_Subscribe(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Should not panic
-			b.Subscribe(tt.event, tt.handler)
+			b.Subscribe(context.Background(), tt.event, tt.handler)
 		})
 	}
 }
@@ -107,54 +108,54 @@ func TestEventBus_Subscribe(t *testing.T) {
 // These tests verify that the methods don't panic.
 
 func TestEventBus_PublishAndSubscribe_NoPanic(t *testing.T) {
-	b := NewEventBus()
+	b := NewEventBus(context.Background())
 
 	handler := func() {}
 
-	b.Subscribe("test.event", handler)
-	b.Publish("test.event")
+	b.Subscribe(context.Background(), "test.event", handler)
+	b.Publish(context.Background(), "test.event")
 
 	// Should not panic - the stub implementation doesn't call handlers
 }
 
 func TestEventBus_MultipleSubscribers_NoPanic(t *testing.T) {
-	b := NewEventBus()
+	b := NewEventBus(context.Background())
 
 	for i := 0; i < 3; i++ {
-		b.Subscribe("multi.event", func() {})
+		b.Subscribe(context.Background(), "multi.event", func() {})
 	}
 
-	b.Publish("multi.event")
+	b.Publish(context.Background(), "multi.event")
 
 	// Should not panic
 }
 
 func TestEventBus_DifferentEvents_NoPanic(t *testing.T) {
-	b := NewEventBus()
+	b := NewEventBus(context.Background())
 
-	b.Subscribe("event.a", func() {})
-	b.Subscribe("event.b", func() {})
+	b.Subscribe(context.Background(), "event.a", func() {})
+	b.Subscribe(context.Background(), "event.b", func() {})
 
-	b.Publish("event.a")
-	b.Publish("event.b")
+	b.Publish(context.Background(), "event.a")
+	b.Publish(context.Background(), "event.b")
 
 	// Should not panic
 }
 
 func TestEventBus_NoSubscribers(t *testing.T) {
-	b := NewEventBus()
+	b := NewEventBus(context.Background())
 
 	// Should not panic when publishing to event with no subscribers
-	b.Publish("unsubscribed.event")
+	b.Publish(context.Background(), "unsubscribed.event")
 }
 
 func TestEventBus_MultiplePublishes(t *testing.T) {
-	b := NewEventBus()
+	b := NewEventBus(context.Background())
 
-	b.Subscribe("repeat.event", func() {})
+	b.Subscribe(context.Background(), "repeat.event", func() {})
 
 	for i := 0; i < 5; i++ {
-		b.Publish("repeat.event")
+		b.Publish(context.Background(), "repeat.event")
 	}
 
 	// Should not panic

@@ -9,6 +9,7 @@ import (
 
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/model"
+	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // TokenDB — интерфейс базы данных, который нужен TokenRepo.
@@ -47,8 +48,11 @@ type tokenRepo struct {
 }
 
 // NewTokenRepo создаёт репозиторий токенов.
-func NewTokenRepo(db TokenDB, dialect string) TokenRepo {
-	slog.Debug("token repository created", "dialect", dialect)
+func NewTokenRepo(ctx context.Context, db TokenDB, dialect string) TokenRepo {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewTokenRepo")
+	defer spanEnd()
+
+	slog.DebugContext(traceCtx, "token repository created", "dialect", dialect)
 
 	return &tokenRepo{db: db, codec: codec{dialect: dialect}}
 }
@@ -59,6 +63,9 @@ func NewTokenRepo(db TokenDB, dialect string) TokenRepo {
 // модель (model.Role.ID). Так роль токена и роль членства в тенанте смотрят
 // на один список значений.
 func (r *tokenRepo) Create(ctx context.Context, token *model.Token) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Create")
+	defer spanEnd()
+
 	const query = `INSERT INTO user_tokens (id, user_id, tenant_id, role_id, issued_at,` +
 		` expires_at, revoked_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
@@ -67,7 +74,7 @@ func (r *tokenRepo) Create(ctx context.Context, token *model.Token) error {
 		return fmt.Errorf("insert token: %w", err)
 	}
 
-	_, err = r.db.ExecContext(ctx, r.rebind(query),
+	_, err = r.db.ExecContext(traceCtx, r.rebind(query),
 		token.ID,
 		token.UserID,
 		token.TenantID,
@@ -89,9 +96,12 @@ func (r *tokenRepo) Create(ctx context.Context, token *model.Token) error {
 // Проверять подпись токена по базе не нужно: запись нужна, чтобы узнать, не
 // отозван ли токен, — это единственное состояние сессии, которого нет в самом JWT.
 func (r *tokenRepo) GetByID(ctx context.Context, id string) (*model.Token, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetByID")
+	defer spanEnd()
+
 	const query = "SELECT " + authColumns + " FROM user_tokens WHERE id = ?"
 
-	token, err := scanToken(r.db.QueryRowContext(ctx, r.rebind(query), id))
+	token, err := scanToken(r.db.QueryRowContext(traceCtx, r.rebind(query), id))
 	if err != nil {
 		return nil, fmt.Errorf("select token: %w", database.MapError(err))
 	}
@@ -101,9 +111,12 @@ func (r *tokenRepo) GetByID(ctx context.Context, id string) (*model.Token, error
 
 // TouchLastUsed отмечает использование токена.
 func (r *tokenRepo) TouchLastUsed(ctx context.Context, id string, at time.Time) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "TouchLastUsed")
+	defer spanEnd()
+
 	const query = "UPDATE user_tokens SET last_used_at = ? WHERE id = ?"
 
-	result, err := r.db.ExecContext(ctx, r.rebind(query), r.timeArg(at), id)
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
 	if err != nil {
 		return fmt.Errorf("touch token: %w", database.MapError(err))
 	}
@@ -118,9 +131,12 @@ func (r *tokenRepo) TouchLastUsed(ctx context.Context, id string, at time.Time) 
 // меняет, но и ошибкой не считается — клиент мог потерять ответ на первый, а
 // для аудита важно, когда сессия закончилась в действительности.
 func (r *tokenRepo) Revoke(ctx context.Context, id string, at time.Time) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Revoke")
+	defer spanEnd()
+
 	const query = "UPDATE user_tokens SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?"
 
-	result, err := r.db.ExecContext(ctx, r.rebind(query), r.timeArg(at), id)
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
 	if err != nil {
 		return fmt.Errorf("revoke token: %w", database.MapError(err))
 	}
@@ -131,9 +147,12 @@ func (r *tokenRepo) Revoke(ctx context.Context, id string, at time.Time) error {
 // DeleteExpired удаляет просроченные токены: у сессии с истёкшим сроком смысла
 // уже нет, а таблица растёт с каждым входом в систему.
 func (r *tokenRepo) DeleteExpired(ctx context.Context, user_id string, before time.Time) (int64, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "DeleteExpired")
+	defer spanEnd()
+
 	const query = "DELETE FROM user_tokens WHERE user_id = ? AND expires_at < ?"
 
-	result, err := r.db.ExecContext(ctx, r.rebind(query), user_id, r.timeArg(before))
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query), user_id, r.timeArg(before))
 	if err != nil {
 		return 0, fmt.Errorf("delete expired tokens: %w", database.MapError(err))
 	}

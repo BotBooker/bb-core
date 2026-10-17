@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
@@ -38,7 +39,7 @@ func main() {
 // процесс тестирования вызовом os.Exit.
 func Main() int {
 	if err := run(); err != nil {
-		slog.Error("server failed", "error", err)
+		slog.ErrorContext(context.Background(), "server failed", "error", err)
 
 		return 1
 	}

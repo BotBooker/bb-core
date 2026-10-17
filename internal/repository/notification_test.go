@@ -43,7 +43,7 @@ func TestNewNotificationRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewNotificationRepo(tt.db)
+			got := NewNotificationRepo(context.Background(), tt.db)
 			if got == nil {
 				t.Error("NewNotificationRepo() returned nil")
 			}

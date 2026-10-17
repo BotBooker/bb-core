@@ -45,7 +45,7 @@ func main() {
 // Main выполняет команду и возвращает код возврата процесса.
 func Main() int {
 	if err := run(context.Background(), *config.DBConfig(), os.Args[1:]); err != nil {
-		slog.Error("migrations failed", "error", err)
+		slog.ErrorContext(context.Background(), "migrations failed", "error", err)
 
 		return 1
 	}
@@ -71,7 +71,7 @@ func run(ctx context.Context, cfg config.DatabaseConfig, args []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	slog.Info("running migrations", "command", command, "dialect", dialect)
+	slog.InfoContext(ctx, "running migrations", "command", command, "dialect", dialect)
 
 	if command == commandDown {
 		return database.MigrateDown(ctx, db, dialect)

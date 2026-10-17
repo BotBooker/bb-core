@@ -53,7 +53,7 @@ func TestNewUserRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewUserRepo(tt.db, tt.dialect); got == nil {
+			if got := NewUserRepo(context.Background(), tt.db, tt.dialect); got == nil {
 				t.Error("NewUserRepo() returned nil")
 			}
 		})
@@ -92,7 +92,7 @@ func TestCodec_Rebind(t *testing.T) {
 func newTestUserRepo(t *testing.T) UserRepo {
 	t.Helper()
 
-	return NewUserRepo(newSQLiteTestDB(t), database.DialectSQLite)
+	return NewUserRepo(context.Background(), newSQLiteTestDB(t), database.DialectSQLite)
 }
 
 func TestUserRepoSQLite(t *testing.T) {
@@ -102,7 +102,7 @@ func TestUserRepoSQLite(t *testing.T) {
 // TestUserRepoPostgres проверяет репозиторий на PostgreSQL: у диалекта другие
 // плейсхолдеры и типы времени (TIMESTAMPTZ и DATE вместо строк SQLite).
 func TestUserRepoPostgres(t *testing.T) {
-	runUserRepoScenario(t, NewUserRepo(newPostgresTestDB(t), database.DialectPostgres))
+	runUserRepoScenario(t, NewUserRepo(context.Background(), newPostgresTestDB(t), database.DialectPostgres))
 }
 
 func TestUserRepo_DeleteQuery(t *testing.T) {
@@ -141,7 +141,7 @@ func TestUserRepo_DeleteQuery(t *testing.T) {
 				return resultStub{affected: 1}, nil
 			}}
 
-			if err := NewUserRepo(db, tt.dialect).Delete(context.Background(), id); err != nil {
+			if err := NewUserRepo(context.Background(), db, tt.dialect).Delete(context.Background(), id); err != nil {
 				t.Fatalf("Delete() unexpected error = %v", err)
 			}
 
@@ -170,7 +170,7 @@ func TestUserRepo_DeleteInvalidUUID(t *testing.T) {
 		return resultStub{affected: 1}, nil
 	}}
 
-	err := NewUserRepo(db, database.DialectSQLite).Delete(context.Background(), "1'; DROP TABLE users; --")
+	err := NewUserRepo(context.Background(), db, database.DialectSQLite).Delete(context.Background(), "1'; DROP TABLE users; --")
 	if !errors.Is(err, model.ErrInvalidUUID) {
 		t.Errorf("Delete() error = %v, want %v", err, model.ErrInvalidUUID)
 	}
@@ -426,7 +426,7 @@ func TestUserRepo_SoftDeleteMarksBothFlags(t *testing.T) {
 	ctx := context.Background()
 
 	conn := newSQLiteTestDB(t)
-	repo := NewUserRepo(conn, database.DialectSQLite)
+	repo := NewUserRepo(context.Background(), conn, database.DialectSQLite)
 
 	user := testUser(t, "flags@example.com", "+79990000010")
 	if err := repo.Create(ctx, user); err != nil {

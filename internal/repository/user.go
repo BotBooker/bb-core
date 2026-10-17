@@ -9,6 +9,7 @@ import (
 
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/model"
+	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // UserDB — интерфейс базы данных, который нужен UserRepo.
@@ -59,8 +60,11 @@ type userRepo struct {
 //
 // Диалект нужен для двух вещей: подстановки плейсхолдеров ($1 в PostgreSQL,
 // ? в SQLite) и кодирования времени (TIMESTAMPTZ против строки RFC3339).
-func NewUserRepo(db UserDB, dialect string) UserRepo {
-	slog.Debug("user repository created", "dialect", dialect)
+func NewUserRepo(ctx context.Context, db UserDB, dialect string) UserRepo {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewUserRepo")
+	defer spanEnd()
+
+	slog.DebugContext(traceCtx, "user repository created", "dialect", dialect)
 
 	return &userRepo{db: db, codec: codec{dialect: dialect}}
 }
@@ -70,12 +74,15 @@ func NewUserRepo(db UserDB, dialect string) UserRepo {
 // Роль не записывается: её хранит членство в тенанте (tenant_members), а
 // профиль в users колонки с ролью не имеет.
 func (r *userRepo) Create(ctx context.Context, user *model.User) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Create")
+	defer spanEnd()
+
 	const query = `INSERT INTO users` +
 		` (id, email, first_name, last_name, middle_name, phone_number,` +
 		` gender, birth_date, created_at, updated_at, last_login_at, is_active, is_delete)` +
 		` VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := r.db.ExecContext(ctx, r.rebind(query),
+	_, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		user.ID,
 		user.Email,
 		user.FirstName,
@@ -101,9 +108,12 @@ func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 // Удалённые (is_active = false, is_delete = true) записи не видны: soft delete
 // делает их недоступными так же, как обычное удаление.
 func (r *userRepo) GetByID(ctx context.Context, id string) (*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetByID")
+	defer spanEnd()
+
 	const query = "SELECT " + userColumns + " FROM users WHERE id = ?" + activeUserFilter
 
-	return r.getBy(ctx, query, id)
+	return r.getBy(traceCtx, query, id)
 }
 
 // GetByEmail возвращает активного пользователя по email: вход и восстановление
@@ -113,20 +123,26 @@ func (r *userRepo) GetByID(ctx context.Context, id string) (*model.User, error) 
 // остаться несколько строк с одним email (одна активная и любое число
 // удалённых), и без фильтра QueryRow вернул бы произвольную из них.
 func (r *userRepo) GetByEmail(ctx context.Context, email string) (*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetByEmail")
+	defer spanEnd()
+
 	const query = "SELECT " + userColumns + " FROM users WHERE email = ?" + activeUserFilter
 
-	return r.getBy(ctx, query, email)
+	return r.getBy(traceCtx, query, email)
 }
 
 // Update перезаписывает изменяемые поля активного пользователя.
 // Отсутствие активной строки — database.ErrNotFound, а не тихий успех:
 // удалённого пользователя менять нельзя.
 func (r *userRepo) Update(ctx context.Context, user *model.User) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Update")
+	defer spanEnd()
+
 	const query = `UPDATE users SET email = ?, first_name = ?, last_name = ?, middle_name = ?,` +
 		` phone_number = ?, gender = ?, birth_date = ?, updated_at = ?, last_login_at = ?` +
 		` WHERE id = ? AND is_active = true AND is_delete = false`
 
-	result, err := r.db.ExecContext(ctx, r.rebind(query),
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		user.Email,
 		user.FirstName,
 		user.LastName,
@@ -155,6 +171,9 @@ func (r *userRepo) Update(ctx context.Context, user *model.User) error {
 // фото; условие is_active = true делает повторное удаление ошибкой ErrNotFound,
 // а не тихим успехом.
 func (r *userRepo) Delete(ctx context.Context, id string) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "Delete")
+	defer spanEnd()
+
 	const query = "UPDATE users SET is_active = false, is_delete = true WHERE id = ? AND is_active = true"
 
 	// Значение приходит от вызывающего слоя, поэтому проверяется до запроса:
@@ -167,7 +186,7 @@ func (r *userRepo) Delete(ctx context.Context, id string) error {
 	// форме ExecContext с одним аргументом принимает этот аргумент за тело
 	// запроса, поэтому срабатывание правила go_gosec_sql_concat_sqli ложное.
 	// bearer:disable go_gosec_sql_concat_sqli
-	result, err := r.db.ExecContext(ctx, r.rebind(query), id)
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query), id)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", database.MapError(err))
 	}
@@ -177,7 +196,10 @@ func (r *userRepo) Delete(ctx context.Context, id string) error {
 
 // getBy выполняет SELECT одной строки и читает её в модель.
 func (r *userRepo) getBy(ctx context.Context, query string, args ...any) (*model.User, error) {
-	user, err := scanUser(r.db.QueryRowContext(ctx, r.rebind(query), args...))
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "getBy")
+	defer spanEnd()
+
+	user, err := scanUser(r.db.QueryRowContext(traceCtx, r.rebind(query), args...))
 	if err != nil {
 		return nil, fmt.Errorf("select user: %w", database.MapError(err))
 	}

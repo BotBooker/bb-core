@@ -20,7 +20,7 @@ func newTestBootstrapService(
 ) *bootstrapService {
 	t.Helper()
 
-	created := NewBootstrapService(users, credentials, tenants, testPasswordTTL)
+	created := NewBootstrapService(context.Background(), users, credentials, tenants, testPasswordTTL)
 
 	svc, ok := created.(*bootstrapService)
 	if !ok {

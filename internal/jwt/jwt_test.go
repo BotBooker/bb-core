@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -20,7 +21,7 @@ const (
 func testSigner(t *testing.T) *Signer {
 	t.Helper()
 
-	signer, err := NewSigner(testSecret, testIssuer)
+	signer, err := NewSigner(context.Background(), testSecret, testIssuer)
 	if err != nil {
 		t.Fatalf("NewSigner() unexpected error = %v", err)
 	}
@@ -187,12 +188,12 @@ func TestSigner_Parse_Errors(t *testing.T) {
 
 	parts := strings.Split(valid, ".")
 
-	foreign, err := NewSigner("another-secret-with-at-least-32-b", testIssuer)
+	foreign, err := NewSigner(context.Background(), "another-secret-with-at-least-32-b", testIssuer)
 	if err != nil {
 		t.Fatalf("NewSigner() unexpected error = %v", err)
 	}
 
-	otherIssuer, err := NewSigner(testSecret, "another-issuer")
+	otherIssuer, err := NewSigner(context.Background(), testSecret, "another-issuer")
 	if err != nil {
 		t.Fatalf("NewSigner() unexpected error = %v", err)
 	}
@@ -351,12 +352,12 @@ func TestSigner_Parse_Errors(t *testing.T) {
 }
 
 func TestNewSigner_EmptySecret(t *testing.T) {
-	first, err := NewSigner("", testIssuer)
+	first, err := NewSigner(context.Background(), "", testIssuer)
 	if err != nil {
 		t.Fatalf("NewSigner() unexpected error = %v", err)
 	}
 
-	second, err := NewSigner("", testIssuer)
+	second, err := NewSigner(context.Background(), "", testIssuer)
 	if err != nil {
 		t.Fatalf("NewSigner() unexpected error = %v", err)
 	}
