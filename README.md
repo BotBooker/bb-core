@@ -1,6 +1,10 @@
 # bb-core
 
-[![codecov](https://codecov.io/gh/BotBooker/bb-core/graph/badge.svg?token=S7CGSXNE61)](https://codecov.io/gh/BotBooker/bb-core)
+[![golang version][golang-image]][golang-url]
+[![License][license-image]][license-url]
+[![codecov][codecov-image]][codecov-url]
+[![CodeQL Advanced][CodeQL-image]][CodeQL-url]
+[![Trivy Security Scan][Trivy-image]][Trivy-url]
 
 Backend‑часть сервиса BotBooker — платформы для бронирования услуг через чат‑ботов.
 
@@ -123,3 +127,14 @@ ldflags; релиз собирается целью `make build-release`. Цел
   архитектура приложения.
 - [docs/HOWTO.md](docs/HOWTO.md) — наблюдаемость (трассировка, метрики, логи).
 
+---
+[golang-image]: https://img.shields.io/github/go-mod/go-version/BotBooker/bb-core
+[golang-url]: https://go.dev
+[license-image]: https://img.shields.io/github/license/BotBooker/bb-core
+[license-url]: https://opensource.org/license/apache-2.0
+[codecov-image]: https://codecov.io/gh/BotBooker/bb-core/graph/badge.svg?token=S7CGSXNE61
+[codecov-url]: https://codecov.io/gh/BotBooker/bb-core
+[CodeQL-image]: https://github.com/BotBooker/bb-core/actions/workflows/codeql.yml/badge.svg
+[CodeQL-url]: https://github.com/BotBooker/bb-core/actions/workflows/codeql.yml
+[Trivy-image]: https://github.com/BotBooker/bb-core/actions/workflows/trivy-scan.yml/badge.svg
+[Trivy-url]: https://github.com/BotBooker/bb-core/actions/workflows/trivy-scan.yml
