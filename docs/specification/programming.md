@@ -1,9 +1,10 @@
 # Спецификация программирования
 
 Документ описывает правила, которым следует код репозитория: принципы, работу с
-логированием и секретами, обработку ошибок, тестирование и сборку. Это
-версионируемый источник правил — `.clinerules/` содержит лишь краткую выжимку со
-ссылкой сюда, чтобы правила были видны CI и всем разработчикам.
+логированием и секретами, обработку ошибок, тестирование, сборку и требования к
+Kubernetes-манифестам. Это версионируемый источник правил — `.clinerules/`
+содержит лишь краткую выжимку со ссылкой сюда, чтобы правила были видны CI и
+всем разработчикам.
 
 ## 1. Принципы
 
@@ -138,3 +139,94 @@
   маршрутов нормализованы, чтобы кардинальность не росла с числом сущностей.
   Отдельный экспортёр в Prometheus — задача на будущее.
 - **Логи.** См. раздел 2.
+
+## 7. Kubernetes-манифесты
+
+Манифесты (`deploy/kind/*.yaml`, шаблоны Helm-чарта `deploy/helm/bb-core`)
+собираются по модели угроз **Pod Security Standards `restricted`**: под не
+получает прав больше, чем нужно приложению. Соблюдение проверяет сканер
+misconfig в CI (`trivy-scan.yml`, `scanners: vuln,secret,misconfig`), поэтому
+отклонение от правил ниже — дефект, а не «строгость тестового стенда».
+
+### 7.1 Обязательный `securityContext`
+
+Pod-level (`spec.template.spec.securityContext`):
+
+| Поле | Значение | Зачем |
+| --- | --- | --- |
+| `runAsNonRoot` | `true` | контейнер не может работать под root |
+| `runAsUser` / `runAsGroup` | числовой UID/GID образа | в `scratch` нет `/etc/passwd`, а числовые значения не зависят от `gosu` в entrypoint |
+| `fsGroup` | тот же GID, что у процесса | запись в `emptyDir` без root |
+| `seccompProfile.type` | `RuntimeDefault` | включает штатный seccomp-профиль ядра |
+
+Container-level (`containers[].securityContext`):
+
+| Поле | Значение | Зачем |
+| --- | --- | --- |
+| `runAsNonRoot` | `true` | дублируется на контейнере: проверки сканера смотрят на контейнер |
+| `allowPrivilegeEscalation` | `false` | запрет получения новых привилегий (setuid/setcap) |
+| `readOnlyRootFilesystem` | `true` | корневая ФС только для чтения |
+| `capabilities.drop` | `["ALL"]` | приложению capabilities не нужны |
+| `seccompProfile.type` | `RuntimeDefault` | явный профиль и на уровне контейнера |
+
+UID/GID в манифесте обязан совпадать с `USER` образа:
+
+| Образ | UID:GID | Источник |
+| --- | --- | --- |
+| `bb-core` (scratch) | `65532:65532` | `Dockerfile` (`USER 65532:65532`) |
+| `postgres:16-alpine` | `70:70` | пользователь `postgres` в образе |
+
+### 7.2 Запись при `readOnlyRootFilesystem`
+
+Read-only корень не должен ломать процесс: всё, что пишется в рантайме,
+монтируется томами (`emptyDir` для тестового стенда, PVC — для постоянного).
+
+- `bb-core` пишет только в stdout и в БД → дополнительных томов не требуется.
+- PostgreSQL пишет данные, unix-сокет и временные файлы, поэтому в
+  `deploy/kind/postgres.yaml` примонтированы `emptyDir` на
+  `/var/lib/postgresql/data` (совпадает с `PGDATA`), `/var/run/postgresql` и
+  `/tmp`.
+
+### 7.3 Обязательные поля пода
+
+- `automountServiceAccountToken: false` — доступ к API Kubernetes приложению не
+  нужен.
+- `resources.requests` и `resources.limits` для CPU и памяти.
+- `readinessProbe` и `livenessProbe` (HTTP-путь или команда; у `bb-core` —
+  `/health`).
+- Образ с фиксированным тегом (не `latest`), `imagePullPolicy` задан.
+- Секреты — только через `secretKeyRef` (или `existingSecret` в Helm); значения
+  не хранятся в манифестах и `values.yaml`.
+- Запрещены `hostNetwork`, `hostPID`, `hostIPC`, `hostPath`, `privileged: true`,
+  `capabilities.add` и `runAsUser: 0`.
+
+### 7.4 Исключения
+
+Ослабление допустимо только для тестового стенда (`deploy/kind`) и фиксируется
+комментарием в манифесте с причиной и границей применимости — например, данные
+в `emptyDir` теряются при пересоздании пода. Требования §7.1–7.3 не ослабляются
+нигде: модель `restricted` — нижняя граница для любого манифеста в репозитории.
+
+Ложные срабатывания эвристик сканера фиксируются в `.trivyignore.yaml`:
+исключение содержит `id` (`AVD-KSV-…`), `paths` (конкретный файл) и `statement`
+с обоснованием. Пример — ключи `AUTH_TOKEN_TTL`/`PASSWORD_TTL` в ConfigMap:
+это сроки жизни, а не секреты, и эвристика реагирует на подстроки в именах.
+CI передаёт файл сканеру (`trivyignores` в `trivy-scan.yml`); исключения без
+обоснования не добавляются.
+
+### 7.5 Проверка
+
+```sh
+# misconfig-сканеры (то же, что в CI): securityContext, capabilities, seccomp
+trivy config --severity HIGH,CRITICAL deploy/
+
+# Синтаксис и схема без кластера
+kubectl apply --dry-run=client -f deploy/kind/
+helm template bb-core deploy/helm/bb-core | kubectl apply --dry-run=client -f -
+
+# Стенд целиком: образ, кластер, деплой, smoke-проверка /health
+make kind-test
+```
+
+Манифест с замечанием уровня HIGH не проходит пайплайн: `trivy-scan.yml`
+запускается с `exit-code: 1`.

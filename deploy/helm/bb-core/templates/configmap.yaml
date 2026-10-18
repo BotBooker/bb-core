@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bb-core.fullname" . }}
+  labels:
+    {{- include "bb-core.labels" . | nindent 4 }}
+data:
+  SERVER_HOST: {{ .Values.config.serverHost | quote }}
+  SERVER_PORT: {{ .Values.config.serverPort | quote }}
+  SERVER_GRPC_HOST: {{ .Values.config.grpcHost | quote }}
+  SERVER_GRPC_PORT: {{ .Values.config.grpcPort | quote }}
+  PUBLIC_BASE_URL: {{ .Values.config.publicBaseURL | quote }}
+  MIGRATE_ON_START: {{ .Values.config.migrateOnStart | quote }}
+  MIGRATIONS_DIR: {{ .Values.config.migrationsDir | quote }}
+  LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  AUTH_JWT_ISSUER: {{ .Values.config.authJWTIssuer | quote }}
+  AUTH_TOKEN_TTL: {{ .Values.config.authTokenTTL | quote }}
+  PASSWORD_TTL: {{ .Values.config.passwordTTL | quote }}
+  OTEL_SERVICE_NAME: {{ .Values.config.otelServiceName | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelExporterOTLPEndpoint | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ .Values.config.otelExporterOTLPTracesEndpoint | quote }}
+  OTEL_METRICS_EXPORTER: {{ .Values.config.otelMetricsExporter | quote }}

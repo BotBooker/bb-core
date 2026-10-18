@@ -34,6 +34,8 @@ pass/fail по каждому пункту; при fail — объяснение
 - `make build` проходит (DEV-сборка; релиз — `make build-release`, см. документ
   §5.1).
 - Если используется Docker — минимальная база и нет критичных уязвимостей.
+- Kubernetes-манифесты соответствуют `restricted` (non-root, read-only корень,
+  seccomp, без capabilities) — см. документ §7 и `.clinerules/k8s.md`.
 - CI проходит все проверки (lint, tests, security).
 
 ## 5. Линтинг

@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.*
+.github
+.vscode
+build
+coverage.txt
+gotest-e2e.log
+reviews
+**/*_test.go
+deploy
+docs

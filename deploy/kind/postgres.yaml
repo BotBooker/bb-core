@@ -1,0 +1,117 @@
+# PostgreSQL для тестового стенда в kind (см. make kind-postgres).
+#
+# Это НЕ production-манифест: данные лежат в emptyDir и теряются при
+# пересоздании пода, пароль приходит из Secret, который создаёт Makefile
+# (make kind-secrets). Для стенда, который переживает перезапуск, используйте
+# Helm-чарт PostgreSQL или внешнюю БД.
+#
+# Контейнер запускается по модели Pod Security Standards «restricted»
+# (docs/specification/programming.md, §7): non-root, read-only корневая ФС,
+# seccomp RuntimeDefault, без capabilities. UID/GID 70 — пользователь postgres
+# в образе postgres:16-alpine; задаём их числом, чтобы не зависеть от
+# /etc/passwd и gosu в entrypoint. Всё, что PostgreSQL пишет в рантайме,
+# вынесено на emptyDir: read-only корень иначе ломает initdb и создание
+# unix-сокета.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: POSTGRES_DB
+              value: bbcore
+            - name: POSTGRES_USER
+              value: bbcore
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bb-core-postgres
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bbcore", "-d", "bbcore"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bbcore", "-d", "bbcore"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            # unix-сокет и pid: без тома read-only корень ломает старт.
+            - name: run
+              mountPath: /var/run/postgresql
+            # Временные файлы initdb/сортировок.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP

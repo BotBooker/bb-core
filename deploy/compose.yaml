@@ -1,0 +1,74 @@
+name: bb-core
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bbcore
+      POSTGRES_USER: bbcore
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bbcore -d bbcore"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+    image: bb-core:${VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSN: postgres://bbcore:${POSTGRES_PASSWORD}@postgres:5432/bbcore?sslmode=disable
+      MIGRATE_ON_START: "true"
+      # SQL-миграции лежат в образе (embed отключён): путь задаёт MIGRATIONS_DIR.
+      MIGRATIONS_DIR: /app/migrations
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8080"
+      SERVER_GRPC_HOST: 0.0.0.0
+      SERVER_GRPC_PORT: "50051"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-bb-core}
+      AUTH_TOKEN_TTL: ${AUTH_TOKEN_TTL:-720h}
+      PASSWORD_TTL: ${PASSWORD_TTL:-2160h}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-bb-core}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-none}
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+      - "${GRPC_PORT:-50051}:50051"
+    command: ["/app/api"]
+
+  # Первый суперпользователь: docker compose run --rm bootstrap
+  bootstrap:
+    image: bb-core:${VERSION:-dev}
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSN: postgres://bbcore:${POSTGRES_PASSWORD}@postgres:5432/bbcore?sslmode=disable
+      MIGRATE_ON_START: "true"
+      MIGRATIONS_DIR: /app/migrations
+      SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:?set SUPERUSER_EMAIL}
+      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:?set SUPERUSER_PASSWORD}
+      SUPERUSER_FIRST_NAME: ${SUPERUSER_FIRST_NAME:-Super}
+      SUPERUSER_LAST_NAME: ${SUPERUSER_LAST_NAME:-Admin}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: ["/app/bootstrap"]
+
+volumes:
+  postgres-data:

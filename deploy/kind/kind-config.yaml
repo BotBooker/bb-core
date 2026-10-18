@@ -1,0 +1,8 @@
+# Конфигурация тестового кластера kind (см. make kind-up).
+# Один control-plane узел: для smoke-проверки этого достаточно.
+# Порты наружу не публикуются: доступ к API — через kubectl port-forward
+# (make kind-port-forward / make kind-smoke).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
