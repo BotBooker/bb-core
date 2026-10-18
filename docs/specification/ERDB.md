@@ -72,11 +72,18 @@ PK не даёт добавить пользователя в тенант дв�
 - `gender`       - ENUM('unspecified', 'male', 'female') NOT NULL DEFAULT 'unspecified';
 - `birth_date`   - DATE NULL;
 - `created_at`   - TIMESTAMPTZ NOT NULL;
-- `updated_at`   - TIMESTAMPTZ NOT NULL.
+- `updated_at`   - TIMESTAMPTZ NOT NULL;
+- `is_superuser` - BOOLEAN NOT NULL DEFAULT false; суперпользователь, созданный
+  bootstrap: управляет всеми объектами и тенантами;
+- `is_global_operator` - BOOLEAN NOT NULL DEFAULT false; глобальный оператор,
+  назначенный суперпользователем: администрирует все тенанты.
 
 Роли у профиля нет: пользователь может состоять в нескольких тенантах и в
 каждом иметь свою роль, поэтому роль хранится в членстве
-(`tenant_members.role_id`, см. 2.2 и 2.6), а не в `users`.
+(`tenant_members.role_id`, см. 2.2 и 2.6), а не в `users`. Флаги
+`is_superuser`/`is_global_operator` — не роль тенанта, а системный уровень
+доступа: они одинаковы во всех тенантах и читаются вместе с профилем при
+аутентификации.
 
 ### 2.4. UserCredentials (user_credentials, служебная)
 
@@ -894,7 +901,7 @@ ObjectAddons 1 ──< N BookingAddons        (addon_id)
 6. **Безопасность.** Пароли хранятся только как хеши **Argon2id**
    (`user_credentials.password_hash`); в логах и трейсах нет PII (почта,
    телефон, payload уведомлений). Соединение - TLS.
-7. **Диалекты.** Поддерживаются PostgreSQL 14+ (`ENUM`, `JSONB`, `btree_gist`)
+7. **Диалекты.** Поддерживаются PostgreSQL 16+ (`ENUM`, `JSONB`, `btree_gist`)
    и SQLite (`TEXT` + `CHECK`, `PRAGMA foreign_keys = ON`, один писатель).
    Время в SQLite - строки RFC3339, значения - в UTC.
 8. **Мягкое удаление.** Пользователи и фото физически не удаляются (флаги

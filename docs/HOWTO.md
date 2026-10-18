@@ -43,7 +43,8 @@ DSN=sqlite:/tmp/database.db go run ./cmd/migrate down
 
 Первого администратора создаёт отдельная команда `cmd/bootstrap` — по образцу
 `cmd/migrate`. Она применяет миграции и идемпотентно создаёт суперпользователя
-(роль `admin`) с параметрами из окружения:
+(системный флаг `is_superuser`; в личном тенанте — роль `admin`) с параметрами
+из окружения:
 
 ```sh
 make bootstrap     # DSN и SUPERUSER_* берутся из .env
@@ -66,10 +67,24 @@ DSN=sqlite:/tmp/database.db \
 | `SUPERUSER_FIRST_NAME` | `Super` | имя |
 | `SUPERUSER_LAST_NAME` | `Admin` | фамилия |
 
-Повторный запуск ничего не меняет: если пользователь с таким email уже есть,
-пароль ему не сбрасывается. Пустые `SUPERUSER_EMAIL`/`SUPERUSER_PASSWORD` —
-ошибка конфигурации (код возврата процесса `1`). Завести администратора через
-API нельзя: роль `admin` назначается только при bootstrap (`model.NewSuperuser`).
+Повторный запуск не сбрасывает пароль: если пользователь с таким email уже есть,
+он получает (или сохраняет) флаг `is_superuser`. Пустые
+`SUPERUSER_EMAIL`/`SUPERUSER_PASSWORD` — ошибка конфигурации (код возврата
+процесса `1`). Второго суперпользователя через API завести нельзя, но
+суперпользователь может назначать глобальных операторов:
+
+```sh
+# назначить (доступно только суперпользователю)
+curl -X POST https://app.example/api/v1/users/{uuid}/global-operator \
+  -H "Authorization: Bearer $TOKEN"
+
+# снять права
+curl -X DELETE https://app.example/api/v1/users/{uuid}/global-operator \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Глобальный оператор (`is_global_operator`) администрирует все тенанты независимо
+от роли в членстве. Обе операции идемпотентны; флаг виден в ответах `user.v1`.
 
 ## Пароли: хеширование и срок жизни
 

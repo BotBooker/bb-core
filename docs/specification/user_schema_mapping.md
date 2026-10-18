@@ -37,6 +37,8 @@
 | `created_at`, `updated_at` | TIMESTAMPTZ | Да | Служебные метки времени (UTC) |
 | `last_login_at` | TIMESTAMPTZ | Нет | Дата и время последнего входа |
 | `is_active`, `is_delete` | BOOLEAN | Да | Признаки мягкого удаления |
+| `is_superuser` | BOOLEAN | Да (`DEFAULT false`) | Суперпользователь: создаётся bootstrap, управляет всеми объектами и тенантами |
+| `is_global_operator` | BOOLEAN | Да (`DEFAULT false`) | Глобальный оператор: назначается суперпользователем, администрирует все тенанты |
 
 Хеш пароля вынесен в отдельную служебную таблицу `user_credentials`
 (`user_id` PK/FK → `users.id` ON DELETE CASCADE, `password_hash` — bcrypt,
