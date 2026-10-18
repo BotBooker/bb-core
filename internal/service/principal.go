@@ -16,6 +16,9 @@ import (
 // Роль приходит не из профиля (в users её нет), а из членства в тенанте
 // (tenant_members.role_id): у одного пользователя в разных тенантах роли
 // независимы, а запрос действует в рамках одного тенанта — тенанта сессии.
+//
+// Системные флаги профиля (IsSuperuser, IsGlobalOperator) поднимают права над
+// ролью членства: такие пользователи администрируют все тенанты.
 type Principal struct {
 	// User — действующий пользователь: профиль нужен для прав и ответов API.
 	User *model.User
@@ -46,16 +49,44 @@ func (p *Principal) TenantID() string {
 	return p.Token.TenantID
 }
 
-// IsAdmin сообщает, что пользователь — администратор тенанта.
+// IsSuperuser сообщает, что пользователь — суперпользователь, созданный
+// bootstrap. Он управляет всеми объектами и тенантами.
+func (p *Principal) IsSuperuser() bool {
+	return p != nil && p.User != nil && p.User.IsSuperuser
+}
+
+// IsGlobalOperator сообщает, что пользователь назначен суперпользователем
+// глобальным оператором: он администрирует все тенанты независимо от роли в
+// членстве.
+func (p *Principal) IsGlobalOperator() bool {
+	return p != nil && p.User != nil && p.User.IsGlobalOperator
+}
+
+// CanAdminAllTenants сообщает, что пользователь администрирует все тенанты:
+// суперпользователь или глобальный оператор.
+func (p *Principal) CanAdminAllTenants() bool {
+	return p != nil && p.User != nil && p.User.CanAdminAllTenants()
+}
+
+// IsAdmin сообщает, что пользователь — администратор: администратор тенанта
+// сессии, суперпользователь или глобальный оператор.
+//
+// Глобальные администраторы получают права admin в любом тенанте, поэтому
+// проверка «может управлять» не зависит от роли membership.
 func (p *Principal) IsAdmin() bool {
-	return p != nil && p.Role == model.RoleAdmin
+	return p != nil && (p.Role == model.RoleAdmin || p.CanAdminAllTenants())
 }
 
 // IsStaff сообщает, что пользователь — сотрудник тенанта: оператор, менеджер
-// или администратор.
+// или администратор. Суперпользователь и глобальный оператор — сотрудники в
+// любом тенанте.
 func (p *Principal) IsStaff() bool {
 	if p == nil {
 		return false
+	}
+
+	if p.CanAdminAllTenants() {
+		return true
 	}
 
 	switch p.Role {
@@ -64,6 +95,24 @@ func (p *Principal) IsStaff() bool {
 	default:
 		return false
 	}
+}
+
+// CanAdminTenant сообщает, что пользователь может администрировать тенант
+// tenantID.
+//
+// Глобальные администраторы (superuser и global operator) администрируют все
+// тенанты. Администратор тенанта — только свой: тенант сессии. Проверка
+// вынесена сюда, чтобы tenant-scoped операции не повторяли её в каждом сервисе.
+func (p *Principal) CanAdminTenant(tenantID string) bool {
+	if p == nil {
+		return false
+	}
+
+	if p.CanAdminAllTenants() {
+		return true
+	}
+
+	return p.Role == model.RoleAdmin && tenantID != "" && p.TenantID() == tenantID
 }
 
 // CanCreate сообщает, что пользователь может заводить других пользователей.

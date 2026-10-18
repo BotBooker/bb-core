@@ -85,6 +85,132 @@ func TestPrincipal_Roles(t *testing.T) {
 	}
 }
 
+// TestPrincipal_GlobalAdministrators проверяет системный уровень доступа:
+// суперпользователь и глобальный оператор администрируют все тенанты, даже если
+// роль в членстве — client.
+func TestPrincipal_GlobalAdministrators(t *testing.T) {
+	tests := []struct {
+		name         string
+		superuser    bool
+		globalOp     bool
+		role         model.Role
+		wantSuper    bool
+		wantGlobalOp bool
+		wantAdmin    bool
+		wantStaff    bool
+	}{
+		{
+			name:      "суперпользователь с ролью клиента",
+			superuser: true,
+			role:      model.RoleClient,
+			wantSuper: true,
+			wantAdmin: true,
+			wantStaff: true,
+		},
+		{
+			name:         "глобальный оператор с ролью клиента",
+			globalOp:     true,
+			role:         model.RoleClient,
+			wantGlobalOp: true,
+			wantAdmin:    true,
+			wantStaff:    true,
+		},
+		{
+			name: "обычный клиент",
+			role: model.RoleClient,
+		},
+		{
+			name:      "администратор тенанта",
+			role:      model.RoleAdmin,
+			wantAdmin: true,
+			wantStaff: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := testAuthUser(t)
+			user.IsSuperuser = tt.superuser
+			user.IsGlobalOperator = tt.globalOp
+
+			principal := &Principal{
+				User:  user,
+				Token: testSession(user, testNow.Add(time.Hour)),
+				Role:  tt.role,
+			}
+
+			if got := principal.IsSuperuser(); got != tt.wantSuper {
+				t.Errorf("IsSuperuser() = %v, want %v", got, tt.wantSuper)
+			}
+			if got := principal.IsGlobalOperator(); got != tt.wantGlobalOp {
+				t.Errorf("IsGlobalOperator() = %v, want %v", got, tt.wantGlobalOp)
+			}
+			if got := principal.IsAdmin(); got != tt.wantAdmin {
+				t.Errorf("IsAdmin() = %v, want %v", got, tt.wantAdmin)
+			}
+			if got := principal.IsStaff(); got != tt.wantStaff {
+				t.Errorf("IsStaff() = %v, want %v", got, tt.wantStaff)
+			}
+		})
+	}
+}
+
+// TestPrincipal_CanAdminTenant проверяет tenant-scoped проверку: администратор
+// управляет только тенантом сессии, глобальные администраторы — любым.
+func TestPrincipal_CanAdminTenant(t *testing.T) {
+	const otherTenantID = "8f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
+
+	user := testAuthUser(t)
+	globalOperator := testAuthUser(t)
+	globalOperator.IsGlobalOperator = true
+
+	tests := []struct {
+		name      string
+		principal *Principal
+		tenantID  string
+		want      bool
+	}{
+		{
+			name:      "администратор тенанта сессии",
+			principal: &Principal{User: user, Token: testSession(user, testNow.Add(time.Hour)), Role: model.RoleAdmin},
+			tenantID:  testTenantID,
+			want:      true,
+		},
+		{
+			name:      "администратор чужого тенанта",
+			principal: &Principal{User: user, Token: testSession(user, testNow.Add(time.Hour)), Role: model.RoleAdmin},
+			tenantID:  otherTenantID,
+		},
+		{
+			name: "глобальный оператор администрирует любой тенант",
+			principal: &Principal{
+				User:  globalOperator,
+				Token: testSession(globalOperator, testNow.Add(time.Hour)),
+				Role:  model.RoleClient,
+			},
+			tenantID: otherTenantID,
+			want:     true,
+		},
+		{
+			name:      "оператор не администрирует тенант",
+			principal: &Principal{User: user, Token: testSession(user, testNow.Add(time.Hour)), Role: model.RoleOperator},
+			tenantID:  testTenantID,
+		},
+		{
+			name:     "nil-получатель",
+			tenantID: testTenantID,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.principal.CanAdminTenant(tt.tenantID); got != tt.want {
+				t.Errorf("CanAdminTenant() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestPrincipal_CanRead проверяет доступ к профилю: свой профиль доступен
 // всегда, чужой — только сотрудникам тенанта.
 func TestPrincipal_CanRead(t *testing.T) {

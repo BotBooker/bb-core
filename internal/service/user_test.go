@@ -67,6 +67,28 @@ func testPrincipal(t *testing.T, role model.Role) *Principal {
 	}
 }
 
+// testSuperuserPrincipal — действующий суперпользователь: системный флаг
+// важнее роли в тенанте, поэтому роль может быть любой.
+func testSuperuserPrincipal(t *testing.T) *Principal {
+	t.Helper()
+
+	principal := testPrincipal(t, model.RoleClient)
+	principal.User.IsSuperuser = true
+
+	return principal
+}
+
+// testGlobalOperatorPrincipal — действующий глобальный оператор: он управляет
+// всеми тенантами, но назначать других операторов не может.
+func testGlobalOperatorPrincipal(t *testing.T) *Principal {
+	t.Helper()
+
+	principal := testPrincipal(t, model.RoleClient)
+	principal.User.IsGlobalOperator = true
+
+	return principal
+}
+
 // mockUserEventPublisher запоминает опубликованные события: так проверяется,
 // что событие уходит только после успешной операции.
 type mockUserEventPublisher struct {
@@ -277,6 +299,11 @@ func TestUserService_Update(t *testing.T) {
 
 	t.Run("применяет частичное обновление", func(t *testing.T) {
 		existing := storedUser(t, id)
+		// Системные флаги не входят в UpdateUserInput: обновление профиля их
+		// не трогает, даже если они выставлены.
+		existing.IsSuperuser = true
+		existing.IsGlobalOperator = true
+
 		firstName := "Пётр"
 
 		var stored *model.User
@@ -301,6 +328,9 @@ func TestUserService_Update(t *testing.T) {
 		}
 		if got.Email != existing.Email || got.LastName != existing.LastName {
 			t.Error("Update() изменил поля, которых не было во входе")
+		}
+		if !got.IsSuperuser || !got.IsGlobalOperator {
+			t.Error("Update() сбросил системные флаги суперпользователя/глобального оператора")
 		}
 		if !got.UpdatedAt.After(got.CreatedAt) {
 			t.Errorf("UpdatedAt = %v, want позже CreatedAt %v", got.UpdatedAt, got.CreatedAt)
@@ -400,6 +430,261 @@ func TestUserService_Delete(t *testing.T) {
 		}
 		if called {
 			t.Error("Delete() вызвал репозиторий с невалидным UUID")
+		}
+	})
+}
+
+// TestUserService_AssignGlobalOperator проверяет выдачу прав глобального
+// оператора: назначает только суперпользователь, а суперпользователя изменить
+// нельзя.
+func TestUserService_AssignGlobalOperator(t *testing.T) {
+	const id = "3f4a1e2c-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
+
+	t.Run("назначает глобального оператора", func(t *testing.T) {
+		target := storedUser(t, id)
+
+		var updated *model.User
+
+		repo := &mockUserRepository{
+			getByIDFunc: func(context.Context, string) (*model.User, error) { return target, nil },
+			updateFunc: func(_ context.Context, user *model.User) error {
+				updated = user
+
+				return nil
+			},
+		}
+		svc, events := newTestUserService(repo)
+
+		got, err := svc.AssignGlobalOperator(context.Background(), testSuperuserPrincipal(t), id)
+		if err != nil {
+			t.Fatalf("AssignGlobalOperator() unexpected error = %v", err)
+		}
+		if !got.IsGlobalOperator {
+			t.Error("IsGlobalOperator = false, want true")
+		}
+		if updated != target {
+			t.Error("AssignGlobalOperator() не сохранил пользователя")
+		}
+		if len(events.events) != 1 || events.events[0] != EventGlobalOperatorAssigned {
+			t.Errorf("события = %v, want [%s]", events.events, EventGlobalOperatorAssigned)
+		}
+	})
+
+	t.Run("повторное назначение идемпотентно", func(t *testing.T) {
+		target := storedUser(t, id)
+		target.IsGlobalOperator = true
+
+		updateCalled := false
+
+		repo := &mockUserRepository{
+			getByIDFunc: func(context.Context, string) (*model.User, error) { return target, nil },
+			updateFunc: func(context.Context, *model.User) error {
+				updateCalled = true
+
+				return nil
+			},
+		}
+		svc, events := newTestUserService(repo)
+
+		got, err := svc.AssignGlobalOperator(context.Background(), testSuperuserPrincipal(t), id)
+		if err != nil {
+			t.Fatalf("AssignGlobalOperator() unexpected error = %v", err)
+		}
+		if got != target {
+			t.Error("AssignGlobalOperator() вернул другого пользователя")
+		}
+		if updateCalled {
+			t.Error("AssignGlobalOperator() записал уже назначенного оператора")
+		}
+		if len(events.events) != 0 {
+			t.Errorf("события = %v, want пусто", events.events)
+		}
+	})
+
+	t.Run("ошибки", func(t *testing.T) {
+		superuserTarget := storedUser(t, id)
+		superuserTarget.IsSuperuser = true
+
+		tests := []struct {
+			name    string
+			actor   *Principal
+			id      string
+			target  *model.User
+			wantErr error
+		}{
+			{
+				name:    "назначает не суперпользователь",
+				actor:   testPrincipal(t, model.RoleAdmin),
+				id:      id,
+				target:  storedUser(t, id),
+				wantErr: ErrForbidden,
+			},
+			{
+				name:    "глобальный оператор не назначает другого",
+				actor:   testGlobalOperatorPrincipal(t),
+				id:      id,
+				target:  storedUser(t, id),
+				wantErr: ErrForbidden,
+			},
+			{
+				name:    "цель — суперпользователь",
+				actor:   testSuperuserPrincipal(t),
+				id:      id,
+				target:  superuserTarget,
+				wantErr: ErrForbidden,
+			},
+			{
+				name:    "невалидный UUID",
+				actor:   testSuperuserPrincipal(t),
+				id:      "не-uuid",
+				target:  storedUser(t, id),
+				wantErr: model.ErrInvalidUUID,
+			},
+			{
+				name:    "нет действующего пользователя",
+				actor:   nil,
+				id:      id,
+				target:  storedUser(t, id),
+				wantErr: ErrUnauthorized,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				repo := &mockUserRepository{
+					getByIDFunc: func(context.Context, string) (*model.User, error) { return tt.target, nil },
+				}
+				svc, _ := newTestUserService(repo)
+
+				if _, err := svc.AssignGlobalOperator(context.Background(), tt.actor, tt.id); !errors.Is(err, tt.wantErr) {
+					t.Errorf("AssignGlobalOperator() error = %v, want %v", err, tt.wantErr)
+				}
+			})
+		}
+	})
+}
+
+// TestUserService_RevokeGlobalOperator проверяет снятие прав: доступно только
+// суперпользователю, суперпользователя изменить нельзя, повторное снятие
+// идемпотентно.
+func TestUserService_RevokeGlobalOperator(t *testing.T) {
+	const id = "3f4a1e2c-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
+
+	t.Run("снимает права глобального оператора", func(t *testing.T) {
+		target := storedUser(t, id)
+		target.IsGlobalOperator = true
+
+		var updated *model.User
+
+		repo := &mockUserRepository{
+			getByIDFunc: func(context.Context, string) (*model.User, error) { return target, nil },
+			updateFunc: func(_ context.Context, user *model.User) error {
+				updated = user
+
+				return nil
+			},
+		}
+		svc, events := newTestUserService(repo)
+
+		if err := svc.RevokeGlobalOperator(context.Background(), testSuperuserPrincipal(t), id); err != nil {
+			t.Fatalf("RevokeGlobalOperator() unexpected error = %v", err)
+		}
+		if target.IsGlobalOperator {
+			t.Error("IsGlobalOperator = true, want false")
+		}
+		if updated != target {
+			t.Error("RevokeGlobalOperator() не сохранил пользователя")
+		}
+		if len(events.events) != 1 || events.events[0] != EventGlobalOperatorRevoked {
+			t.Errorf("события = %v, want [%s]", events.events, EventGlobalOperatorRevoked)
+		}
+	})
+
+	t.Run("повторное снятие идемпотентно", func(t *testing.T) {
+		target := storedUser(t, id)
+
+		updateCalled := false
+
+		repo := &mockUserRepository{
+			getByIDFunc: func(context.Context, string) (*model.User, error) { return target, nil },
+			updateFunc: func(context.Context, *model.User) error {
+				updateCalled = true
+
+				return nil
+			},
+		}
+		svc, events := newTestUserService(repo)
+
+		if err := svc.RevokeGlobalOperator(context.Background(), testSuperuserPrincipal(t), id); err != nil {
+			t.Fatalf("RevokeGlobalOperator() unexpected error = %v", err)
+		}
+		if updateCalled {
+			t.Error("RevokeGlobalOperator() записал пользователя без прав оператора")
+		}
+		if len(events.events) != 0 {
+			t.Errorf("события = %v, want пусто", events.events)
+		}
+	})
+
+	t.Run("ошибки", func(t *testing.T) {
+		superuserTarget := storedUser(t, id)
+		superuserTarget.IsSuperuser = true
+
+		tests := []struct {
+			name    string
+			actor   *Principal
+			id      string
+			target  *model.User
+			wantErr error
+		}{
+			{
+				name:    "снимает не суперпользователь",
+				actor:   testPrincipal(t, model.RoleAdmin),
+				id:      id,
+				target:  storedUser(t, id),
+				wantErr: ErrForbidden,
+			},
+			{
+				name:    "глобальный оператор не снимает права",
+				actor:   testGlobalOperatorPrincipal(t),
+				id:      id,
+				target:  storedUser(t, id),
+				wantErr: ErrForbidden,
+			},
+			{
+				name:    "цель — суперпользователь",
+				actor:   testSuperuserPrincipal(t),
+				id:      id,
+				target:  superuserTarget,
+				wantErr: ErrForbidden,
+			},
+			{
+				name:    "невалидный UUID",
+				actor:   testSuperuserPrincipal(t),
+				id:      "не-uuid",
+				target:  storedUser(t, id),
+				wantErr: model.ErrInvalidUUID,
+			},
+			{
+				name:    "нет действующего пользователя",
+				actor:   nil,
+				id:      id,
+				target:  storedUser(t, id),
+				wantErr: ErrUnauthorized,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				repo := &mockUserRepository{
+					getByIDFunc: func(context.Context, string) (*model.User, error) { return tt.target, nil },
+				}
+				svc, _ := newTestUserService(repo)
+
+				if err := svc.RevokeGlobalOperator(context.Background(), tt.actor, tt.id); !errors.Is(err, tt.wantErr) {
+					t.Errorf("RevokeGlobalOperator() error = %v, want %v", err, tt.wantErr)
+				}
+			})
 		}
 	})
 }
@@ -549,5 +834,13 @@ func TestUserService_NoPrincipal(t *testing.T) {
 
 	if err := svc.Delete(context.Background(), nil, testCreateInput().Email); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("Delete() error = %v, want %v", err, ErrUnauthorized)
+	}
+
+	if _, err := svc.AssignGlobalOperator(context.Background(), nil, testCreateInput().Email); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("AssignGlobalOperator() error = %v, want %v", err, ErrUnauthorized)
+	}
+
+	if err := svc.RevokeGlobalOperator(context.Background(), nil, testCreateInput().Email); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("RevokeGlobalOperator() error = %v, want %v", err, ErrUnauthorized)
 	}
 }

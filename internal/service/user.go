@@ -37,6 +37,11 @@ const (
 	EventUserUpdated = "user.updated"
 	// EventUserDeleted — пользователь удалён.
 	EventUserDeleted = "user.deleted"
+	// EventGlobalOperatorAssigned — пользователь назначен глобальным оператором.
+	EventGlobalOperatorAssigned = "user.global_operator_assigned"
+	// EventGlobalOperatorRevoked — с пользователя сняты права глобального
+	// оператора.
+	EventGlobalOperatorRevoked = "user.global_operator_revoked"
 )
 
 // UserService — интерфейс сервиса пользователей.
@@ -57,6 +62,12 @@ type UserService interface {
 	Update(ctx context.Context, actor *Principal, id string, in model.UpdateUserInput) (*model.User, error)
 	// Delete удаляет пользователя: доступно только администратору.
 	Delete(ctx context.Context, actor *Principal, id string) error
+	// AssignGlobalOperator назначает пользователя глобальным оператором: он
+	// сможет администрировать все тенанты. Доступно только суперпользователю.
+	AssignGlobalOperator(ctx context.Context, actor *Principal, id string) (*model.User, error)
+	// RevokeGlobalOperator снимает права глобального оператора. Доступно только
+	// суперпользователю; суперпользователя изменить нельзя.
+	RevokeGlobalOperator(ctx context.Context, actor *Principal, id string) error
 }
 
 // userService — конкретная реализация, скрыта от внешних пакетов.
@@ -229,6 +240,108 @@ func (s *userService) Delete(ctx context.Context, actor *Principal, id string) e
 
 	slog.InfoContext(traceCtx, "user deleted", "uuid", id, "actor", current.ID)
 	s.publish(traceCtx, EventUserDeleted)
+
+	return nil
+}
+
+// AssignGlobalOperator назначает пользователя глобальным оператором.
+//
+// Назначать может только суперпользователь: глобальные операторы управляют
+// всеми тенантами, поэтому выдача такого права — исключительно его компетенция.
+// Суперпользователя менять нельзя: он уже администрирует все тенанты, и снятие
+// флага global operator ничего бы не изменило. Повторное назначение
+// идемпотентно.
+func (s *userService) AssignGlobalOperator(
+	ctx context.Context,
+	actor *Principal,
+	id string,
+) (*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "AssignGlobalOperator")
+	defer spanEnd()
+
+	current, err := principalUser(actor)
+	if err != nil {
+		return nil, fmt.Errorf("assign global operator: %w", err)
+	}
+
+	if !actor.IsSuperuser() {
+		return nil, fmt.Errorf("assign global operator: %w: role %q", ErrForbidden, actor.Role)
+	}
+
+	if err := model.ValidateUUID(id); err != nil {
+		return nil, fmt.Errorf("assign global operator: %w", err)
+	}
+
+	user, err := s.userRepo.GetByID(traceCtx, id)
+	if err != nil {
+		return nil, fmt.Errorf("assign global operator: %w", err)
+	}
+
+	if user.IsSuperuser {
+		return nil, fmt.Errorf("assign global operator: %w: target is superuser", ErrForbidden)
+	}
+
+	if user.IsGlobalOperator {
+		return user, nil
+	}
+
+	user.IsGlobalOperator = true
+	user.UpdatedAt = time.Now().UTC()
+
+	if err := s.userRepo.Update(traceCtx, user); err != nil {
+		return nil, fmt.Errorf("assign global operator: %w", err)
+	}
+
+	slog.InfoContext(traceCtx, "global operator assigned", "uuid", user.ID, "actor", current.ID)
+	s.publish(traceCtx, EventGlobalOperatorAssigned)
+
+	return user, nil
+}
+
+// RevokeGlobalOperator снимает права глобального оператора.
+//
+// Снимать права может только суперпользователь. Суперпользователя менять
+// нельзя: его права не зависят от флага global operator. Повторное снятие
+// идемпотентно и не пишет в базу.
+func (s *userService) RevokeGlobalOperator(ctx context.Context, actor *Principal, id string) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "RevokeGlobalOperator")
+	defer spanEnd()
+
+	current, err := principalUser(actor)
+	if err != nil {
+		return fmt.Errorf("revoke global operator: %w", err)
+	}
+
+	if !actor.IsSuperuser() {
+		return fmt.Errorf("revoke global operator: %w: role %q", ErrForbidden, actor.Role)
+	}
+
+	if err := model.ValidateUUID(id); err != nil {
+		return fmt.Errorf("revoke global operator: %w", err)
+	}
+
+	user, err := s.userRepo.GetByID(traceCtx, id)
+	if err != nil {
+		return fmt.Errorf("revoke global operator: %w", err)
+	}
+
+	if user.IsSuperuser {
+		return fmt.Errorf("revoke global operator: %w: target is superuser", ErrForbidden)
+	}
+
+	if !user.IsGlobalOperator {
+		return nil
+	}
+
+	user.IsGlobalOperator = false
+	user.UpdatedAt = time.Now().UTC()
+
+	if err := s.userRepo.Update(traceCtx, user); err != nil {
+		return fmt.Errorf("revoke global operator: %w", err)
+	}
+
+	slog.InfoContext(traceCtx, "global operator revoked", "uuid", user.ID, "actor", current.ID)
+	s.publish(traceCtx, EventGlobalOperatorRevoked)
 
 	return nil
 }

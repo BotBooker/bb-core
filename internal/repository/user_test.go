@@ -253,6 +253,12 @@ func assertUser(t *testing.T, want, got *model.User) {
 	if got.IsActive != want.IsActive {
 		t.Errorf("IsActive = %v, want %v", got.IsActive, want.IsActive)
 	}
+	if got.IsSuperuser != want.IsSuperuser {
+		t.Errorf("IsSuperuser = %v, want %v", got.IsSuperuser, want.IsSuperuser)
+	}
+	if got.IsGlobalOperator != want.IsGlobalOperator {
+		t.Errorf("IsGlobalOperator = %v, want %v", got.IsGlobalOperator, want.IsGlobalOperator)
+	}
 }
 
 // runUserRepoScenario прогоняет один и тот же сценарий на любом диалекте:
@@ -264,6 +270,9 @@ func runUserRepoScenario(t *testing.T, repo UserRepo) {
 
 	t.Run("Create и GetByID", func(t *testing.T) {
 		want := testUser(t, "ivan@example.com", "+79990000001")
+		// Системные флаги — часть профиля: проверяем и запись, и чтение.
+		want.IsSuperuser = true
+		want.IsGlobalOperator = true
 
 		if err := repo.Create(ctx, want); err != nil {
 			t.Fatalf("Create() unexpected error = %v", err)
@@ -330,6 +339,9 @@ func runUserRepoScenario(t *testing.T, repo UserRepo) {
 		if err != nil {
 			t.Fatalf("ApplyUpdate() unexpected error = %v", err)
 		}
+
+		// Профильное обновление не должно терять системные флаги.
+		user.IsGlobalOperator = true
 
 		if err := repo.Update(ctx, user); err != nil {
 			t.Fatalf("Update() unexpected error = %v", err)

@@ -22,10 +22,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserService_Create_FullMethodName = "/user.v1.UserService/Create"
-	UserService_Get_FullMethodName    = "/user.v1.UserService/Get"
-	UserService_Update_FullMethodName = "/user.v1.UserService/Update"
-	UserService_Delete_FullMethodName = "/user.v1.UserService/Delete"
+	UserService_Create_FullMethodName               = "/user.v1.UserService/Create"
+	UserService_Get_FullMethodName                  = "/user.v1.UserService/Get"
+	UserService_Update_FullMethodName               = "/user.v1.UserService/Update"
+	UserService_Delete_FullMethodName               = "/user.v1.UserService/Delete"
+	UserService_AssignGlobalOperator_FullMethodName = "/user.v1.UserService/AssignGlobalOperator"
+	UserService_RevokeGlobalOperator_FullMethodName = "/user.v1.UserService/RevokeGlobalOperator"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -42,6 +44,13 @@ type UserServiceClient interface {
 	Update(ctx context.Context, in *UserServiceUpdateRequest, opts ...grpc.CallOption) (*UserServiceUpdateResponse, error)
 	// Удалить пользователя
 	Delete(ctx context.Context, in *UserServiceDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Назначить пользователя глобальным оператором.
+	// Доступно только суперпользователю: глобальный оператор администрирует все
+	// тенанты независимо от роли в членстве.
+	AssignGlobalOperator(ctx context.Context, in *UserServiceAssignGlobalOperatorRequest, opts ...grpc.CallOption) (*UserServiceAssignGlobalOperatorResponse, error)
+	// Снять с пользователя права глобального оператора.
+	// Доступно только суперпользователю; суперпользователя изменить нельзя.
+	RevokeGlobalOperator(ctx context.Context, in *UserServiceRevokeGlobalOperatorRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type userServiceClient struct {
@@ -92,6 +101,26 @@ func (c *userServiceClient) Delete(ctx context.Context, in *UserServiceDeleteReq
 	return out, nil
 }
 
+func (c *userServiceClient) AssignGlobalOperator(ctx context.Context, in *UserServiceAssignGlobalOperatorRequest, opts ...grpc.CallOption) (*UserServiceAssignGlobalOperatorResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserServiceAssignGlobalOperatorResponse)
+	err := c.cc.Invoke(ctx, UserService_AssignGlobalOperator_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) RevokeGlobalOperator(ctx context.Context, in *UserServiceRevokeGlobalOperatorRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, UserService_RevokeGlobalOperator_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
@@ -106,6 +135,13 @@ type UserServiceServer interface {
 	Update(context.Context, *UserServiceUpdateRequest) (*UserServiceUpdateResponse, error)
 	// Удалить пользователя
 	Delete(context.Context, *UserServiceDeleteRequest) (*emptypb.Empty, error)
+	// Назначить пользователя глобальным оператором.
+	// Доступно только суперпользователю: глобальный оператор администрирует все
+	// тенанты независимо от роли в членстве.
+	AssignGlobalOperator(context.Context, *UserServiceAssignGlobalOperatorRequest) (*UserServiceAssignGlobalOperatorResponse, error)
+	// Снять с пользователя права глобального оператора.
+	// Доступно только суперпользователю; суперпользователя изменить нельзя.
+	RevokeGlobalOperator(context.Context, *UserServiceRevokeGlobalOperatorRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -127,6 +163,12 @@ func (UnimplementedUserServiceServer) Update(context.Context, *UserServiceUpdate
 }
 func (UnimplementedUserServiceServer) Delete(context.Context, *UserServiceDeleteRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedUserServiceServer) AssignGlobalOperator(context.Context, *UserServiceAssignGlobalOperatorRequest) (*UserServiceAssignGlobalOperatorResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AssignGlobalOperator not implemented")
+}
+func (UnimplementedUserServiceServer) RevokeGlobalOperator(context.Context, *UserServiceRevokeGlobalOperatorRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeGlobalOperator not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -221,6 +263,42 @@ func _UserService_Delete_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_AssignGlobalOperator_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserServiceAssignGlobalOperatorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).AssignGlobalOperator(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_AssignGlobalOperator_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).AssignGlobalOperator(ctx, req.(*UserServiceAssignGlobalOperatorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_RevokeGlobalOperator_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserServiceRevokeGlobalOperatorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).RevokeGlobalOperator(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_RevokeGlobalOperator_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).RevokeGlobalOperator(ctx, req.(*UserServiceRevokeGlobalOperatorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -243,6 +321,14 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _UserService_Delete_Handler,
+		},
+		{
+			MethodName: "AssignGlobalOperator",
+			Handler:    _UserService_AssignGlobalOperator_Handler,
+		},
+		{
+			MethodName: "RevokeGlobalOperator",
+			Handler:    _UserService_RevokeGlobalOperator_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

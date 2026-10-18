@@ -74,6 +74,19 @@ service UserService {
   rpc Delete(UserServiceDeleteRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {delete: "/users/{uuid}"};
   }
+
+  // Назначить пользователя глобальным оператором.
+  // Доступно только суперпользователю: глобальный оператор администрирует все
+  // тенанты независимо от роли в членстве.
+  rpc AssignGlobalOperator(UserServiceAssignGlobalOperatorRequest) returns (UserServiceAssignGlobalOperatorResponse) {
+    option (google.api.http) = {post: "/users/{uuid}/global-operator"};
+  }
+
+  // Снять с пользователя права глобального оператора.
+  // Доступно только суперпользователю; суперпользователя изменить нельзя.
+  rpc RevokeGlobalOperator(UserServiceRevokeGlobalOperatorRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/users/{uuid}/global-operator"};
+  }
 }
 
 // Модель пользователя
@@ -98,6 +111,12 @@ message User {
   google.protobuf.Timestamp created_at = 9;
   // Время последнего обновления профиля
   google.protobuf.Timestamp updated_at = 10;
+  // Суперпользователь: назначается только bootstrap и управляет всеми
+  // объектами и тенантами. Через API флаг не меняется.
+  bool is_superuser = 11;
+  // Глобальный оператор: назначен суперпользователем и администрирует все
+  // тенанты независимо от роли в членстве.
+  bool is_global_operator = 12;
 }
 
 // Запрос на создание пользователя
@@ -187,5 +206,23 @@ message UserServiceUpdateResponse {
 // Запрос на удаление пользователя
 message UserServiceDeleteRequest {
   // UUID удаляемого пользователя
+  string uuid = 1 [(validate.rules).string.uuid = true];
+}
+
+// Запрос на назначение глобального оператора
+message UserServiceAssignGlobalOperatorRequest {
+  // UUID пользователя, которому выдают права глобального оператора
+  string uuid = 1 [(validate.rules).string.uuid = true];
+}
+
+// Ответ с пользователем, назначенным глобальным оператором
+message UserServiceAssignGlobalOperatorResponse {
+  // Обновлённый пользователь
+  User user = 1;
+}
+
+// Запрос на снятие прав глобального оператора
+message UserServiceRevokeGlobalOperatorRequest {
+  // UUID пользователя, с которого снимают права глобального оператора
   string uuid = 1 [(validate.rules).string.uuid = true];
 }

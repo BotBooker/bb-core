@@ -97,6 +97,9 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 		if user.Email != "admin@example.com" {
 			t.Errorf("Email = %q, want %q (адрес нормализуется)", user.Email, "admin@example.com")
 		}
+		if !user.IsSuperuser {
+			t.Error("IsSuperuser = false, want true: bootstrap создаёт суперпользователя")
+		}
 		if storedUser != user {
 			t.Error("EnsureSuperuser() не сохранил пользователя")
 		}
@@ -135,6 +138,7 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 		existing := testAuthUser(t)
 
 		createCalled := false
+		updateCalled := false
 
 		users := &mockAuthUserRepository{
 			getByEmailFunc: func(_ context.Context, email string) (*model.User, error) {
@@ -146,6 +150,15 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 			},
 			createFunc: func(context.Context, *model.User) error {
 				createCalled = true
+
+				return nil
+			},
+			updateFunc: func(_ context.Context, user *model.User) error {
+				updateCalled = true
+
+				if !user.IsSuperuser {
+					t.Error("Update() получил пользователя без IsSuperuser")
+				}
 
 				return nil
 			},
@@ -166,6 +179,14 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 		}
 		if createCalled {
 			t.Error("EnsureSuperuser() создал второго суперпользователя")
+		}
+		// Пользователь, созданный до появления флага (или обычный), получает
+		// системные права: bootstrap идемпотентно гарантирует IsSuperuser.
+		if !updateCalled {
+			t.Error("EnsureSuperuser() не выставил IsSuperuser существующему пользователю")
+		}
+		if !existing.IsSuperuser {
+			t.Error("IsSuperuser = false, want true для существующего администратора")
 		}
 	})
 }
@@ -202,6 +223,9 @@ func TestBootstrapService_EnsureSuperuser_Race(t *testing.T) {
 	}
 	if user != existing {
 		t.Error("EnsureSuperuser() вернул не существующего пользователя")
+	}
+	if !existing.IsSuperuser {
+		t.Error("IsSuperuser = false, want true после гонки")
 	}
 }
 

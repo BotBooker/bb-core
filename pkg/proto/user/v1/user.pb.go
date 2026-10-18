@@ -105,9 +105,15 @@ type User struct {
 	// Время создания профиля
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// Время последнего обновления профиля
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Суперпользователь: назначается только bootstrap и управляет всеми
+	// объектами и тенантами. Через API флаг не меняется.
+	IsSuperuser bool `protobuf:"varint,11,opt,name=is_superuser,json=isSuperuser,proto3" json:"is_superuser,omitempty"`
+	// Глобальный оператор: назначен суперпользователем и администрирует все
+	// тенанты независимо от роли в членстве.
+	IsGlobalOperator bool `protobuf:"varint,12,opt,name=is_global_operator,json=isGlobalOperator,proto3" json:"is_global_operator,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *User) Reset() {
@@ -208,6 +214,20 @@ func (x *User) GetUpdatedAt() *timestamppb.Timestamp {
 		return x.UpdatedAt
 	}
 	return nil
+}
+
+func (x *User) GetIsSuperuser() bool {
+	if x != nil {
+		return x.IsSuperuser
+	}
+	return false
+}
+
+func (x *User) GetIsGlobalOperator() bool {
+	if x != nil {
+		return x.IsGlobalOperator
+	}
+	return false
 }
 
 // Запрос на создание пользователя
@@ -638,11 +658,149 @@ func (x *UserServiceDeleteRequest) GetUuid() string {
 	return ""
 }
 
+// Запрос на назначение глобального оператора
+type UserServiceAssignGlobalOperatorRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID пользователя, которому выдают права глобального оператора
+	Uuid          string `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserServiceAssignGlobalOperatorRequest) Reset() {
+	*x = UserServiceAssignGlobalOperatorRequest{}
+	mi := &file_user_v1_user_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserServiceAssignGlobalOperatorRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserServiceAssignGlobalOperatorRequest) ProtoMessage() {}
+
+func (x *UserServiceAssignGlobalOperatorRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserServiceAssignGlobalOperatorRequest.ProtoReflect.Descriptor instead.
+func (*UserServiceAssignGlobalOperatorRequest) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UserServiceAssignGlobalOperatorRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+// Ответ с пользователем, назначенным глобальным оператором
+type UserServiceAssignGlobalOperatorResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Обновлённый пользователь
+	User          *User `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserServiceAssignGlobalOperatorResponse) Reset() {
+	*x = UserServiceAssignGlobalOperatorResponse{}
+	mi := &file_user_v1_user_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserServiceAssignGlobalOperatorResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserServiceAssignGlobalOperatorResponse) ProtoMessage() {}
+
+func (x *UserServiceAssignGlobalOperatorResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserServiceAssignGlobalOperatorResponse.ProtoReflect.Descriptor instead.
+func (*UserServiceAssignGlobalOperatorResponse) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UserServiceAssignGlobalOperatorResponse) GetUser() *User {
+	if x != nil {
+		return x.User
+	}
+	return nil
+}
+
+// Запрос на снятие прав глобального оператора
+type UserServiceRevokeGlobalOperatorRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID пользователя, с которого снимают права глобального оператора
+	Uuid          string `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserServiceRevokeGlobalOperatorRequest) Reset() {
+	*x = UserServiceRevokeGlobalOperatorRequest{}
+	mi := &file_user_v1_user_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserServiceRevokeGlobalOperatorRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserServiceRevokeGlobalOperatorRequest) ProtoMessage() {}
+
+func (x *UserServiceRevokeGlobalOperatorRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserServiceRevokeGlobalOperatorRequest.ProtoReflect.Descriptor instead.
+func (*UserServiceRevokeGlobalOperatorRequest) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *UserServiceRevokeGlobalOperatorRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
 var File_user_v1_user_proto protoreflect.FileDescriptor
 
 const file_user_v1_user_proto_rawDesc = "" +
 	"\n" +
-	"\x12user/v1/user.proto\x12\auser.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x16google/type/date.proto\x1a.protoc-gen-openapiv2/options/annotations.proto\x1a\x17validate/validate.proto\"\xfe\x02\n" +
+	"\x12user/v1/user.proto\x12\auser.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x16google/type/date.proto\x1a.protoc-gen-openapiv2/options/annotations.proto\x1a\x17validate/validate.proto\"\xcf\x03\n" +
 	"\x04User\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1d\n" +
@@ -658,7 +816,9 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xcd\x02\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12!\n" +
+	"\fis_superuser\x18\v \x01(\bR\visSuperuser\x12,\n" +
+	"\x12is_global_operator\x18\f \x01(\bR\x10isGlobalOperator\"\xcd\x02\n" +
 	"\x18UserServiceCreateRequest\x12\x1d\n" +
 	"\x05email\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\x05email\x12(\n" +
 	"\n" +
@@ -688,16 +848,24 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\x19UserServiceUpdateResponse\x12!\n" +
 	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"8\n" +
 	"\x18UserServiceDeleteRequest\x12\x1c\n" +
+	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid\"F\n" +
+	"&UserServiceAssignGlobalOperatorRequest\x12\x1c\n" +
+	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid\"L\n" +
+	"'UserServiceAssignGlobalOperatorResponse\x12!\n" +
+	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"F\n" +
+	"&UserServiceRevokeGlobalOperatorRequest\x12\x1c\n" +
 	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid*D\n" +
 	"\x06Gender\x12\x16\n" +
 	"\x12GENDER_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vGENDER_MALE\x10\x01\x12\x11\n" +
-	"\rGENDER_FEMALE\x10\x022\x97\x03\n" +
+	"\rGENDER_FEMALE\x10\x022\xc3\x05\n" +
 	"\vUserService\x12b\n" +
 	"\x06Create\x12!.user.v1.UserServiceCreateRequest\x1a\".user.v1.UserServiceCreateResponse\"\x11\x82\xd3\xe4\x93\x02\v:\x01*\"\x06/users\x12]\n" +
 	"\x03Get\x12\x1e.user.v1.UserServiceGetRequest\x1a\x1f.user.v1.UserServiceGetResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/users/{uuid}\x12i\n" +
 	"\x06Update\x12!.user.v1.UserServiceUpdateRequest\x1a\".user.v1.UserServiceUpdateResponse\"\x18\x82\xd3\xe4\x93\x02\x12:\x01*2\r/users/{uuid}\x12Z\n" +
-	"\x06Delete\x12!.user.v1.UserServiceDeleteRequest\x1a\x16.google.protobuf.Empty\"\x15\x82\xd3\xe4\x93\x02\x0f*\r/users/{uuid}B\x82\x02\x92A\xc6\x01\x12A\n" +
+	"\x06Delete\x12!.user.v1.UserServiceDeleteRequest\x1a\x16.google.protobuf.Empty\"\x15\x82\xd3\xe4\x93\x02\x0f*\r/users/{uuid}\x12\xa0\x01\n" +
+	"\x14AssignGlobalOperator\x12/.user.v1.UserServiceAssignGlobalOperatorRequest\x1a0.user.v1.UserServiceAssignGlobalOperatorResponse\"%\x82\xd3\xe4\x93\x02\x1f\"\x1d/users/{uuid}/global-operator\x12\x86\x01\n" +
+	"\x14RevokeGlobalOperator\x12/.user.v1.UserServiceRevokeGlobalOperatorRequest\x1a\x16.google.protobuf.Empty\"%\x82\xd3\xe4\x93\x02\x1f*\x1d/users/{uuid}/global-operatorB\x82\x02\x92A\xc6\x01\x12A\n" +
 	"8API v1 для работы с сервисом BotBooker2\x051.0.0\"\a/api/v1Zf\n" +
 	"d\n" +
 	"\n" +
@@ -719,52 +887,60 @@ func file_user_v1_user_proto_rawDescGZIP() []byte {
 }
 
 var file_user_v1_user_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_user_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_user_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_user_v1_user_proto_goTypes = []any{
-	(Gender)(0),                       // 0: user.v1.Gender
-	(*User)(nil),                      // 1: user.v1.User
-	(*UserServiceCreateRequest)(nil),  // 2: user.v1.UserServiceCreateRequest
-	(*UserServiceCreateResponse)(nil), // 3: user.v1.UserServiceCreateResponse
-	(*UserServiceGetRequest)(nil),     // 4: user.v1.UserServiceGetRequest
-	(*UserServiceGetResponse)(nil),    // 5: user.v1.UserServiceGetResponse
-	(*UserServiceUpdateRequest)(nil),  // 6: user.v1.UserServiceUpdateRequest
-	(*UserServiceUpdateResponse)(nil), // 7: user.v1.UserServiceUpdateResponse
-	(*UserServiceDeleteRequest)(nil),  // 8: user.v1.UserServiceDeleteRequest
-	(*date.Date)(nil),                 // 9: google.type.Date
-	(*timestamppb.Timestamp)(nil),     // 10: google.protobuf.Timestamp
-	(*wrapperspb.StringValue)(nil),    // 11: google.protobuf.StringValue
-	(*wrapperspb.Int32Value)(nil),     // 12: google.protobuf.Int32Value
-	(*emptypb.Empty)(nil),             // 13: google.protobuf.Empty
+	(Gender)(0),                                     // 0: user.v1.Gender
+	(*User)(nil),                                    // 1: user.v1.User
+	(*UserServiceCreateRequest)(nil),                // 2: user.v1.UserServiceCreateRequest
+	(*UserServiceCreateResponse)(nil),               // 3: user.v1.UserServiceCreateResponse
+	(*UserServiceGetRequest)(nil),                   // 4: user.v1.UserServiceGetRequest
+	(*UserServiceGetResponse)(nil),                  // 5: user.v1.UserServiceGetResponse
+	(*UserServiceUpdateRequest)(nil),                // 6: user.v1.UserServiceUpdateRequest
+	(*UserServiceUpdateResponse)(nil),               // 7: user.v1.UserServiceUpdateResponse
+	(*UserServiceDeleteRequest)(nil),                // 8: user.v1.UserServiceDeleteRequest
+	(*UserServiceAssignGlobalOperatorRequest)(nil),  // 9: user.v1.UserServiceAssignGlobalOperatorRequest
+	(*UserServiceAssignGlobalOperatorResponse)(nil), // 10: user.v1.UserServiceAssignGlobalOperatorResponse
+	(*UserServiceRevokeGlobalOperatorRequest)(nil),  // 11: user.v1.UserServiceRevokeGlobalOperatorRequest
+	(*date.Date)(nil),                               // 12: google.type.Date
+	(*timestamppb.Timestamp)(nil),                   // 13: google.protobuf.Timestamp
+	(*wrapperspb.StringValue)(nil),                  // 14: google.protobuf.StringValue
+	(*wrapperspb.Int32Value)(nil),                   // 15: google.protobuf.Int32Value
+	(*emptypb.Empty)(nil),                           // 16: google.protobuf.Empty
 }
 var file_user_v1_user_proto_depIdxs = []int32{
 	0,  // 0: user.v1.User.gender:type_name -> user.v1.Gender
-	9,  // 1: user.v1.User.birthday:type_name -> google.type.Date
-	10, // 2: user.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	10, // 3: user.v1.User.updated_at:type_name -> google.protobuf.Timestamp
+	12, // 1: user.v1.User.birthday:type_name -> google.type.Date
+	13, // 2: user.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	13, // 3: user.v1.User.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 4: user.v1.UserServiceCreateRequest.gender:type_name -> user.v1.Gender
-	9,  // 5: user.v1.UserServiceCreateRequest.birthday:type_name -> google.type.Date
+	12, // 5: user.v1.UserServiceCreateRequest.birthday:type_name -> google.type.Date
 	1,  // 6: user.v1.UserServiceCreateResponse.user:type_name -> user.v1.User
 	1,  // 7: user.v1.UserServiceGetResponse.user:type_name -> user.v1.User
-	11, // 8: user.v1.UserServiceUpdateRequest.first_name:type_name -> google.protobuf.StringValue
-	11, // 9: user.v1.UserServiceUpdateRequest.last_name:type_name -> google.protobuf.StringValue
-	11, // 10: user.v1.UserServiceUpdateRequest.middle_name:type_name -> google.protobuf.StringValue
-	11, // 11: user.v1.UserServiceUpdateRequest.phone_number:type_name -> google.protobuf.StringValue
-	12, // 12: user.v1.UserServiceUpdateRequest.gender:type_name -> google.protobuf.Int32Value
-	9,  // 13: user.v1.UserServiceUpdateRequest.birthday:type_name -> google.type.Date
+	14, // 8: user.v1.UserServiceUpdateRequest.first_name:type_name -> google.protobuf.StringValue
+	14, // 9: user.v1.UserServiceUpdateRequest.last_name:type_name -> google.protobuf.StringValue
+	14, // 10: user.v1.UserServiceUpdateRequest.middle_name:type_name -> google.protobuf.StringValue
+	14, // 11: user.v1.UserServiceUpdateRequest.phone_number:type_name -> google.protobuf.StringValue
+	15, // 12: user.v1.UserServiceUpdateRequest.gender:type_name -> google.protobuf.Int32Value
+	12, // 13: user.v1.UserServiceUpdateRequest.birthday:type_name -> google.type.Date
 	1,  // 14: user.v1.UserServiceUpdateResponse.user:type_name -> user.v1.User
-	2,  // 15: user.v1.UserService.Create:input_type -> user.v1.UserServiceCreateRequest
-	4,  // 16: user.v1.UserService.Get:input_type -> user.v1.UserServiceGetRequest
-	6,  // 17: user.v1.UserService.Update:input_type -> user.v1.UserServiceUpdateRequest
-	8,  // 18: user.v1.UserService.Delete:input_type -> user.v1.UserServiceDeleteRequest
-	3,  // 19: user.v1.UserService.Create:output_type -> user.v1.UserServiceCreateResponse
-	5,  // 20: user.v1.UserService.Get:output_type -> user.v1.UserServiceGetResponse
-	7,  // 21: user.v1.UserService.Update:output_type -> user.v1.UserServiceUpdateResponse
-	13, // 22: user.v1.UserService.Delete:output_type -> google.protobuf.Empty
-	19, // [19:23] is the sub-list for method output_type
-	15, // [15:19] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	1,  // 15: user.v1.UserServiceAssignGlobalOperatorResponse.user:type_name -> user.v1.User
+	2,  // 16: user.v1.UserService.Create:input_type -> user.v1.UserServiceCreateRequest
+	4,  // 17: user.v1.UserService.Get:input_type -> user.v1.UserServiceGetRequest
+	6,  // 18: user.v1.UserService.Update:input_type -> user.v1.UserServiceUpdateRequest
+	8,  // 19: user.v1.UserService.Delete:input_type -> user.v1.UserServiceDeleteRequest
+	9,  // 20: user.v1.UserService.AssignGlobalOperator:input_type -> user.v1.UserServiceAssignGlobalOperatorRequest
+	11, // 21: user.v1.UserService.RevokeGlobalOperator:input_type -> user.v1.UserServiceRevokeGlobalOperatorRequest
+	3,  // 22: user.v1.UserService.Create:output_type -> user.v1.UserServiceCreateResponse
+	5,  // 23: user.v1.UserService.Get:output_type -> user.v1.UserServiceGetResponse
+	7,  // 24: user.v1.UserService.Update:output_type -> user.v1.UserServiceUpdateResponse
+	16, // 25: user.v1.UserService.Delete:output_type -> google.protobuf.Empty
+	10, // 26: user.v1.UserService.AssignGlobalOperator:output_type -> user.v1.UserServiceAssignGlobalOperatorResponse
+	16, // 27: user.v1.UserService.RevokeGlobalOperator:output_type -> google.protobuf.Empty
+	22, // [22:28] is the sub-list for method output_type
+	16, // [16:22] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_user_v1_user_proto_init() }
@@ -778,7 +954,7 @@ func file_user_v1_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_v1_user_proto_rawDesc), len(file_user_v1_user_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

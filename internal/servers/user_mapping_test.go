@@ -49,6 +49,8 @@ func TestUserToProto(t *testing.T) {
 
 	t.Run("конвертирует все поля", func(t *testing.T) {
 		user := testUser(t)
+		user.IsSuperuser = true
+		user.IsGlobalOperator = true
 
 		got := UserToProto(user)
 
@@ -80,6 +82,12 @@ func TestUserToProto(t *testing.T) {
 		}
 		if !got.GetUpdatedAt().AsTime().Equal(user.UpdatedAt) {
 			t.Errorf("UpdatedAt = %v, want %v", got.GetUpdatedAt().AsTime(), user.UpdatedAt)
+		}
+		if got.GetIsSuperuser() != user.IsSuperuser {
+			t.Errorf("IsSuperuser = %v, want %v", got.GetIsSuperuser(), user.IsSuperuser)
+		}
+		if got.GetIsGlobalOperator() != user.IsGlobalOperator {
+			t.Errorf("IsGlobalOperator = %v, want %v", got.GetIsGlobalOperator(), user.IsGlobalOperator)
 		}
 	})
 
