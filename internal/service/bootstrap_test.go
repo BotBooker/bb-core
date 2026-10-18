@@ -69,12 +69,12 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 			},
 		}
 		tenants := &mockAuthTenantRepository{
-			createFunc: func(_ context.Context, tenant *model.Tenant) error {
+			createWithOwnerFunc: func(
+				_ context.Context,
+				tenant *model.Tenant,
+				member *model.TenantMember,
+			) error {
 				storedTenant = tenant
-
-				return nil
-			},
-			addMemberFunc: func(_ context.Context, member *model.TenantMember) error {
 				storedMember = member
 
 				return nil

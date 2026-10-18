@@ -6,6 +6,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/botbooker/bb-core/internal/service"
 	"github.com/botbooker/bb-core/pkg/observability"
@@ -72,7 +73,7 @@ func (s *authServiceServer) Login(
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	session, err := s.auth.Login(ctx, req.GetEmail(), req.GetPassword())
+	session, err := s.auth.Login(ctx, req.GetEmail(), req.GetPassword(), req.GetTenantSlug())
 	if err != nil {
 		return nil, toStatusError(ctx, err)
 	}
@@ -95,7 +96,9 @@ func (s *authServiceServer) ChangePassword(
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	session, err := s.auth.ChangePassword(traceCtx, req.GetEmail(), req.GetCurrentPassword(), req.GetNewPassword())
+	session, err := s.auth.ChangePassword(
+		traceCtx, req.GetEmail(), req.GetCurrentPassword(), req.GetNewPassword(), req.GetTenantSlug(),
+	)
 	if err != nil {
 		return nil, toStatusError(traceCtx, err)
 	}
@@ -122,6 +125,85 @@ func (s *authServiceServer) Logout(
 
 	if err := s.auth.Logout(traceCtx, token); err != nil {
 		return nil, toStatusError(ctx, err)
+	}
+
+	return &emptypb.Empty{}, nil
+}
+
+// ListMyTenants возвращает тенанты действующего пользователя.
+func (s *authServiceServer) ListMyTenants(
+	ctx context.Context,
+	_ *auth_v1.AuthServiceListMyTenantsRequest,
+) (*auth_v1.AuthServiceListMyTenantsResponse, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "ListMyTenants")
+	defer spanEnd()
+
+	principal, ok := service.PrincipalFromContext(traceCtx)
+	if !ok || principal.User == nil {
+		return nil, status.Error(codes.Unauthenticated, unauthorizedMessage)
+	}
+
+	memberships, err := s.auth.ListMyTenants(traceCtx, principal)
+	if err != nil {
+		return nil, toStatusError(traceCtx, err)
+	}
+
+	items := make([]*auth_v1.TenantMembership, 0, len(memberships))
+	for _, membership := range memberships {
+		items = append(items, &auth_v1.TenantMembership{
+			TenantUuid: membership.Tenant.ID,
+			TenantSlug: membership.Tenant.Slug,
+			TenantName: membership.Tenant.Name,
+			Status:     membership.Tenant.Status.String(),
+			Role:       membership.Member.Role.String(),
+			IsOwner:    membership.Member.IsOwner,
+			JoinedAt:   timestamppb.New(membership.Member.JoinedAt.UTC()),
+		})
+	}
+
+	return &auth_v1.AuthServiceListMyTenantsResponse{Tenants: items}, nil
+}
+
+// SwitchTenant выдаёт новую сессию в тенанте tenant_slug.
+func (s *authServiceServer) SwitchTenant(
+	ctx context.Context,
+	req *auth_v1.AuthServiceSwitchTenantRequest,
+) (*auth_v1.AuthServiceSwitchTenantResponse, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "SwitchTenant")
+	defer spanEnd()
+
+	principal, ok := service.PrincipalFromContext(traceCtx)
+	if !ok || principal.User == nil {
+		return nil, status.Error(codes.Unauthenticated, unauthorizedMessage)
+	}
+
+	if err := req.Validate(); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	session, err := s.auth.SwitchTenant(traceCtx, principal, req.GetTenantSlug())
+	if err != nil {
+		return nil, toStatusError(traceCtx, err)
+	}
+
+	return &auth_v1.AuthServiceSwitchTenantResponse{Session: SessionToProto(session)}, nil
+}
+
+// LogoutAll отзывает все сессии действующего пользователя.
+func (s *authServiceServer) LogoutAll(
+	ctx context.Context,
+	_ *auth_v1.AuthServiceLogoutAllRequest,
+) (*emptypb.Empty, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "LogoutAll")
+	defer spanEnd()
+
+	principal, ok := service.PrincipalFromContext(traceCtx)
+	if !ok || principal.User == nil {
+		return nil, status.Error(codes.Unauthenticated, unauthorizedMessage)
+	}
+
+	if err := s.auth.LogoutAll(traceCtx, principal); err != nil {
+		return nil, toStatusError(traceCtx, err)
 	}
 
 	return &emptypb.Empty{}, nil

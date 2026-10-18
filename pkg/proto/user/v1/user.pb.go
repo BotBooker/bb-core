@@ -469,6 +469,116 @@ func (x *UserServiceGetResponse) GetUser() *User {
 	return nil
 }
 
+// Запрос списка пользователей с пагинацией
+type UserServiceListRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Размер страницы: 0 означает значение по умолчанию
+	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Токен следующей страницы из предыдущего ответа
+	PageToken     string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserServiceListRequest) Reset() {
+	*x = UserServiceListRequest{}
+	mi := &file_user_v1_user_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserServiceListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserServiceListRequest) ProtoMessage() {}
+
+func (x *UserServiceListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserServiceListRequest.ProtoReflect.Descriptor instead.
+func (*UserServiceListRequest) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *UserServiceListRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *UserServiceListRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+// Ответ со списком пользователей
+type UserServiceListResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Пользователи в области видимости действующего пользователя
+	Users []*User `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	// Токен следующей страницы: пустой, если страниц больше нет
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserServiceListResponse) Reset() {
+	*x = UserServiceListResponse{}
+	mi := &file_user_v1_user_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserServiceListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserServiceListResponse) ProtoMessage() {}
+
+func (x *UserServiceListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_v1_user_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserServiceListResponse.ProtoReflect.Descriptor instead.
+func (*UserServiceListResponse) Descriptor() ([]byte, []int) {
+	return file_user_v1_user_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *UserServiceListResponse) GetUsers() []*User {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
+func (x *UserServiceListResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 // Запрос на обновление пользователя
 type UserServiceUpdateRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -489,7 +599,7 @@ type UserServiceUpdateRequest struct {
 
 func (x *UserServiceUpdateRequest) Reset() {
 	*x = UserServiceUpdateRequest{}
-	mi := &file_user_v1_user_proto_msgTypes[5]
+	mi := &file_user_v1_user_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -501,7 +611,7 @@ func (x *UserServiceUpdateRequest) String() string {
 func (*UserServiceUpdateRequest) ProtoMessage() {}
 
 func (x *UserServiceUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_user_v1_user_proto_msgTypes[5]
+	mi := &file_user_v1_user_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -514,7 +624,7 @@ func (x *UserServiceUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserServiceUpdateRequest.ProtoReflect.Descriptor instead.
 func (*UserServiceUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_user_v1_user_proto_rawDescGZIP(), []int{5}
+	return file_user_v1_user_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *UserServiceUpdateRequest) GetUuid() string {
@@ -577,7 +687,7 @@ type UserServiceUpdateResponse struct {
 
 func (x *UserServiceUpdateResponse) Reset() {
 	*x = UserServiceUpdateResponse{}
-	mi := &file_user_v1_user_proto_msgTypes[6]
+	mi := &file_user_v1_user_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -589,7 +699,7 @@ func (x *UserServiceUpdateResponse) String() string {
 func (*UserServiceUpdateResponse) ProtoMessage() {}
 
 func (x *UserServiceUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_user_v1_user_proto_msgTypes[6]
+	mi := &file_user_v1_user_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -602,7 +712,7 @@ func (x *UserServiceUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserServiceUpdateResponse.ProtoReflect.Descriptor instead.
 func (*UserServiceUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_user_v1_user_proto_rawDescGZIP(), []int{6}
+	return file_user_v1_user_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UserServiceUpdateResponse) GetUser() *User {
@@ -623,7 +733,7 @@ type UserServiceDeleteRequest struct {
 
 func (x *UserServiceDeleteRequest) Reset() {
 	*x = UserServiceDeleteRequest{}
-	mi := &file_user_v1_user_proto_msgTypes[7]
+	mi := &file_user_v1_user_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -635,7 +745,7 @@ func (x *UserServiceDeleteRequest) String() string {
 func (*UserServiceDeleteRequest) ProtoMessage() {}
 
 func (x *UserServiceDeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_user_v1_user_proto_msgTypes[7]
+	mi := &file_user_v1_user_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -648,7 +758,7 @@ func (x *UserServiceDeleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserServiceDeleteRequest.ProtoReflect.Descriptor instead.
 func (*UserServiceDeleteRequest) Descriptor() ([]byte, []int) {
-	return file_user_v1_user_proto_rawDescGZIP(), []int{7}
+	return file_user_v1_user_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UserServiceDeleteRequest) GetUuid() string {
@@ -669,7 +779,7 @@ type UserServiceAssignGlobalOperatorRequest struct {
 
 func (x *UserServiceAssignGlobalOperatorRequest) Reset() {
 	*x = UserServiceAssignGlobalOperatorRequest{}
-	mi := &file_user_v1_user_proto_msgTypes[8]
+	mi := &file_user_v1_user_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -681,7 +791,7 @@ func (x *UserServiceAssignGlobalOperatorRequest) String() string {
 func (*UserServiceAssignGlobalOperatorRequest) ProtoMessage() {}
 
 func (x *UserServiceAssignGlobalOperatorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_user_v1_user_proto_msgTypes[8]
+	mi := &file_user_v1_user_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -694,7 +804,7 @@ func (x *UserServiceAssignGlobalOperatorRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use UserServiceAssignGlobalOperatorRequest.ProtoReflect.Descriptor instead.
 func (*UserServiceAssignGlobalOperatorRequest) Descriptor() ([]byte, []int) {
-	return file_user_v1_user_proto_rawDescGZIP(), []int{8}
+	return file_user_v1_user_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UserServiceAssignGlobalOperatorRequest) GetUuid() string {
@@ -715,7 +825,7 @@ type UserServiceAssignGlobalOperatorResponse struct {
 
 func (x *UserServiceAssignGlobalOperatorResponse) Reset() {
 	*x = UserServiceAssignGlobalOperatorResponse{}
-	mi := &file_user_v1_user_proto_msgTypes[9]
+	mi := &file_user_v1_user_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -727,7 +837,7 @@ func (x *UserServiceAssignGlobalOperatorResponse) String() string {
 func (*UserServiceAssignGlobalOperatorResponse) ProtoMessage() {}
 
 func (x *UserServiceAssignGlobalOperatorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_user_v1_user_proto_msgTypes[9]
+	mi := &file_user_v1_user_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -740,7 +850,7 @@ func (x *UserServiceAssignGlobalOperatorResponse) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use UserServiceAssignGlobalOperatorResponse.ProtoReflect.Descriptor instead.
 func (*UserServiceAssignGlobalOperatorResponse) Descriptor() ([]byte, []int) {
-	return file_user_v1_user_proto_rawDescGZIP(), []int{9}
+	return file_user_v1_user_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UserServiceAssignGlobalOperatorResponse) GetUser() *User {
@@ -761,7 +871,7 @@ type UserServiceRevokeGlobalOperatorRequest struct {
 
 func (x *UserServiceRevokeGlobalOperatorRequest) Reset() {
 	*x = UserServiceRevokeGlobalOperatorRequest{}
-	mi := &file_user_v1_user_proto_msgTypes[10]
+	mi := &file_user_v1_user_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -773,7 +883,7 @@ func (x *UserServiceRevokeGlobalOperatorRequest) String() string {
 func (*UserServiceRevokeGlobalOperatorRequest) ProtoMessage() {}
 
 func (x *UserServiceRevokeGlobalOperatorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_user_v1_user_proto_msgTypes[10]
+	mi := &file_user_v1_user_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -786,7 +896,7 @@ func (x *UserServiceRevokeGlobalOperatorRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use UserServiceRevokeGlobalOperatorRequest.ProtoReflect.Descriptor instead.
 func (*UserServiceRevokeGlobalOperatorRequest) Descriptor() ([]byte, []int) {
-	return file_user_v1_user_proto_rawDescGZIP(), []int{10}
+	return file_user_v1_user_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UserServiceRevokeGlobalOperatorRequest) GetUuid() string {
@@ -834,7 +944,14 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\x15UserServiceGetRequest\x12\x1c\n" +
 	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid\";\n" +
 	"\x16UserServiceGetResponse\x12!\n" +
-	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"\xd0\x03\n" +
+	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"]\n" +
+	"\x16UserServiceListRequest\x12$\n" +
+	"\tpage_size\x18\x01 \x01(\x05B\a\xfaB\x04\x1a\x02(\x00R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\"f\n" +
+	"\x17UserServiceListResponse\x12#\n" +
+	"\x05users\x18\x01 \x03(\v2\r.user.v1.UserR\x05users\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xd0\x03\n" +
 	"\x18UserServiceUpdateRequest\x12\x1c\n" +
 	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid\x12F\n" +
 	"\n" +
@@ -858,10 +975,11 @@ const file_user_v1_user_proto_rawDesc = "" +
 	"\x06Gender\x12\x16\n" +
 	"\x12GENDER_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vGENDER_MALE\x10\x01\x12\x11\n" +
-	"\rGENDER_FEMALE\x10\x022\xc3\x05\n" +
+	"\rGENDER_FEMALE\x10\x022\x9e\x06\n" +
 	"\vUserService\x12b\n" +
 	"\x06Create\x12!.user.v1.UserServiceCreateRequest\x1a\".user.v1.UserServiceCreateResponse\"\x11\x82\xd3\xe4\x93\x02\v:\x01*\"\x06/users\x12]\n" +
-	"\x03Get\x12\x1e.user.v1.UserServiceGetRequest\x1a\x1f.user.v1.UserServiceGetResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/users/{uuid}\x12i\n" +
+	"\x03Get\x12\x1e.user.v1.UserServiceGetRequest\x1a\x1f.user.v1.UserServiceGetResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/users/{uuid}\x12Y\n" +
+	"\x04List\x12\x1f.user.v1.UserServiceListRequest\x1a .user.v1.UserServiceListResponse\"\x0e\x82\xd3\xe4\x93\x02\b\x12\x06/users\x12i\n" +
 	"\x06Update\x12!.user.v1.UserServiceUpdateRequest\x1a\".user.v1.UserServiceUpdateResponse\"\x18\x82\xd3\xe4\x93\x02\x12:\x01*2\r/users/{uuid}\x12Z\n" +
 	"\x06Delete\x12!.user.v1.UserServiceDeleteRequest\x1a\x16.google.protobuf.Empty\"\x15\x82\xd3\xe4\x93\x02\x0f*\r/users/{uuid}\x12\xa0\x01\n" +
 	"\x14AssignGlobalOperator\x12/.user.v1.UserServiceAssignGlobalOperatorRequest\x1a0.user.v1.UserServiceAssignGlobalOperatorResponse\"%\x82\xd3\xe4\x93\x02\x1f\"\x1d/users/{uuid}/global-operator\x12\x86\x01\n" +
@@ -887,7 +1005,7 @@ func file_user_v1_user_proto_rawDescGZIP() []byte {
 }
 
 var file_user_v1_user_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_user_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_user_v1_user_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_user_v1_user_proto_goTypes = []any{
 	(Gender)(0),                                     // 0: user.v1.Gender
 	(*User)(nil),                                    // 1: user.v1.User
@@ -895,52 +1013,57 @@ var file_user_v1_user_proto_goTypes = []any{
 	(*UserServiceCreateResponse)(nil),               // 3: user.v1.UserServiceCreateResponse
 	(*UserServiceGetRequest)(nil),                   // 4: user.v1.UserServiceGetRequest
 	(*UserServiceGetResponse)(nil),                  // 5: user.v1.UserServiceGetResponse
-	(*UserServiceUpdateRequest)(nil),                // 6: user.v1.UserServiceUpdateRequest
-	(*UserServiceUpdateResponse)(nil),               // 7: user.v1.UserServiceUpdateResponse
-	(*UserServiceDeleteRequest)(nil),                // 8: user.v1.UserServiceDeleteRequest
-	(*UserServiceAssignGlobalOperatorRequest)(nil),  // 9: user.v1.UserServiceAssignGlobalOperatorRequest
-	(*UserServiceAssignGlobalOperatorResponse)(nil), // 10: user.v1.UserServiceAssignGlobalOperatorResponse
-	(*UserServiceRevokeGlobalOperatorRequest)(nil),  // 11: user.v1.UserServiceRevokeGlobalOperatorRequest
-	(*date.Date)(nil),                               // 12: google.type.Date
-	(*timestamppb.Timestamp)(nil),                   // 13: google.protobuf.Timestamp
-	(*wrapperspb.StringValue)(nil),                  // 14: google.protobuf.StringValue
-	(*wrapperspb.Int32Value)(nil),                   // 15: google.protobuf.Int32Value
-	(*emptypb.Empty)(nil),                           // 16: google.protobuf.Empty
+	(*UserServiceListRequest)(nil),                  // 6: user.v1.UserServiceListRequest
+	(*UserServiceListResponse)(nil),                 // 7: user.v1.UserServiceListResponse
+	(*UserServiceUpdateRequest)(nil),                // 8: user.v1.UserServiceUpdateRequest
+	(*UserServiceUpdateResponse)(nil),               // 9: user.v1.UserServiceUpdateResponse
+	(*UserServiceDeleteRequest)(nil),                // 10: user.v1.UserServiceDeleteRequest
+	(*UserServiceAssignGlobalOperatorRequest)(nil),  // 11: user.v1.UserServiceAssignGlobalOperatorRequest
+	(*UserServiceAssignGlobalOperatorResponse)(nil), // 12: user.v1.UserServiceAssignGlobalOperatorResponse
+	(*UserServiceRevokeGlobalOperatorRequest)(nil),  // 13: user.v1.UserServiceRevokeGlobalOperatorRequest
+	(*date.Date)(nil),                               // 14: google.type.Date
+	(*timestamppb.Timestamp)(nil),                   // 15: google.protobuf.Timestamp
+	(*wrapperspb.StringValue)(nil),                  // 16: google.protobuf.StringValue
+	(*wrapperspb.Int32Value)(nil),                   // 17: google.protobuf.Int32Value
+	(*emptypb.Empty)(nil),                           // 18: google.protobuf.Empty
 }
 var file_user_v1_user_proto_depIdxs = []int32{
 	0,  // 0: user.v1.User.gender:type_name -> user.v1.Gender
-	12, // 1: user.v1.User.birthday:type_name -> google.type.Date
-	13, // 2: user.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	13, // 3: user.v1.User.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 1: user.v1.User.birthday:type_name -> google.type.Date
+	15, // 2: user.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	15, // 3: user.v1.User.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 4: user.v1.UserServiceCreateRequest.gender:type_name -> user.v1.Gender
-	12, // 5: user.v1.UserServiceCreateRequest.birthday:type_name -> google.type.Date
+	14, // 5: user.v1.UserServiceCreateRequest.birthday:type_name -> google.type.Date
 	1,  // 6: user.v1.UserServiceCreateResponse.user:type_name -> user.v1.User
 	1,  // 7: user.v1.UserServiceGetResponse.user:type_name -> user.v1.User
-	14, // 8: user.v1.UserServiceUpdateRequest.first_name:type_name -> google.protobuf.StringValue
-	14, // 9: user.v1.UserServiceUpdateRequest.last_name:type_name -> google.protobuf.StringValue
-	14, // 10: user.v1.UserServiceUpdateRequest.middle_name:type_name -> google.protobuf.StringValue
-	14, // 11: user.v1.UserServiceUpdateRequest.phone_number:type_name -> google.protobuf.StringValue
-	15, // 12: user.v1.UserServiceUpdateRequest.gender:type_name -> google.protobuf.Int32Value
-	12, // 13: user.v1.UserServiceUpdateRequest.birthday:type_name -> google.type.Date
-	1,  // 14: user.v1.UserServiceUpdateResponse.user:type_name -> user.v1.User
-	1,  // 15: user.v1.UserServiceAssignGlobalOperatorResponse.user:type_name -> user.v1.User
-	2,  // 16: user.v1.UserService.Create:input_type -> user.v1.UserServiceCreateRequest
-	4,  // 17: user.v1.UserService.Get:input_type -> user.v1.UserServiceGetRequest
-	6,  // 18: user.v1.UserService.Update:input_type -> user.v1.UserServiceUpdateRequest
-	8,  // 19: user.v1.UserService.Delete:input_type -> user.v1.UserServiceDeleteRequest
-	9,  // 20: user.v1.UserService.AssignGlobalOperator:input_type -> user.v1.UserServiceAssignGlobalOperatorRequest
-	11, // 21: user.v1.UserService.RevokeGlobalOperator:input_type -> user.v1.UserServiceRevokeGlobalOperatorRequest
-	3,  // 22: user.v1.UserService.Create:output_type -> user.v1.UserServiceCreateResponse
-	5,  // 23: user.v1.UserService.Get:output_type -> user.v1.UserServiceGetResponse
-	7,  // 24: user.v1.UserService.Update:output_type -> user.v1.UserServiceUpdateResponse
-	16, // 25: user.v1.UserService.Delete:output_type -> google.protobuf.Empty
-	10, // 26: user.v1.UserService.AssignGlobalOperator:output_type -> user.v1.UserServiceAssignGlobalOperatorResponse
-	16, // 27: user.v1.UserService.RevokeGlobalOperator:output_type -> google.protobuf.Empty
-	22, // [22:28] is the sub-list for method output_type
-	16, // [16:22] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	1,  // 8: user.v1.UserServiceListResponse.users:type_name -> user.v1.User
+	16, // 9: user.v1.UserServiceUpdateRequest.first_name:type_name -> google.protobuf.StringValue
+	16, // 10: user.v1.UserServiceUpdateRequest.last_name:type_name -> google.protobuf.StringValue
+	16, // 11: user.v1.UserServiceUpdateRequest.middle_name:type_name -> google.protobuf.StringValue
+	16, // 12: user.v1.UserServiceUpdateRequest.phone_number:type_name -> google.protobuf.StringValue
+	17, // 13: user.v1.UserServiceUpdateRequest.gender:type_name -> google.protobuf.Int32Value
+	14, // 14: user.v1.UserServiceUpdateRequest.birthday:type_name -> google.type.Date
+	1,  // 15: user.v1.UserServiceUpdateResponse.user:type_name -> user.v1.User
+	1,  // 16: user.v1.UserServiceAssignGlobalOperatorResponse.user:type_name -> user.v1.User
+	2,  // 17: user.v1.UserService.Create:input_type -> user.v1.UserServiceCreateRequest
+	4,  // 18: user.v1.UserService.Get:input_type -> user.v1.UserServiceGetRequest
+	6,  // 19: user.v1.UserService.List:input_type -> user.v1.UserServiceListRequest
+	8,  // 20: user.v1.UserService.Update:input_type -> user.v1.UserServiceUpdateRequest
+	10, // 21: user.v1.UserService.Delete:input_type -> user.v1.UserServiceDeleteRequest
+	11, // 22: user.v1.UserService.AssignGlobalOperator:input_type -> user.v1.UserServiceAssignGlobalOperatorRequest
+	13, // 23: user.v1.UserService.RevokeGlobalOperator:input_type -> user.v1.UserServiceRevokeGlobalOperatorRequest
+	3,  // 24: user.v1.UserService.Create:output_type -> user.v1.UserServiceCreateResponse
+	5,  // 25: user.v1.UserService.Get:output_type -> user.v1.UserServiceGetResponse
+	7,  // 26: user.v1.UserService.List:output_type -> user.v1.UserServiceListResponse
+	9,  // 27: user.v1.UserService.Update:output_type -> user.v1.UserServiceUpdateResponse
+	18, // 28: user.v1.UserService.Delete:output_type -> google.protobuf.Empty
+	12, // 29: user.v1.UserService.AssignGlobalOperator:output_type -> user.v1.UserServiceAssignGlobalOperatorResponse
+	18, // 30: user.v1.UserService.RevokeGlobalOperator:output_type -> google.protobuf.Empty
+	24, // [24:31] is the sub-list for method output_type
+	17, // [17:24] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_user_v1_user_proto_init() }
@@ -954,7 +1077,7 @@ func file_user_v1_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_v1_user_proto_rawDesc), len(file_user_v1_user_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

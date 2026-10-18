@@ -6,12 +6,20 @@
   },
   "tags": [
     {
+      "name": "TenantService",
+      "description": "Сервис управления арендаторами (организациями/клиентами/тенант)"
+    },
+    {
       "name": "UserService",
       "description": "Сервис для управления пользователями"
     },
     {
       "name": "AuthService",
       "description": "Сервис аутентификации: регистрация, вход, смена пароля и выход.\n\nРегистрация, вход и смена пароля открыты (токена ещё нет либо он недоступен):\nличность подтверждает пароль. Выход и чтение профиля требуют токен."
+    },
+    {
+      "name": "PublicCatalogService",
+      "description": "Публичный каталог тенантов и объектов аренды.\n\nРучки не требуют аутентификации: ссылка /t/{tenant_slug} задаёт контекст\nтенанта для брони и оплаты, а сами данные содержат только публичные поля."
     }
   ],
   "basePath": "/api/v1",
@@ -81,6 +89,40 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/v1AuthServiceLogoutRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AuthService"
+        ]
+      }
+    },
+    "/auth/logout-all": {
+      "post": {
+        "summary": "Выйти из системы на всех устройствах и во всех тенантах.",
+        "operationId": "LogoutAll",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1AuthServiceLogoutAllRequest"
             }
           }
         ],
@@ -178,7 +220,596 @@
         ]
       }
     },
+    "/auth/tenant/switch": {
+      "post": {
+        "summary": "Переключить действующую сессию на другой тенант.\nСтарый токен по умолчанию не отзывается: для полного выхода есть LogoutAll.",
+        "operationId": "SwitchTenant",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AuthServiceSwitchTenantResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1AuthServiceSwitchTenantRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AuthService"
+        ]
+      }
+    },
+    "/auth/tenants": {
+      "get": {
+        "summary": "Список тенантов, в которых состоит действующий пользователь.\nНужен, чтобы выбрать tenant_slug для входа или переключения сессии.",
+        "operationId": "ListMyTenants",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AuthServiceListMyTenantsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "AuthService"
+        ]
+      }
+    },
+    "/public/tenants": {
+      "get": {
+        "summary": "Список активных тенантов: публичный каталог всех тенантов",
+        "operationId": "ListTenants",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/publicV1ListTenantsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page_size",
+            "description": "Размер страницы: 0 означает значение по умолчанию",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "page_token",
+            "description": "Токен следующей страницы из предыдущего ответа",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PublicCatalogService"
+        ]
+      }
+    },
+    "/public/tenants/{slug}": {
+      "get": {
+        "summary": "Публичный профиль тенанта по slug",
+        "operationId": "GetTenant",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1PublicTenantResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "description": "Slug тенанта",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PublicCatalogService"
+        ]
+      }
+    },
+    "/public/tenants/{slug}/objects": {
+      "get": {
+        "summary": "Публичный каталог объектов тенанта",
+        "operationId": "ListObjects",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListObjectsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "description": "Slug тенанта",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "page_size",
+            "description": "Размер страницы: 0 означает значение по умолчанию",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "page_token",
+            "description": "Токен следующей страницы из предыдущего ответа",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PublicCatalogService"
+        ]
+      }
+    },
+    "/tenants": {
+      "get": {
+        "operationId": "ListTenants",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tenantV1ListTenantsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      },
+      "post": {
+        "operationId": "CreateTenant",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1TenantResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateTenantRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      }
+    },
+    "/tenants/{tenant_uuid}/members": {
+      "get": {
+        "summary": "Список участников тенанта",
+        "operationId": "ListMembers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListMembersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenant_uuid",
+            "description": "UUID тенанта",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "page_size",
+            "description": "Размер страницы: 0 означает значение по умолчанию",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "page_token",
+            "description": "Токен следующей страницы из предыдущего ответа",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      },
+      "post": {
+        "summary": "Добавить участника в тенант",
+        "operationId": "AddMember",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1MemberResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenant_uuid",
+            "description": "UUID тенанта",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TenantServiceAddMemberBody"
+            }
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      }
+    },
+    "/tenants/{tenant_uuid}/members/{user_uuid}": {
+      "delete": {
+        "summary": "Исключить участника из тенанта",
+        "operationId": "RemoveMember",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenant_uuid",
+            "description": "UUID тенанта",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "user_uuid",
+            "description": "UUID пользователя",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      },
+      "patch": {
+        "summary": "Изменить роль участника в тенанте",
+        "operationId": "ChangeMemberRole",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1MemberResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenant_uuid",
+            "description": "UUID тенанта",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "user_uuid",
+            "description": "UUID пользователя",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TenantServiceChangeMemberRoleBody"
+            }
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      }
+    },
+    "/tenants/{tenant_uuid}/ownership": {
+      "post": {
+        "summary": "Передать владение тенантом другому участнику",
+        "operationId": "TransferOwnership",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1MemberResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenant_uuid",
+            "description": "UUID тенанта",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TenantServiceTransferOwnershipBody"
+            }
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      }
+    },
+    "/tenants/{uuid}": {
+      "get": {
+        "operationId": "GetTenant",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1TenantResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      },
+      "delete": {
+        "operationId": "DeleteTenant",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      }
+    },
+    "/tenants/{uuid}/status": {
+      "patch": {
+        "summary": "Изменить статус тенанта: приостановка, возобновление или мягкое удаление.",
+        "operationId": "UpdateTenantStatus",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1TenantResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "UUID тенанта",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TenantServiceUpdateTenantStatusBody"
+            }
+          }
+        ],
+        "tags": [
+          "TenantService"
+        ]
+      }
+    },
     "/users": {
+      "get": {
+        "summary": "Список пользователей в области видимости действующего пользователя.\nКлиент видит только себя, staff — участников своего тенанта\n(клиентов — только при наличии брони), глобальные администраторы — всех.",
+        "operationId": "List",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UserServiceListResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page_size",
+            "description": "Размер страницы: 0 означает значение по умолчанию",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "page_token",
+            "description": "Токен следующей страницы из предыдущего ответа",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "UserService"
+        ]
+      },
       "post": {
         "summary": "Создать нового пользователя",
         "operationId": "Create",
@@ -377,6 +1008,50 @@
     }
   },
   "definitions": {
+    "TenantServiceAddMemberBody": {
+      "type": "object",
+      "properties": {
+        "user_uuid": {
+          "type": "string",
+          "title": "UUID пользователя"
+        },
+        "role": {
+          "type": "string",
+          "title": "Роль участника: admin, operator, manager или client"
+        }
+      },
+      "title": "Запрос на добавление участника в тенант"
+    },
+    "TenantServiceChangeMemberRoleBody": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "title": "Новая роль участника: admin, operator, manager или client"
+        }
+      },
+      "title": "Запрос на изменение роли участника"
+    },
+    "TenantServiceTransferOwnershipBody": {
+      "type": "object",
+      "properties": {
+        "user_uuid": {
+          "type": "string",
+          "title": "UUID участника, который станет владельцем"
+        }
+      },
+      "title": "Запрос на передачу владения тенантом"
+    },
+    "TenantServiceUpdateTenantStatusBody": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/v1TenantStatus",
+          "title": "Новый статус: active, suspended или deleted"
+        }
+      },
+      "title": "Запрос на изменение статуса тенанта"
+    },
     "UserServiceUpdateBody": {
       "type": "object",
       "properties": {
@@ -414,6 +1089,24 @@
       },
       "additionalProperties": {}
     },
+    "publicV1ListTenantsResponse": {
+      "type": "object",
+      "properties": {
+        "tenants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1PublicTenant"
+          },
+          "title": "Активные тенанты"
+        },
+        "next_page_token": {
+          "type": "string",
+          "title": "Токен следующей страницы: пустой, если страниц больше нет"
+        }
+      },
+      "title": "Ответ с публичным каталогом тенантов"
+    },
     "rpcStatus": {
       "type": "object",
       "properties": {
@@ -432,6 +1125,22 @@
           }
         }
       }
+    },
+    "tenantV1ListTenantsResponse": {
+      "type": "object",
+      "properties": {
+        "tenants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Tenant"
+          }
+        },
+        "next_page_token": {
+          "type": "string"
+        }
+      },
+      "title": "Ответ со списком тенантов и токеном следующей страницы"
     },
     "typeDate": {
       "type": "object",
@@ -469,6 +1178,10 @@
         "new_password": {
           "type": "string",
           "title": "Новый пароль: не короче 8 символов"
+        },
+        "tenant_slug": {
+          "type": "string",
+          "description": "Slug тенанта. Пустое значение — самое раннее членство (обратная совместимость)."
         }
       },
       "title": "Запрос на смену пароля: личность подтверждает текущий пароль"
@@ -493,6 +1206,20 @@
       },
       "title": "Ответ с профилем действующего пользователя"
     },
+    "v1AuthServiceListMyTenantsResponse": {
+      "type": "object",
+      "properties": {
+        "tenants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1TenantMembership"
+          },
+          "title": "Членства пользователя, упорядоченные по времени вступления"
+        }
+      },
+      "title": "Ответ со списком тенантов действующего пользователя"
+    },
     "v1AuthServiceLoginRequest": {
       "type": "object",
       "properties": {
@@ -503,6 +1230,10 @@
         "password": {
           "type": "string",
           "title": "Пароль пользователя"
+        },
+        "tenant_slug": {
+          "type": "string",
+          "description": "Slug тенанта. Пустое значение — самое раннее членство (обратная совместимость)."
         }
       },
       "title": "Запрос на вход по email и паролю"
@@ -516,6 +1247,10 @@
         }
       },
       "title": "Ответ на вход: выданная сессия"
+    },
+    "v1AuthServiceLogoutAllRequest": {
+      "type": "object",
+      "title": "Запрос на выход из всех сессий (токен берётся из заголовка Authorization)"
     },
     "v1AuthServiceLogoutRequest": {
       "type": "object",
@@ -551,6 +1286,10 @@
         "password": {
           "type": "string",
           "title": "Пароль: не короче 8 символов и не длиннее 128"
+        },
+        "tenant_slug": {
+          "type": "string",
+          "description": "Slug тенанта, по ссылке которого идёт регистрация.\nПустое значение означает личный тенант (обратная совместимость)."
         }
       },
       "title": "Запрос на самостоятельную регистрацию: профиль и пароль"
@@ -569,6 +1308,44 @@
       },
       "title": "Ответ на регистрацию: созданный пользователь и выданная сессия"
     },
+    "v1AuthServiceSwitchTenantRequest": {
+      "type": "object",
+      "properties": {
+        "tenant_slug": {
+          "type": "string",
+          "title": "Slug целевого тенанта"
+        }
+      },
+      "title": "Запрос на переключение сессии на другой тенант"
+    },
+    "v1AuthServiceSwitchTenantResponse": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/definitions/v1Session",
+          "title": "Выданный доступ"
+        }
+      },
+      "title": "Ответ на переключение: новая сессия в целевом тенанте"
+    },
+    "v1CreateTenantRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "title": "Запрос на создание нового тенанта"
+    },
     "v1Gender": {
       "type": "string",
       "enum": [
@@ -579,6 +1356,111 @@
       "default": "GENDER_UNSPECIFIED",
       "description": "- GENDER_UNSPECIFIED: Пол не указан\n - GENDER_MALE: Мужской пол\n - GENDER_FEMALE: Женский пол",
       "title": "Перечисление для указания пола пользователя"
+    },
+    "v1ListMembersResponse": {
+      "type": "object",
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1TenantMember"
+          },
+          "title": "Участники тенанта"
+        },
+        "next_page_token": {
+          "type": "string",
+          "title": "Токен следующей страницы: пустой, если страниц больше нет"
+        }
+      },
+      "title": "Ответ со списком участников тенанта"
+    },
+    "v1ListObjectsResponse": {
+      "type": "object",
+      "properties": {
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1PublicObject"
+          },
+          "title": "Объекты аренды в публичном представлении"
+        },
+        "next_page_token": {
+          "type": "string",
+          "title": "Токен следующей страницы: пустой, если страниц больше нет"
+        }
+      },
+      "title": "Ответ с публичным каталогом объектов"
+    },
+    "v1MemberResponse": {
+      "type": "object",
+      "properties": {
+        "member": {
+          "$ref": "#/definitions/v1TenantMember",
+          "title": "Участник тенанта"
+        }
+      },
+      "title": "Ответ с данными участника тенанта"
+    },
+    "v1PublicObject": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "title": "Название объекта"
+        },
+        "description": {
+          "type": "string",
+          "title": "Описание объекта"
+        },
+        "price_minor": {
+          "type": "string",
+          "format": "int64",
+          "title": "Цена в минорных единицах валюты"
+        },
+        "currency": {
+          "type": "string",
+          "title": "Код валюты ISO-4217"
+        },
+        "address": {
+          "type": "string",
+          "title": "Адрес объекта"
+        }
+      },
+      "title": "Публичная карточка объекта аренды: без UUID, владельца и служебных полей"
+    },
+    "v1PublicTenant": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Название тенанта"
+        },
+        "slug": {
+          "type": "string",
+          "title": "Slug тенанта: он же сегмент ссылки /t/{slug}"
+        },
+        "description": {
+          "type": "string",
+          "title": "Описание тенанта для публичной страницы"
+        },
+        "location": {
+          "type": "string",
+          "title": "Локация тенанта для публичной страницы"
+        }
+      },
+      "title": "Публичный профиль тенанта: без внутреннего UUID и служебных полей"
+    },
+    "v1PublicTenantResponse": {
+      "type": "object",
+      "properties": {
+        "tenant": {
+          "$ref": "#/definitions/v1PublicTenant",
+          "title": "Публичный профиль тенанта"
+        }
+      },
+      "title": "Ответ с публичным профилем тенанта"
     },
     "v1Session": {
       "type": "object",
@@ -591,9 +1473,152 @@
           "type": "string",
           "format": "date-time",
           "title": "Момент, когда токен перестаёт действовать"
+        },
+        "tenant_uuid": {
+          "type": "string",
+          "title": "Тенант сессии: идентификатор нужен для аудита и переключения"
+        },
+        "tenant_slug": {
+          "type": "string",
+          "title": "Тенант сессии: slug нужен для ссылки и повторного входа"
+        },
+        "tenant_name": {
+          "type": "string",
+          "title": "Название тенанта для отображения в интерфейсе"
+        },
+        "role": {
+          "type": "string",
+          "title": "Роль пользователя в тенанте сессии"
         }
       },
       "title": "Выданный доступ: подписанный токен и срок его действия"
+    },
+    "v1Tenant": {
+      "type": "object",
+      "properties": {
+        "uuid": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/v1TenantStatus"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Произвольные параметры/настройки"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "title": "Основная сущность арендатора"
+    },
+    "v1TenantMember": {
+      "type": "object",
+      "properties": {
+        "tenant_uuid": {
+          "type": "string",
+          "title": "UUID тенанта"
+        },
+        "user_uuid": {
+          "type": "string",
+          "title": "UUID пользователя"
+        },
+        "role": {
+          "type": "string",
+          "title": "Роль пользователя в тенанте: admin, operator, manager или client"
+        },
+        "is_owner": {
+          "type": "boolean",
+          "title": "Признак владельца тенанта"
+        },
+        "joined_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Когда пользователь вступил в тенант"
+        },
+        "email": {
+          "type": "string",
+          "title": "Email участника для интерфейса управления участниками"
+        },
+        "first_name": {
+          "type": "string",
+          "title": "Имя участника для интерфейса управления участниками"
+        },
+        "last_name": {
+          "type": "string",
+          "title": "Фамилия участника для интерфейса управления участниками"
+        }
+      },
+      "title": "Участник тенанта: роль принадлежит членству, а не профилю пользователя"
+    },
+    "v1TenantMembership": {
+      "type": "object",
+      "properties": {
+        "tenant_uuid": {
+          "type": "string",
+          "title": "Идентификатор тенанта"
+        },
+        "tenant_slug": {
+          "type": "string",
+          "title": "Slug тенанта: по нему выполняется вход и переключение сессии"
+        },
+        "tenant_name": {
+          "type": "string",
+          "title": "Название тенанта"
+        },
+        "status": {
+          "type": "string",
+          "title": "Статус тенанта: active, suspended или deleted"
+        },
+        "role": {
+          "type": "string",
+          "title": "Роль пользователя в этом тенанте"
+        },
+        "is_owner": {
+          "type": "boolean",
+          "title": "Признак владельца тенанта"
+        },
+        "joined_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Когда пользователь вступил в тенант"
+        }
+      },
+      "title": "Членство действующего пользователя в тенанте"
+    },
+    "v1TenantResponse": {
+      "type": "object",
+      "properties": {
+        "tenant": {
+          "$ref": "#/definitions/v1Tenant"
+        }
+      },
+      "title": "Ответ, содержащий данные тенанта"
+    },
+    "v1TenantStatus": {
+      "type": "string",
+      "enum": [
+        "TENANT_STATUS_UNSPECIFIED",
+        "TENANT_STATUS_ACTIVE",
+        "TENANT_STATUS_SUSPENDED",
+        "TENANT_STATUS_DELETED"
+      ],
+      "default": "TENANT_STATUS_UNSPECIFIED",
+      "description": "Статус арендатора"
     },
     "v1User": {
       "type": "object",
@@ -714,6 +1739,24 @@
         }
       },
       "title": "Ответ с данными запрошенного пользователя"
+    },
+    "v1UserServiceListResponse": {
+      "type": "object",
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1User"
+          },
+          "title": "Пользователи в области видимости действующего пользователя"
+        },
+        "next_page_token": {
+          "type": "string",
+          "title": "Токен следующей страницы: пустой, если страниц больше нет"
+        }
+      },
+      "title": "Ответ со списком пользователей"
     },
     "v1UserServiceUpdateResponse": {
       "type": "object",

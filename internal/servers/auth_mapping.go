@@ -18,9 +18,40 @@ func SessionToProto(session *service.Session) *auth_v1.Session {
 	}
 
 	return &auth_v1.Session{
-		Token:     session.AccessToken,
-		ExpiresAt: timestamppb.New(session.Token.ExpiresAt.UTC()),
+		Token:      session.AccessToken,
+		ExpiresAt:  timestamppb.New(session.Token.ExpiresAt.UTC()),
+		TenantUuid: sessionTenantID(session),
+		TenantSlug: sessionTenantSlug(session),
+		TenantName: sessionTenantName(session),
+		Role:       session.Role.String(),
 	}
+}
+
+// sessionTenantID возвращает UUID тенанта сессии или пустую строку.
+func sessionTenantID(session *service.Session) string {
+	if session.Tenant == nil {
+		return ""
+	}
+
+	return session.Tenant.ID
+}
+
+// sessionTenantSlug возвращает slug тенанта сессии или пустую строку.
+func sessionTenantSlug(session *service.Session) string {
+	if session.Tenant == nil {
+		return ""
+	}
+
+	return session.Tenant.Slug
+}
+
+// sessionTenantName возвращает название тенанта сессии или пустую строку.
+func sessionTenantName(session *service.Session) string {
+	if session.Tenant == nil {
+		return ""
+	}
+
+	return session.Tenant.Name
 }
 
 // RegisterInputFromProto конвертирует proto-запрос регистрации в доменный вход.
@@ -47,6 +78,7 @@ func RegisterInputFromProto(req *auth_v1.AuthServiceRegisterRequest) (model.Regi
 			PhoneNumber: req.GetPhoneNumber(),
 			Gender:      gender,
 		},
-		Password: req.GetPassword(),
+		Password:   req.GetPassword(),
+		TenantSlug: req.GetTenantSlug(),
 	}, nil
 }

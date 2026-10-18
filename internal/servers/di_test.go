@@ -143,11 +143,15 @@ func TestDIContainer_MigrationsError(t *testing.T) {
 func TestApplyMigrations(t *testing.T) {
 	ctx := context.Background()
 	originalDSN, originalMigrateOnStart := config.DBConfig().DSN, config.DBConfig().MigrateOnStart
+	originalMigrationsDir := config.DBConfig().MigrationsDir
 
 	t.Cleanup(func() {
 		config.DBConfig().DSN = originalDSN
 		config.DBConfig().MigrateOnStart = originalMigrateOnStart
+		config.DBConfig().MigrationsDir = originalMigrationsDir
 	})
+
+	config.DBConfig().MigrationsDir = migrationsDir
 
 	t.Run("миграции выключены настройкой", func(t *testing.T) {
 		config.DBConfig().MigrateOnStart = false

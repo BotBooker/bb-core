@@ -229,6 +229,6 @@
   нет времени суток, в модели это `model.Date`, а не `time.Time`;
 - **`full_name` не хранится**: вычисляется в `User.FullName()`;
 - применение миграций — при старте приложения (`MIGRATE_ON_START`, по умолчанию
-  включено), код — `internal/database/migrate.go`, каталоги берутся из
-  `migrations.FS`; ручная раскатка и откат — `make migrate-up` / `make migrate-down`
-  (см. `docs/HOWTO.md`).
+  включено), код — `internal/database/migrate.go`, SQL-файлы читаются с диска из
+  каталога `MIGRATIONS_DIR` (по умолчанию `./migrations`); ручная раскатка и
+  откат — `make migrate-up` / `make migrate-down` (см. `docs/HOWTO.md`).

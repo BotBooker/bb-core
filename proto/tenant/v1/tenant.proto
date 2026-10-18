@@ -52,6 +52,42 @@ service TenantService {
   rpc DeleteTenant(DeleteTenantRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {delete: "/tenants/{uuid}"};
   }
+  // Изменить статус тенанта: приостановка, возобновление или мягкое удаление.
+  rpc UpdateTenantStatus(UpdateTenantStatusRequest) returns (TenantResponse) {
+    option (google.api.http) = {
+      patch: "/tenants/{uuid}/status"
+      body: "*"
+    };
+  }
+  // Список участников тенанта
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse) {
+    option (google.api.http) = {get: "/tenants/{tenant_uuid}/members"};
+  }
+  // Добавить участника в тенант
+  rpc AddMember(AddMemberRequest) returns (MemberResponse) {
+    option (google.api.http) = {
+      post: "/tenants/{tenant_uuid}/members"
+      body: "*"
+    };
+  }
+  // Исключить участника из тенанта
+  rpc RemoveMember(RemoveMemberRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/tenants/{tenant_uuid}/members/{user_uuid}"};
+  }
+  // Изменить роль участника в тенанте
+  rpc ChangeMemberRole(ChangeMemberRoleRequest) returns (MemberResponse) {
+    option (google.api.http) = {
+      patch: "/tenants/{tenant_uuid}/members/{user_uuid}"
+      body: "*"
+    };
+  }
+  // Передать владение тенантом другому участнику
+  rpc TransferOwnership(TransferOwnershipRequest) returns (MemberResponse) {
+    option (google.api.http) = {
+      post: "/tenants/{tenant_uuid}/ownership"
+      body: "*"
+    };
+  }
 }
 
 // Статус арендатора
@@ -117,4 +153,92 @@ message ListTenantsResponse {
 // Запрос на удаление тенанта по его UUID
 message DeleteTenantRequest {
   string uuid = 1 [(validate.rules).string.uuid = true];
+}
+
+// Запрос на изменение статуса тенанта
+message UpdateTenantStatusRequest {
+  // UUID тенанта
+  string uuid = 1 [(validate.rules).string.uuid = true];
+  // Новый статус: active, suspended или deleted
+  TenantStatus status = 2;
+}
+
+// Участник тенанта: роль принадлежит членству, а не профилю пользователя
+message TenantMember {
+  // UUID тенанта
+  string tenant_uuid = 1;
+  // UUID пользователя
+  string user_uuid = 2;
+  // Роль пользователя в тенанте: admin, operator, manager или client
+  string role = 3;
+  // Признак владельца тенанта
+  bool is_owner = 4;
+  // Когда пользователь вступил в тенант
+  google.protobuf.Timestamp joined_at = 5;
+  // Email участника для интерфейса управления участниками
+  string email = 6;
+  // Имя участника для интерфейса управления участниками
+  string first_name = 7;
+  // Фамилия участника для интерфейса управления участниками
+  string last_name = 8;
+}
+
+// Запрос списка участников тенанта
+message ListMembersRequest {
+  // UUID тенанта
+  string tenant_uuid = 1 [(validate.rules).string.uuid = true];
+  // Размер страницы: 0 означает значение по умолчанию
+  int32 page_size = 2 [(validate.rules).int32.gte = 0];
+  // Токен следующей страницы из предыдущего ответа
+  string page_token = 3;
+}
+
+// Ответ со списком участников тенанта
+message ListMembersResponse {
+  // Участники тенанта
+  repeated TenantMember members = 1;
+  // Токен следующей страницы: пустой, если страниц больше нет
+  string next_page_token = 2;
+}
+
+// Запрос на добавление участника в тенант
+message AddMemberRequest {
+  // UUID тенанта
+  string tenant_uuid = 1 [(validate.rules).string.uuid = true];
+  // UUID пользователя
+  string user_uuid = 2 [(validate.rules).string.uuid = true];
+  // Роль участника: admin, operator, manager или client
+  string role = 3 [(validate.rules).string = {max_len: 32}];
+}
+
+// Ответ с данными участника тенанта
+message MemberResponse {
+  // Участник тенанта
+  TenantMember member = 1;
+}
+
+// Запрос на исключение участника из тенанта
+message RemoveMemberRequest {
+  // UUID тенанта
+  string tenant_uuid = 1 [(validate.rules).string.uuid = true];
+  // UUID пользователя
+  string user_uuid = 2 [(validate.rules).string.uuid = true];
+}
+
+// Запрос на изменение роли участника
+message ChangeMemberRoleRequest {
+  // UUID тенанта
+  string tenant_uuid = 1 [(validate.rules).string.uuid = true];
+  // UUID пользователя
+  string user_uuid = 2 [(validate.rules).string.uuid = true];
+  // Новая роль участника: admin, operator, manager или client
+  string role = 3 [(validate.rules).string = {max_len: 32}];
+}
+
+// Запрос на передачу владения тенантом
+message TransferOwnershipRequest {
+  // UUID тенанта
+  string tenant_uuid = 1 [(validate.rules).string.uuid = true];
+  // UUID участника, который станет владельцем
+  string user_uuid = 2 [(validate.rules).string.uuid = true];
 }

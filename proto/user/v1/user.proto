@@ -62,6 +62,13 @@ service UserService {
     option (google.api.http) = {get: "/users/{uuid}"};
   }
 
+  // Список пользователей в области видимости действующего пользователя.
+  // Клиент видит только себя, staff — участников своего тенанта
+  // (клиентов — только при наличии брони), глобальные администраторы — всех.
+  rpc List(UserServiceListRequest) returns (UserServiceListResponse) {
+    option (google.api.http) = {get: "/users"};
+  }
+
   // Обновить данные пользователя
   rpc Update(UserServiceUpdateRequest) returns (UserServiceUpdateResponse) {
     option (google.api.http) = {
@@ -169,6 +176,22 @@ message UserServiceGetRequest {
 message UserServiceGetResponse {
   // Найденный пользователь
   User user = 1;
+}
+
+// Запрос списка пользователей с пагинацией
+message UserServiceListRequest {
+  // Размер страницы: 0 означает значение по умолчанию
+  int32 page_size = 1 [(validate.rules).int32.gte = 0];
+  // Токен следующей страницы из предыдущего ответа
+  string page_token = 2;
+}
+
+// Ответ со списком пользователей
+message UserServiceListResponse {
+  // Пользователи в области видимости действующего пользователя
+  repeated User users = 1;
+  // Токен следующей страницы: пустой, если страниц больше нет
+  string next_page_token = 2;
 }
 
 // Запрос на обновление пользователя

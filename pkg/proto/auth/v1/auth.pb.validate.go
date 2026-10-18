@@ -91,6 +91,14 @@ func (m *Session) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for TenantUuid
+
+	// no validation rules for TenantSlug
+
+	// no validation rules for TenantName
+
+	// no validation rules for Role
+
 	if len(errors) > 0 {
 		return SessionMultiError(errors)
 	}
@@ -256,6 +264,17 @@ func (m *AuthServiceRegisterRequest) validate(all bool) error {
 		err := AuthServiceRegisterRequestValidationError{
 			field:  "Password",
 			reason: "value length must be between 8 and 128 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if utf8.RuneCountInString(m.GetTenantSlug()) > 100 {
+		err := AuthServiceRegisterRequestValidationError{
+			field:  "TenantSlug",
+			reason: "value length must be at most 100 runes",
 		}
 		if !all {
 			return err
@@ -601,6 +620,17 @@ func (m *AuthServiceLoginRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
+	if utf8.RuneCountInString(m.GetTenantSlug()) > 100 {
+		err := AuthServiceLoginRequestValidationError{
+			field:  "TenantSlug",
+			reason: "value length must be at most 100 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return AuthServiceLoginRequestMultiError(errors)
 	}
@@ -912,6 +942,17 @@ func (m *AuthServiceChangePasswordRequest) validate(all bool) error {
 		err := AuthServiceChangePasswordRequestValidationError{
 			field:  "NewPassword",
 			reason: "value length must be between 8 and 128 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if utf8.RuneCountInString(m.GetTenantSlug()) > 100 {
+		err := AuthServiceChangePasswordRequestValidationError{
+			field:  "TenantSlug",
+			reason: "value length must be at most 100 runes",
 		}
 		if !all {
 			return err
@@ -1525,3 +1566,735 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = AuthServiceGetCurrentUserResponseValidationError{}
+
+// Validate checks the field values on TenantMembership with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *TenantMembership) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on TenantMembership with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// TenantMembershipMultiError, or nil if none found.
+func (m *TenantMembership) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *TenantMembership) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for TenantUuid
+
+	// no validation rules for TenantSlug
+
+	// no validation rules for TenantName
+
+	// no validation rules for Status
+
+	// no validation rules for Role
+
+	// no validation rules for IsOwner
+
+	if all {
+		switch v := interface{}(m.GetJoinedAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, TenantMembershipValidationError{
+					field:  "JoinedAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, TenantMembershipValidationError{
+					field:  "JoinedAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetJoinedAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return TenantMembershipValidationError{
+				field:  "JoinedAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return TenantMembershipMultiError(errors)
+	}
+
+	return nil
+}
+
+// TenantMembershipMultiError is an error wrapping multiple validation errors
+// returned by TenantMembership.ValidateAll() if the designated constraints
+// aren't met.
+type TenantMembershipMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m TenantMembershipMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m TenantMembershipMultiError) AllErrors() []error { return m }
+
+// TenantMembershipValidationError is the validation error returned by
+// TenantMembership.Validate if the designated constraints aren't met.
+type TenantMembershipValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e TenantMembershipValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e TenantMembershipValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e TenantMembershipValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e TenantMembershipValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e TenantMembershipValidationError) ErrorName() string { return "TenantMembershipValidationError" }
+
+// Error satisfies the builtin error interface
+func (e TenantMembershipValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTenantMembership.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = TenantMembershipValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = TenantMembershipValidationError{}
+
+// Validate checks the field values on AuthServiceListMyTenantsRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *AuthServiceListMyTenantsRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on AuthServiceListMyTenantsRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// AuthServiceListMyTenantsRequestMultiError, or nil if none found.
+func (m *AuthServiceListMyTenantsRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *AuthServiceListMyTenantsRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return AuthServiceListMyTenantsRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// AuthServiceListMyTenantsRequestMultiError is an error wrapping multiple
+// validation errors returned by AuthServiceListMyTenantsRequest.ValidateAll()
+// if the designated constraints aren't met.
+type AuthServiceListMyTenantsRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m AuthServiceListMyTenantsRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m AuthServiceListMyTenantsRequestMultiError) AllErrors() []error { return m }
+
+// AuthServiceListMyTenantsRequestValidationError is the validation error
+// returned by AuthServiceListMyTenantsRequest.Validate if the designated
+// constraints aren't met.
+type AuthServiceListMyTenantsRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e AuthServiceListMyTenantsRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e AuthServiceListMyTenantsRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e AuthServiceListMyTenantsRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e AuthServiceListMyTenantsRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e AuthServiceListMyTenantsRequestValidationError) ErrorName() string {
+	return "AuthServiceListMyTenantsRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e AuthServiceListMyTenantsRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sAuthServiceListMyTenantsRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = AuthServiceListMyTenantsRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = AuthServiceListMyTenantsRequestValidationError{}
+
+// Validate checks the field values on AuthServiceListMyTenantsResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *AuthServiceListMyTenantsResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on AuthServiceListMyTenantsResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// AuthServiceListMyTenantsResponseMultiError, or nil if none found.
+func (m *AuthServiceListMyTenantsResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *AuthServiceListMyTenantsResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetTenants() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, AuthServiceListMyTenantsResponseValidationError{
+						field:  fmt.Sprintf("Tenants[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, AuthServiceListMyTenantsResponseValidationError{
+						field:  fmt.Sprintf("Tenants[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return AuthServiceListMyTenantsResponseValidationError{
+					field:  fmt.Sprintf("Tenants[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return AuthServiceListMyTenantsResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// AuthServiceListMyTenantsResponseMultiError is an error wrapping multiple
+// validation errors returned by
+// AuthServiceListMyTenantsResponse.ValidateAll() if the designated
+// constraints aren't met.
+type AuthServiceListMyTenantsResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m AuthServiceListMyTenantsResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m AuthServiceListMyTenantsResponseMultiError) AllErrors() []error { return m }
+
+// AuthServiceListMyTenantsResponseValidationError is the validation error
+// returned by AuthServiceListMyTenantsResponse.Validate if the designated
+// constraints aren't met.
+type AuthServiceListMyTenantsResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e AuthServiceListMyTenantsResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e AuthServiceListMyTenantsResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e AuthServiceListMyTenantsResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e AuthServiceListMyTenantsResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e AuthServiceListMyTenantsResponseValidationError) ErrorName() string {
+	return "AuthServiceListMyTenantsResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e AuthServiceListMyTenantsResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sAuthServiceListMyTenantsResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = AuthServiceListMyTenantsResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = AuthServiceListMyTenantsResponseValidationError{}
+
+// Validate checks the field values on AuthServiceSwitchTenantRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *AuthServiceSwitchTenantRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on AuthServiceSwitchTenantRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// AuthServiceSwitchTenantRequestMultiError, or nil if none found.
+func (m *AuthServiceSwitchTenantRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *AuthServiceSwitchTenantRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if l := utf8.RuneCountInString(m.GetTenantSlug()); l < 1 || l > 100 {
+		err := AuthServiceSwitchTenantRequestValidationError{
+			field:  "TenantSlug",
+			reason: "value length must be between 1 and 100 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return AuthServiceSwitchTenantRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// AuthServiceSwitchTenantRequestMultiError is an error wrapping multiple
+// validation errors returned by AuthServiceSwitchTenantRequest.ValidateAll()
+// if the designated constraints aren't met.
+type AuthServiceSwitchTenantRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m AuthServiceSwitchTenantRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m AuthServiceSwitchTenantRequestMultiError) AllErrors() []error { return m }
+
+// AuthServiceSwitchTenantRequestValidationError is the validation error
+// returned by AuthServiceSwitchTenantRequest.Validate if the designated
+// constraints aren't met.
+type AuthServiceSwitchTenantRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e AuthServiceSwitchTenantRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e AuthServiceSwitchTenantRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e AuthServiceSwitchTenantRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e AuthServiceSwitchTenantRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e AuthServiceSwitchTenantRequestValidationError) ErrorName() string {
+	return "AuthServiceSwitchTenantRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e AuthServiceSwitchTenantRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sAuthServiceSwitchTenantRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = AuthServiceSwitchTenantRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = AuthServiceSwitchTenantRequestValidationError{}
+
+// Validate checks the field values on AuthServiceSwitchTenantResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *AuthServiceSwitchTenantResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on AuthServiceSwitchTenantResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// AuthServiceSwitchTenantResponseMultiError, or nil if none found.
+func (m *AuthServiceSwitchTenantResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *AuthServiceSwitchTenantResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetSession()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, AuthServiceSwitchTenantResponseValidationError{
+					field:  "Session",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, AuthServiceSwitchTenantResponseValidationError{
+					field:  "Session",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetSession()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return AuthServiceSwitchTenantResponseValidationError{
+				field:  "Session",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return AuthServiceSwitchTenantResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// AuthServiceSwitchTenantResponseMultiError is an error wrapping multiple
+// validation errors returned by AuthServiceSwitchTenantResponse.ValidateAll()
+// if the designated constraints aren't met.
+type AuthServiceSwitchTenantResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m AuthServiceSwitchTenantResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m AuthServiceSwitchTenantResponseMultiError) AllErrors() []error { return m }
+
+// AuthServiceSwitchTenantResponseValidationError is the validation error
+// returned by AuthServiceSwitchTenantResponse.Validate if the designated
+// constraints aren't met.
+type AuthServiceSwitchTenantResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e AuthServiceSwitchTenantResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e AuthServiceSwitchTenantResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e AuthServiceSwitchTenantResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e AuthServiceSwitchTenantResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e AuthServiceSwitchTenantResponseValidationError) ErrorName() string {
+	return "AuthServiceSwitchTenantResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e AuthServiceSwitchTenantResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sAuthServiceSwitchTenantResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = AuthServiceSwitchTenantResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = AuthServiceSwitchTenantResponseValidationError{}
+
+// Validate checks the field values on AuthServiceLogoutAllRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *AuthServiceLogoutAllRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on AuthServiceLogoutAllRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// AuthServiceLogoutAllRequestMultiError, or nil if none found.
+func (m *AuthServiceLogoutAllRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *AuthServiceLogoutAllRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return AuthServiceLogoutAllRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// AuthServiceLogoutAllRequestMultiError is an error wrapping multiple
+// validation errors returned by AuthServiceLogoutAllRequest.ValidateAll() if
+// the designated constraints aren't met.
+type AuthServiceLogoutAllRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m AuthServiceLogoutAllRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m AuthServiceLogoutAllRequestMultiError) AllErrors() []error { return m }
+
+// AuthServiceLogoutAllRequestValidationError is the validation error returned
+// by AuthServiceLogoutAllRequest.Validate if the designated constraints
+// aren't met.
+type AuthServiceLogoutAllRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e AuthServiceLogoutAllRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e AuthServiceLogoutAllRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e AuthServiceLogoutAllRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e AuthServiceLogoutAllRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e AuthServiceLogoutAllRequestValidationError) ErrorName() string {
+	return "AuthServiceLogoutAllRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e AuthServiceLogoutAllRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sAuthServiceLogoutAllRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = AuthServiceLogoutAllRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = AuthServiceLogoutAllRequestValidationError{}

@@ -870,6 +870,259 @@ var _ interface {
 	ErrorName() string
 } = UserServiceGetResponseValidationError{}
 
+// Validate checks the field values on UserServiceListRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *UserServiceListRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on UserServiceListRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// UserServiceListRequestMultiError, or nil if none found.
+func (m *UserServiceListRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UserServiceListRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if m.GetPageSize() < 0 {
+		err := UserServiceListRequestValidationError{
+			field:  "PageSize",
+			reason: "value must be greater than or equal to 0",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for PageToken
+
+	if len(errors) > 0 {
+		return UserServiceListRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// UserServiceListRequestMultiError is an error wrapping multiple validation
+// errors returned by UserServiceListRequest.ValidateAll() if the designated
+// constraints aren't met.
+type UserServiceListRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UserServiceListRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UserServiceListRequestMultiError) AllErrors() []error { return m }
+
+// UserServiceListRequestValidationError is the validation error returned by
+// UserServiceListRequest.Validate if the designated constraints aren't met.
+type UserServiceListRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UserServiceListRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UserServiceListRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UserServiceListRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UserServiceListRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UserServiceListRequestValidationError) ErrorName() string {
+	return "UserServiceListRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UserServiceListRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUserServiceListRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UserServiceListRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UserServiceListRequestValidationError{}
+
+// Validate checks the field values on UserServiceListResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *UserServiceListResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on UserServiceListResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// UserServiceListResponseMultiError, or nil if none found.
+func (m *UserServiceListResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UserServiceListResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetUsers() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, UserServiceListResponseValidationError{
+						field:  fmt.Sprintf("Users[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, UserServiceListResponseValidationError{
+						field:  fmt.Sprintf("Users[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return UserServiceListResponseValidationError{
+					field:  fmt.Sprintf("Users[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	// no validation rules for NextPageToken
+
+	if len(errors) > 0 {
+		return UserServiceListResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// UserServiceListResponseMultiError is an error wrapping multiple validation
+// errors returned by UserServiceListResponse.ValidateAll() if the designated
+// constraints aren't met.
+type UserServiceListResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UserServiceListResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UserServiceListResponseMultiError) AllErrors() []error { return m }
+
+// UserServiceListResponseValidationError is the validation error returned by
+// UserServiceListResponse.Validate if the designated constraints aren't met.
+type UserServiceListResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UserServiceListResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UserServiceListResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UserServiceListResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UserServiceListResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UserServiceListResponseValidationError) ErrorName() string {
+	return "UserServiceListResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UserServiceListResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUserServiceListResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UserServiceListResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UserServiceListResponseValidationError{}
+
 // Validate checks the field values on UserServiceUpdateRequest with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.

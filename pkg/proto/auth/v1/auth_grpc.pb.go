@@ -27,6 +27,9 @@ const (
 	AuthService_ChangePassword_FullMethodName = "/auth.v1.AuthService/ChangePassword"
 	AuthService_Logout_FullMethodName         = "/auth.v1.AuthService/Logout"
 	AuthService_GetCurrentUser_FullMethodName = "/auth.v1.AuthService/GetCurrentUser"
+	AuthService_ListMyTenants_FullMethodName  = "/auth.v1.AuthService/ListMyTenants"
+	AuthService_SwitchTenant_FullMethodName   = "/auth.v1.AuthService/SwitchTenant"
+	AuthService_LogoutAll_FullMethodName      = "/auth.v1.AuthService/LogoutAll"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -48,6 +51,14 @@ type AuthServiceClient interface {
 	Logout(ctx context.Context, in *AuthServiceLogoutRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Получить профиль действующего пользователя (пользователь берётся из токена)
 	GetCurrentUser(ctx context.Context, in *AuthServiceGetCurrentUserRequest, opts ...grpc.CallOption) (*AuthServiceGetCurrentUserResponse, error)
+	// Список тенантов, в которых состоит действующий пользователь.
+	// Нужен, чтобы выбрать tenant_slug для входа или переключения сессии.
+	ListMyTenants(ctx context.Context, in *AuthServiceListMyTenantsRequest, opts ...grpc.CallOption) (*AuthServiceListMyTenantsResponse, error)
+	// Переключить действующую сессию на другой тенант.
+	// Старый токен по умолчанию не отзывается: для полного выхода есть LogoutAll.
+	SwitchTenant(ctx context.Context, in *AuthServiceSwitchTenantRequest, opts ...grpc.CallOption) (*AuthServiceSwitchTenantResponse, error)
+	// Выйти из системы на всех устройствах и во всех тенантах.
+	LogoutAll(ctx context.Context, in *AuthServiceLogoutAllRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type authServiceClient struct {
@@ -108,6 +119,36 @@ func (c *authServiceClient) GetCurrentUser(ctx context.Context, in *AuthServiceG
 	return out, nil
 }
 
+func (c *authServiceClient) ListMyTenants(ctx context.Context, in *AuthServiceListMyTenantsRequest, opts ...grpc.CallOption) (*AuthServiceListMyTenantsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuthServiceListMyTenantsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListMyTenants_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) SwitchTenant(ctx context.Context, in *AuthServiceSwitchTenantRequest, opts ...grpc.CallOption) (*AuthServiceSwitchTenantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuthServiceSwitchTenantResponse)
+	err := c.cc.Invoke(ctx, AuthService_SwitchTenant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) LogoutAll(ctx context.Context, in *AuthServiceLogoutAllRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, AuthService_LogoutAll_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
@@ -127,6 +168,14 @@ type AuthServiceServer interface {
 	Logout(context.Context, *AuthServiceLogoutRequest) (*emptypb.Empty, error)
 	// Получить профиль действующего пользователя (пользователь берётся из токена)
 	GetCurrentUser(context.Context, *AuthServiceGetCurrentUserRequest) (*AuthServiceGetCurrentUserResponse, error)
+	// Список тенантов, в которых состоит действующий пользователь.
+	// Нужен, чтобы выбрать tenant_slug для входа или переключения сессии.
+	ListMyTenants(context.Context, *AuthServiceListMyTenantsRequest) (*AuthServiceListMyTenantsResponse, error)
+	// Переключить действующую сессию на другой тенант.
+	// Старый токен по умолчанию не отзывается: для полного выхода есть LogoutAll.
+	SwitchTenant(context.Context, *AuthServiceSwitchTenantRequest) (*AuthServiceSwitchTenantResponse, error)
+	// Выйти из системы на всех устройствах и во всех тенантах.
+	LogoutAll(context.Context, *AuthServiceLogoutAllRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -151,6 +200,15 @@ func (UnimplementedAuthServiceServer) Logout(context.Context, *AuthServiceLogout
 }
 func (UnimplementedAuthServiceServer) GetCurrentUser(context.Context, *AuthServiceGetCurrentUserRequest) (*AuthServiceGetCurrentUserResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetCurrentUser not implemented")
+}
+func (UnimplementedAuthServiceServer) ListMyTenants(context.Context, *AuthServiceListMyTenantsRequest) (*AuthServiceListMyTenantsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMyTenants not implemented")
+}
+func (UnimplementedAuthServiceServer) SwitchTenant(context.Context, *AuthServiceSwitchTenantRequest) (*AuthServiceSwitchTenantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SwitchTenant not implemented")
+}
+func (UnimplementedAuthServiceServer) LogoutAll(context.Context, *AuthServiceLogoutAllRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method LogoutAll not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -263,6 +321,60 @@ func _AuthService_GetCurrentUser_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_ListMyTenants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthServiceListMyTenantsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListMyTenants(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListMyTenants_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListMyTenants(ctx, req.(*AuthServiceListMyTenantsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_SwitchTenant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthServiceSwitchTenantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).SwitchTenant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_SwitchTenant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).SwitchTenant(ctx, req.(*AuthServiceSwitchTenantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_LogoutAll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthServiceLogoutAllRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).LogoutAll(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_LogoutAll_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).LogoutAll(ctx, req.(*AuthServiceLogoutAllRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -289,6 +401,18 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCurrentUser",
 			Handler:    _AuthService_GetCurrentUser_Handler,
+		},
+		{
+			MethodName: "ListMyTenants",
+			Handler:    _AuthService_ListMyTenants_Handler,
+		},
+		{
+			MethodName: "SwitchTenant",
+			Handler:    _AuthService_SwitchTenant_Handler,
+		},
+		{
+			MethodName: "LogoutAll",
+			Handler:    _AuthService_LogoutAll_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

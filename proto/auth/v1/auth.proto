@@ -77,6 +77,29 @@ service AuthService {
   rpc GetCurrentUser(AuthServiceGetCurrentUserRequest) returns (AuthServiceGetCurrentUserResponse) {
     option (google.api.http) = {get: "/auth/me"};
   }
+
+  // Список тенантов, в которых состоит действующий пользователь.
+  // Нужен, чтобы выбрать tenant_slug для входа или переключения сессии.
+  rpc ListMyTenants(AuthServiceListMyTenantsRequest) returns (AuthServiceListMyTenantsResponse) {
+    option (google.api.http) = {get: "/auth/tenants"};
+  }
+
+  // Переключить действующую сессию на другой тенант.
+  // Старый токен по умолчанию не отзывается: для полного выхода есть LogoutAll.
+  rpc SwitchTenant(AuthServiceSwitchTenantRequest) returns (AuthServiceSwitchTenantResponse) {
+    option (google.api.http) = {
+      post: "/auth/tenant/switch"
+      body: "*"
+    };
+  }
+
+  // Выйти из системы на всех устройствах и во всех тенантах.
+  rpc LogoutAll(AuthServiceLogoutAllRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/auth/logout-all"
+      body: "*"
+    };
+  }
 }
 
 // Выданный доступ: подписанный токен и срок его действия
@@ -85,6 +108,14 @@ message Session {
   string token = 1;
   // Момент, когда токен перестаёт действовать
   google.protobuf.Timestamp expires_at = 2;
+  // Тенант сессии: идентификатор нужен для аудита и переключения
+  string tenant_uuid = 3;
+  // Тенант сессии: slug нужен для ссылки и повторного входа
+  string tenant_slug = 4;
+  // Название тенанта для отображения в интерфейсе
+  string tenant_name = 5;
+  // Роль пользователя в тенанте сессии
+  string role = 6;
 }
 
 // Запрос на самостоятельную регистрацию: профиль и пароль
@@ -115,6 +146,9 @@ message AuthServiceRegisterRequest {
     min_len: 8
     max_len: 128
   }];
+  // Slug тенанта, по ссылке которого идёт регистрация.
+  // Пустое значение означает личный тенант (обратная совместимость).
+  string tenant_slug = 8 [(validate.rules).string = {max_len: 100}];
 }
 
 // Ответ на регистрацию: созданный пользователь и выданная сессия
@@ -134,6 +168,8 @@ message AuthServiceLoginRequest {
     min_len: 1
     max_len: 128
   }];
+  // Slug тенанта. Пустое значение — самое раннее членство (обратная совместимость).
+  string tenant_slug = 3 [(validate.rules).string = {max_len: 100}];
 }
 
 // Ответ на вход: выданная сессия
@@ -156,6 +192,8 @@ message AuthServiceChangePasswordRequest {
     min_len: 8
     max_len: 128
   }];
+  // Slug тенанта. Пустое значение — самое раннее членство (обратная совместимость).
+  string tenant_slug = 4 [(validate.rules).string = {max_len: 100}];
 }
 
 // Ответ на смену пароля: новая сессия
@@ -175,3 +213,48 @@ message AuthServiceGetCurrentUserResponse {
   // Профиль действующего пользователя
   user.v1.User user = 1;
 }
+
+// Членство действующего пользователя в тенанте
+message TenantMembership {
+  // Идентификатор тенанта
+  string tenant_uuid = 1;
+  // Slug тенанта: по нему выполняется вход и переключение сессии
+  string tenant_slug = 2;
+  // Название тенанта
+  string tenant_name = 3;
+  // Статус тенанта: active, suspended или deleted
+  string status = 4;
+  // Роль пользователя в этом тенанте
+  string role = 5;
+  // Признак владельца тенанта
+  bool is_owner = 6;
+  // Когда пользователь вступил в тенант
+  google.protobuf.Timestamp joined_at = 7;
+}
+
+// Запрос списка тенантов действующего пользователя
+message AuthServiceListMyTenantsRequest {}
+
+// Ответ со списком тенантов действующего пользователя
+message AuthServiceListMyTenantsResponse {
+  // Членства пользователя, упорядоченные по времени вступления
+  repeated TenantMembership tenants = 1;
+}
+
+// Запрос на переключение сессии на другой тенант
+message AuthServiceSwitchTenantRequest {
+  // Slug целевого тенанта
+  string tenant_slug = 1 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+}
+
+// Ответ на переключение: новая сессия в целевом тенанте
+message AuthServiceSwitchTenantResponse {
+  // Выданный доступ
+  Session session = 1;
+}
+
+// Запрос на выход из всех сессий (токен берётся из заголовка Authorization)
+message AuthServiceLogoutAllRequest {}
