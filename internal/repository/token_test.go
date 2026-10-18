@@ -274,3 +274,78 @@ func TestTokenRepo_UserSoftDelete(t *testing.T) {
 		t.Errorf("удалённый пользователь error = %v, want %v", err, database.ErrNotFound)
 	}
 }
+
+// TestTokenRepo_RevokeScopes проверяет tenant/user-scoped отзыв сессий.
+func TestTokenRepo_RevokeScopes(t *testing.T) {
+	ctx := context.Background()
+	conn := newSQLiteTestDB(t)
+
+	userRepo := NewUserRepo(ctx, conn, database.DialectSQLite)
+	tokenRepo := NewTokenRepo(ctx, conn, database.DialectSQLite)
+	tenantRepo := NewTenantRepo(ctx, conn, database.DialectSQLite)
+
+	user := testUser(t, "revoke-scopes@example.com", "+79990000124")
+	if err := userRepo.Create(ctx, user); err != nil {
+		t.Fatalf("UserRepo.Create() unexpected error = %v", err)
+	}
+
+	first := testTenant(t, tenantRepo, "revoke-first")
+	second := testTenant(t, tenantRepo, "revoke-second")
+
+	firstToken := testToken(t, first.ID, user, time.Hour)
+	secondFirstTenant := testToken(t, first.ID, user, time.Hour)
+	secondTenant := testToken(t, second.ID, user, time.Hour)
+
+	for _, token := range []*model.Token{firstToken, secondFirstTenant, secondTenant} {
+		if err := tokenRepo.Create(ctx, token); err != nil {
+			t.Fatalf("Create() unexpected error = %v", err)
+		}
+	}
+
+	t.Run("RevokeByUserTenant", func(t *testing.T) {
+		revoked, err := tokenRepo.RevokeByUserTenant(ctx, user.ID, first.ID, time.Now().UTC())
+		if err != nil || revoked != 2 {
+			t.Fatalf("RevokeByUserTenant() = %d, %v, want 2", revoked, err)
+		}
+
+		for _, token := range []*model.Token{firstToken, secondFirstTenant} {
+			got, err := tokenRepo.GetByID(ctx, token.ID)
+			if err != nil || !got.Revoked() {
+				t.Errorf("token %s revoked = %v, %v", token.ID, got.Revoked(), err)
+			}
+		}
+
+		got, err := tokenRepo.GetByID(ctx, secondTenant.ID)
+		if err != nil || got.Revoked() {
+			t.Errorf("tenant 2 token revoked = %v, %v", got.Revoked(), err)
+		}
+	})
+
+	t.Run("RevokeByTenant", func(t *testing.T) {
+		if _, err := tokenRepo.RevokeByTenant(ctx, second.ID, time.Now().UTC()); err != nil {
+			t.Fatalf("RevokeByTenant() unexpected error = %v", err)
+		}
+
+		got, err := tokenRepo.GetByID(ctx, secondTenant.ID)
+		if err != nil || !got.Revoked() {
+			t.Errorf("token revoked = %v, %v", got.Revoked(), err)
+		}
+	})
+
+	t.Run("RevokeByUser", func(t *testing.T) {
+		fresh := testToken(t, first.ID, user, time.Hour)
+		if err := tokenRepo.Create(ctx, fresh); err != nil {
+			t.Fatalf("Create() unexpected error = %v", err)
+		}
+
+		revoked, err := tokenRepo.RevokeByUser(ctx, user.ID, time.Now().UTC())
+		if err != nil || revoked != 1 {
+			t.Fatalf("RevokeByUser() = %d, %v, want 1", revoked, err)
+		}
+
+		got, err := tokenRepo.GetByID(ctx, fresh.ID)
+		if err != nil || !got.Revoked() {
+			t.Errorf("token revoked = %v, %v", got.Revoked(), err)
+		}
+	})
+}

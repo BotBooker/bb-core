@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
 	"github.com/botbooker/bb-core/internal/repository/swagger"
 	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
+	public_v1 "github.com/botbooker/bb-core/pkg/proto/public/v1"
+	tenant_v1 "github.com/botbooker/bb-core/pkg/proto/tenant/v1"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
@@ -32,6 +35,9 @@ type Handler interface {
 // это ответственность app-слоя.
 type handler struct {
 	authService AuthService
+	// catalog — публичный каталог: ручка /t/{slug} отдаёт тот же профиль,
+	// что и /api/v1/public/tenants/{slug}.
+	catalog PublicCatalogService
 	// gateway — HTTP-транспорт proto-сервисов: те же ручки, что и в gRPC.
 	gateway *runtime.ServeMux
 }
@@ -44,18 +50,31 @@ type handler struct {
 //
 // Ошибка возможна только при конфликте маршрутов gateway — это ошибка сборки
 // приложения, поэтому возвращается наверх, а не игнорируется.
-func NewHandler(authService AuthService, userServiceServer user_v1.UserServiceServer) (Handler, error) {
+func NewHandler(
+	authService AuthService,
+	userServiceServer user_v1.UserServiceServer,
+	tenantServiceServer tenant_v1.TenantServiceServer,
+	catalog PublicCatalogService,
+) (Handler, error) {
 	gateway := runtime.NewServeMux()
 
 	if err := user_v1.RegisterUserServiceHandlerServer(context.Background(), gateway, userServiceServer); err != nil {
 		return nil, fmt.Errorf("register user service gateway: %w", err)
 	}
 
+	if err := tenant_v1.RegisterTenantServiceHandlerServer(context.Background(), gateway, tenantServiceServer); err != nil {
+		return nil, fmt.Errorf("register tenant service gateway: %w", err)
+	}
+
+	if err := public_v1.RegisterPublicCatalogServiceHandlerServer(context.Background(), gateway, NewPublicCatalogServer(catalog)); err != nil {
+		return nil, fmt.Errorf("register public catalog gateway: %w", err)
+	}
+
 	if err := auth_v1.RegisterAuthServiceHandlerServer(context.Background(), gateway, NewAuthServiceServer(authService)); err != nil {
 		return nil, fmt.Errorf("register auth service gateway: %w", err)
 	}
 
-	return &handler{authService: authService, gateway: gateway}, nil
+	return &handler{authService: authService, catalog: catalog, gateway: gateway}, nil
 }
 
 // Routes возвращает маршрутизатор со всеми зарегистрированными хендлерами.
@@ -84,6 +103,14 @@ func (h *handler) Routes() http.Handler {
 	mux.HandleFunc("POST /auth/login", h.loginHandler)
 	mux.HandleFunc("POST /auth/password", h.changePasswordHandler)
 	mux.HandleFunc("POST /auth/logout", h.logoutHandler)
+	mux.HandleFunc("GET /auth/tenants", h.listMyTenantsHandler)
+	mux.HandleFunc("POST /auth/tenant/switch", h.switchTenantHandler)
+	mux.HandleFunc("POST /auth/logout-all", h.logoutAllHandler)
+
+	// Публичная ссылка на тенант: тот же JSON, что у
+	// GET /api/v1/public/tenants/{slug}, но без префикса API — её печатает
+	// bootstrap и на неё ведут ссылки из интерфейса.
+	mux.HandleFunc("GET /t/", h.publicTenantHandler)
 
 	// Ручки proto-сервиса: POST /api/v1/users, GET|PATCH|DELETE /api/v1/users/{uuid}.
 	// StripPrefix снимает префикс: в proto пути заданы от корня (/users).
@@ -101,4 +128,25 @@ func (h *handler) healthHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := fmt.Fprintln(w, "ok"); err != nil {
 		slog.ErrorContext(r.Context(), "failed to write response", "err", err)
 	}
+}
+
+// publicTenantHandler — GET /t/{slug}: публичная страница тенанта.
+func (h *handler) publicTenantHandler(w http.ResponseWriter, r *http.Request) {
+	slug := strings.Trim(strings.TrimPrefix(r.URL.Path, "/t/"), "/")
+	if slug == "" || strings.Contains(slug, "/") {
+		writeError(r.Context(), w, http.StatusNotFound, notFoundMessage)
+
+		return
+	}
+
+	tenant, err := h.catalog.GetTenant(r.Context(), slug)
+	if err != nil {
+		writeServiceError(r.Context(), w, err, "get public tenant")
+
+		return
+	}
+
+	writeProtoJSON(r.Context(), w, http.StatusOK, &public_v1.PublicTenantResponse{
+		Tenant: publicTenantToProto(tenant),
+	})
 }

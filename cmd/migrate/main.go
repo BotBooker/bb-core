@@ -3,10 +3,10 @@
 //	DSN=/tmp/database.db go run ./cmd/migrate up
 //	DSN=postgres://user:pass@localhost:5432/db?sslmode=disable go run ./cmd/migrate down
 //
-// Диалект определяется по DSN (database.DialectFromDSN), миграции берутся из
-// встроенного каталога migrations — это тот же код, что и авто-применение при
-// старте приложения (MIGRATE_ON_START), поэтому ручная и автоматическая
-// раскатка не расходятся.
+// Диалект определяется по DSN (database.DialectFromDSN), SQL-файлы читаются из
+// каталога MIGRATIONS_DIR (по умолчанию ./migrations) — это тот же код, что и
+// авто-применение при старте приложения (MIGRATE_ON_START), поэтому ручная и
+// автоматическая раскатка не расходятся.
 package main
 
 import (
@@ -74,10 +74,10 @@ func run(ctx context.Context, cfg config.DatabaseConfig, args []string) error {
 	slog.InfoContext(ctx, "running migrations", "command", command, "dialect", dialect)
 
 	if command == commandDown {
-		return database.MigrateDown(ctx, db, dialect)
+		return database.MigrateDown(ctx, db, dialect, cfg.MigrationsDir)
 	}
 
-	return database.Migrate(ctx, db, dialect)
+	return database.Migrate(ctx, db, dialect, cfg.MigrationsDir)
 }
 
 // parseCommand разбирает команду CLI: без аргументов выполняется up.

@@ -21,6 +21,7 @@ import (
 	"github.com/botbooker/bb-core/internal/service"
 	"github.com/botbooker/bb-core/pkg/observability"
 	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
+	public_v1 "github.com/botbooker/bb-core/pkg/proto/public/v1"
 	"github.com/botbooker/bb-core/pkg/tools"
 )
 
@@ -30,8 +31,11 @@ import (
 // сервис умеет больше (например, чистку просроченных сессий).
 type AuthService interface {
 	Register(ctx context.Context, in model.RegisterInput) (*model.User, *service.Session, error)
-	Login(ctx context.Context, email, password string) (*service.Session, error)
-	ChangePassword(ctx context.Context, email, currentPassword, newPassword string) (*service.Session, error)
+	Login(ctx context.Context, email, password, tenantSlug string) (*service.Session, error)
+	ChangePassword(ctx context.Context, email, currentPassword, newPassword, tenantSlug string) (*service.Session, error)
+	SwitchTenant(ctx context.Context, actor *service.Principal, tenantSlug string) (*service.Session, error)
+	ListMyTenants(ctx context.Context, actor *service.Principal) ([]*model.TenantMembership, error)
+	LogoutAll(ctx context.Context, actor *service.Principal) error
 	Logout(ctx context.Context, accessToken string) error
 	Authenticate(ctx context.Context, accessToken string) (*service.Principal, error)
 }
@@ -65,8 +69,9 @@ var errNoToken = errors.New("token is not provided")
 
 // loginRequest — тело POST /auth/login.
 type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	TenantSlug string `json:"tenant_slug"`
 }
 
 // changePasswordRequest — тело POST /auth/password: смена пароля.
@@ -78,6 +83,7 @@ type changePasswordRequest struct {
 	Email           string `json:"email"`
 	CurrentPassword string `json:"current_password"`
 	NewPassword     string `json:"new_password"`
+	TenantSlug      string `json:"tenant_slug"`
 }
 
 // registerRequest — тело POST /auth/register: профиль и пароль.
@@ -89,22 +95,56 @@ type registerRequest struct {
 	PhoneNumber string `json:"phone_number"`
 	Gender      string `json:"gender"`
 	Password    string `json:"password"`
+	TenantSlug  string `json:"tenant_slug"`
 }
 
-// sessionResponse — ответ на вход и регистрацию: чем клиент будет
+// switchTenantRequest — тело POST /auth/tenant/switch.
+type switchTenantRequest struct {
+	TenantSlug string `json:"tenant_slug"`
+}
+
+// tenantMembershipResponse — членство пользователя в тенанте для GET /auth/tenants.
+type tenantMembershipResponse struct {
+	TenantUUID string `json:"tenant_uuid"`
+	TenantSlug string `json:"tenant_slug"`
+	TenantName string `json:"tenant_name"`
+	Status     string `json:"status"`
+	Role       string `json:"role"`
+	IsOwner    bool   `json:"is_owner"`
+	JoinedAt   string `json:"joined_at"`
+}
+
+// listMyTenantsResponse — ответ GET /auth/tenants.
+type listMyTenantsResponse struct {
+	Tenants []tenantMembershipResponse `json:"tenants"`
+}
+
 // авторизовываться дальше и до какого момента.
 type sessionResponse struct {
-	Token     string `json:"token"`
-	ExpiresAt string `json:"expires_at"`
+	Token      string `json:"token"`
+	ExpiresAt  string `json:"expires_at"`
+	TenantUUID string `json:"tenant_uuid,omitempty"`
+	TenantSlug string `json:"tenant_slug,omitempty"`
+	TenantName string `json:"tenant_name,omitempty"`
+	Role       string `json:"role,omitempty"`
 }
 
 // newSessionResponse собирает ответ по выданной сессии: время в RFC 3339,
 // как отдаёт google.protobuf.Timestamp grpc-gateway.
 func newSessionResponse(session *service.Session) sessionResponse {
-	return sessionResponse{
+	response := sessionResponse{
 		Token:     session.AccessToken,
 		ExpiresAt: session.Token.ExpiresAt.UTC().Format(time.RFC3339),
+		Role:      session.Role.String(),
 	}
+
+	if session.Tenant != nil {
+		response.TenantUUID = session.Tenant.ID
+		response.TenantSlug = session.Tenant.Slug
+		response.TenantName = session.Tenant.Name
+	}
+
+	return response
 }
 
 // registerHandler — POST /auth/register: самостоятельная регистрация.
@@ -141,7 +181,8 @@ func (h *handler) registerHandler(w http.ResponseWriter, r *http.Request) {
 			PhoneNumber: request.PhoneNumber,
 			Gender:      gender,
 		},
-		Password: request.Password,
+		Password:   request.Password,
+		TenantSlug: request.TenantSlug,
 	}
 
 	_, session, err := h.authService.Register(r.Context(), in)
@@ -163,7 +204,7 @@ func (h *handler) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.authService.Login(r.Context(), request.Email, request.Password)
+	session, err := h.authService.Login(r.Context(), request.Email, request.Password, request.TenantSlug)
 	if err != nil {
 		writeServiceError(r.Context(), w, err, "login user")
 
@@ -186,7 +227,7 @@ func (h *handler) changePasswordHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	session, err := h.authService.ChangePassword(
-		r.Context(), request.Email, request.CurrentPassword, request.NewPassword,
+		r.Context(), request.Email, request.CurrentPassword, request.NewPassword, request.TenantSlug,
 	)
 	if err != nil {
 		writeServiceError(r.Context(), w, err, "change password")
@@ -210,6 +251,82 @@ func (h *handler) logoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.authService.Logout(r.Context(), token); err != nil {
 		writeServiceError(r.Context(), w, err, "logout user")
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// listMyTenantsHandler — GET /auth/tenants: тенанты действующего пользователя.
+func (h *handler) listMyTenantsHandler(w http.ResponseWriter, r *http.Request) {
+	principal, ok := service.PrincipalFromContext(r.Context())
+	if !ok || principal.User == nil {
+		writeError(r.Context(), w, http.StatusUnauthorized, unauthorizedMessage)
+
+		return
+	}
+
+	memberships, err := h.authService.ListMyTenants(r.Context(), principal)
+	if err != nil {
+		writeServiceError(r.Context(), w, err, "list my tenants")
+
+		return
+	}
+
+	items := make([]tenantMembershipResponse, 0, len(memberships))
+	for _, membership := range memberships {
+		items = append(items, tenantMembershipResponse{
+			TenantUUID: membership.Tenant.ID,
+			TenantSlug: membership.Tenant.Slug,
+			TenantName: membership.Tenant.Name,
+			Status:     membership.Tenant.Status.String(),
+			Role:       membership.Member.Role.String(),
+			IsOwner:    membership.Member.IsOwner,
+			JoinedAt:   membership.Member.JoinedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	writeJSON(r.Context(), w, http.StatusOK, listMyTenantsResponse{Tenants: items})
+}
+
+// switchTenantHandler — POST /auth/tenant/switch: новая сессия в другом тенанте.
+func (h *handler) switchTenantHandler(w http.ResponseWriter, r *http.Request) {
+	principal, ok := service.PrincipalFromContext(r.Context())
+	if !ok || principal.User == nil {
+		writeError(r.Context(), w, http.StatusUnauthorized, unauthorizedMessage)
+
+		return
+	}
+
+	var request switchTenantRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, badRequestMessage)
+
+		return
+	}
+
+	session, err := h.authService.SwitchTenant(r.Context(), principal, request.TenantSlug)
+	if err != nil {
+		writeServiceError(r.Context(), w, err, "switch tenant")
+
+		return
+	}
+
+	writeJSON(r.Context(), w, http.StatusOK, newSessionResponse(session))
+}
+
+// logoutAllHandler — POST /auth/logout-all: выход из всех сессий пользователя.
+func (h *handler) logoutAllHandler(w http.ResponseWriter, r *http.Request) {
+	principal, ok := service.PrincipalFromContext(r.Context())
+	if !ok || principal.User == nil {
+		writeError(r.Context(), w, http.StatusUnauthorized, unauthorizedMessage)
+
+		return
+	}
+
+	if err := h.authService.LogoutAll(r.Context(), principal); err != nil {
+		writeServiceError(r.Context(), w, err, "logout all")
 
 		return
 	}
@@ -326,6 +443,11 @@ func isPublicPath(path string) bool {
 		return true
 	}
 
+	// Публичный каталог открыт без токена: это витрина, а не данные участника.
+	if strings.HasPrefix(path, "/api/v1/public/") || strings.HasPrefix(path, "/t/") {
+		return true
+	}
+
 	return strings.HasPrefix(path, SwaggerPrefix)
 }
 
@@ -423,6 +545,10 @@ var publicGRPCMethods = map[string]struct{}{
 // аутентификации (см. publicGRPCMethods). Остальные вызовы защищены.
 func isPublicGRPCMethod(fullMethod string) bool {
 	if isServiceGRPCMethod(fullMethod) {
+		return true
+	}
+
+	if strings.HasPrefix(fullMethod, "/"+public_v1.PublicCatalogService_ServiceDesc.ServiceName+"/") {
 		return true
 	}
 

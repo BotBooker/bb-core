@@ -130,10 +130,15 @@ func (m *mockAuthCredentialRepository) TouchLastLogin(ctx context.Context, id st
 // По умолчанию членства нет (ErrNotFound): так тесты, которым тенант не важен,
 // проходят через ветку создания личного тенанта.
 type mockAuthTenantRepository struct {
-	createFunc       func(ctx context.Context, tenant *model.Tenant) error
-	addMemberFunc    func(ctx context.Context, member *model.TenantMember) error
-	getMemberFunc    func(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
-	memberOfUserFunc func(ctx context.Context, userID string) (*model.TenantMember, error)
+	createFunc          func(ctx context.Context, tenant *model.Tenant) error
+	createWithOwnerFunc func(ctx context.Context, tenant *model.Tenant, member *model.TenantMember) error
+	getByIDFunc         func(ctx context.Context, id string) (*model.Tenant, error)
+	getBySlugFunc       func(ctx context.Context, slug string) (*model.Tenant, error)
+	addMemberFunc       func(ctx context.Context, member *model.TenantMember) error
+	getMemberFunc       func(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
+	getMemberBySlugFunc func(ctx context.Context, slug, userID string) (*model.TenantMembership, error)
+	memberOfUserFunc    func(ctx context.Context, userID string) (*model.TenantMember, error)
+	listMembershipsFunc func(ctx context.Context, userID string) ([]*model.TenantMembership, error)
 }
 
 func (m *mockAuthTenantRepository) Create(ctx context.Context, tenant *model.Tenant) error {
@@ -142,6 +147,58 @@ func (m *mockAuthTenantRepository) Create(ctx context.Context, tenant *model.Ten
 	}
 
 	return nil
+}
+
+func (m *mockAuthTenantRepository) CreateWithOwner(
+	ctx context.Context,
+	tenant *model.Tenant,
+	member *model.TenantMember,
+) error {
+	if m.createWithOwnerFunc != nil {
+		return m.createWithOwnerFunc(ctx, tenant, member)
+	}
+
+	return nil
+}
+
+func (m *mockAuthTenantRepository) GetByID(ctx context.Context, id string) (*model.Tenant, error) {
+	if m.getByIDFunc != nil {
+		return m.getByIDFunc(ctx, id)
+	}
+
+	// По умолчанию тенант сессии действующий: тесты аутентификации, которым
+	// статус не важен, не должны настраивать ещё и тенант.
+	return &model.Tenant{ID: id, Status: model.TenantStatusActive}, nil
+}
+
+func (m *mockAuthTenantRepository) GetBySlug(ctx context.Context, slug string) (*model.Tenant, error) {
+	if m.getBySlugFunc != nil {
+		return m.getBySlugFunc(ctx, slug)
+	}
+
+	return nil, database.ErrNotFound
+}
+
+func (m *mockAuthTenantRepository) GetMemberBySlug(
+	ctx context.Context,
+	slug, userID string,
+) (*model.TenantMembership, error) {
+	if m.getMemberBySlugFunc != nil {
+		return m.getMemberBySlugFunc(ctx, slug, userID)
+	}
+
+	return nil, database.ErrNotFound
+}
+
+func (m *mockAuthTenantRepository) ListMemberships(
+	ctx context.Context,
+	userID string,
+) ([]*model.TenantMembership, error) {
+	if m.listMembershipsFunc != nil {
+		return m.listMembershipsFunc(ctx, userID)
+	}
+
+	return nil, nil
 }
 
 func (m *mockAuthTenantRepository) AddMember(ctx context.Context, member *model.TenantMember) error {
@@ -174,6 +231,7 @@ type mockAuthTokenRepository struct {
 	getByIDFunc       func(ctx context.Context, id string) (*model.Token, error)
 	touchFunc         func(ctx context.Context, id string, at time.Time) error
 	revokeFunc        func(ctx context.Context, id string, at time.Time) error
+	revokeByUserFunc  func(ctx context.Context, userID string, at time.Time) (int64, error)
 	deleteExpiredFunc func(ctx context.Context, id string, before time.Time) (int64, error)
 }
 
@@ -207,6 +265,18 @@ func (m *mockAuthTokenRepository) Revoke(ctx context.Context, id string, at time
 	}
 
 	return nil
+}
+
+func (m *mockAuthTokenRepository) RevokeByUser(
+	ctx context.Context,
+	userID string,
+	at time.Time,
+) (int64, error) {
+	if m.revokeByUserFunc != nil {
+		return m.revokeByUserFunc(ctx, userID, at)
+	}
+
+	return 0, nil
 }
 
 func (m *mockAuthTokenRepository) DeleteExpired(ctx context.Context, id string, before time.Time) (int64, error) {
@@ -354,13 +424,14 @@ func TestAuthService_Register(t *testing.T) {
 
 			return nil
 		}
-		// Членства у нового пользователя нет: сервис создаёт личный тенант.
-		m.tenants.createFunc = func(_ context.Context, tenant *model.Tenant) error {
+		// Членства у нового пользователя нет: сервис создаёт личный тенант
+		// вместе с членством владельца одной транзакцией.
+		m.tenants.createWithOwnerFunc = func(
+			_ context.Context,
+			tenant *model.Tenant,
+			member *model.TenantMember,
+		) error {
 			storedTenant = tenant
-
-			return nil
-		}
-		m.tenants.addMemberFunc = func(_ context.Context, member *model.TenantMember) error {
 			storedMember = member
 
 			return nil
@@ -534,7 +605,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		session, err := svc.Login(context.Background(), "IVAN@example.COM", testPassword)
+		session, err := svc.Login(context.Background(), "IVAN@example.COM", testPassword, "")
 		if err != nil {
 			t.Fatalf("Login() unexpected error = %v", err)
 		}
@@ -571,7 +642,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		if _, err := svc.Login(context.Background(), "nobody@example.com", testPassword); !errors.Is(err, ErrInvalidCredentials) {
+		if _, err := svc.Login(context.Background(), "nobody@example.com", testPassword, ""); !errors.Is(err, ErrInvalidCredentials) {
 			t.Errorf("Login() error = %v, want %v", err, ErrInvalidCredentials)
 		}
 		if tokenCreated {
@@ -590,7 +661,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		if _, err := svc.Login(context.Background(), "ivan@example.com", testPassword); !errors.Is(err, ErrInvalidCredentials) {
+		if _, err := svc.Login(context.Background(), "ivan@example.com", testPassword, ""); !errors.Is(err, ErrInvalidCredentials) {
 			t.Errorf("Login() error = %v, want %v", err, ErrInvalidCredentials)
 		}
 	})
@@ -606,7 +677,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		_, err := svc.Login(context.Background(), "ivan@example.com", "wrong password entirely")
+		_, err := svc.Login(context.Background(), "ivan@example.com", "wrong password entirely", "")
 		if !errors.Is(err, ErrInvalidCredentials) {
 			t.Errorf("Login() error = %v, want %v", err, ErrInvalidCredentials)
 		}
@@ -620,7 +691,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		_, err := svc.Login(context.Background(), "ivan@example.com", testPassword)
+		_, err := svc.Login(context.Background(), "ivan@example.com", testPassword, "")
 		if err == nil || errors.Is(err, ErrInvalidCredentials) {
 			t.Errorf("Login() error = %v, want ошибку репозитория", err)
 		}
@@ -775,7 +846,7 @@ func TestAuthService_Authenticate(t *testing.T) {
 		}
 	})
 
-	t.Run("без членства используется снимок роли из токена", func(t *testing.T) {
+	t.Run("без членства сессия недействительна", func(t *testing.T) {
 		session := testSession(user, testNow.Add(time.Hour))
 		session.Role = model.RoleClient
 
@@ -783,17 +854,13 @@ func TestAuthService_Authenticate(t *testing.T) {
 		m.codec.parseFunc = func(string, time.Time) (*model.Token, error) { return session, nil }
 		m.tokens.getByIDFunc = func(context.Context, string) (*model.Token, error) { return session, nil }
 		m.users.getByIDFunc = func(context.Context, string) (*model.User, error) { return user, nil }
-		// По умолчанию мок членства отвечает database.ErrNotFound.
+		// По умолчанию мок членства отвечает database.ErrNotFound: членство
+		// удалено, поэтому снимок роли из токена больше не действует.
 
 		svc := newTestAuthService(t, m)
 
-		principal, err := svc.Authenticate(context.Background(), "access-token")
-		if err != nil {
-			t.Fatalf("Authenticate() unexpected error = %v", err)
-		}
-
-		if principal.Role != model.RoleClient {
-			t.Errorf("Role = %q, want %q (снимок из токена)", principal.Role, model.RoleClient)
+		if _, err := svc.Authenticate(context.Background(), "access-token"); !errors.Is(err, ErrUnauthorized) {
+			t.Errorf("Authenticate() error = %v, want %v", err, ErrUnauthorized)
 		}
 	})
 
@@ -983,7 +1050,7 @@ func TestAuthService_Login_PasswordExpired(t *testing.T) {
 
 	svc := newTestAuthService(t, m)
 
-	_, err := svc.Login(context.Background(), "ivan@example.com", testPassword)
+	_, err := svc.Login(context.Background(), "ivan@example.com", testPassword, "")
 	if !errors.Is(err, ErrPasswordExpired) {
 		t.Fatalf("Login() error = %v, want %v", err, ErrPasswordExpired)
 	}
@@ -1017,7 +1084,7 @@ func TestAuthService_Login_UpgradesLegacyHash(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		if _, err := svc.Login(context.Background(), "ivan@example.com", testPassword); err != nil {
+		if _, err := svc.Login(context.Background(), "ivan@example.com", testPassword, ""); err != nil {
 			t.Fatalf("Login() unexpected error = %v", err)
 		}
 
@@ -1061,7 +1128,7 @@ func TestAuthService_Login_UpgradesLegacyHash(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		if _, err := svc.Login(context.Background(), "ivan@example.com", testPassword); err != nil {
+		if _, err := svc.Login(context.Background(), "ivan@example.com", testPassword, ""); err != nil {
 			t.Fatalf("Login() unexpected error = %v", err)
 		}
 
@@ -1113,7 +1180,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		session, err := svc.ChangePassword(context.Background(), "IVAN@example.COM", testPassword, newPassword)
+		session, err := svc.ChangePassword(context.Background(), "IVAN@example.COM", testPassword, newPassword, "")
 		if err != nil {
 			t.Fatalf("ChangePassword() unexpected error = %v", err)
 		}
@@ -1162,7 +1229,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", "wrong password entirely", newPassword)
+		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", "wrong password entirely", newPassword, "")
 		if !errors.Is(err, ErrInvalidCredentials) {
 			t.Errorf("ChangePassword() error = %v, want %v", err, ErrInvalidCredentials)
 		}
@@ -1176,7 +1243,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		_, err := svc.ChangePassword(context.Background(), "nobody@example.com", testPassword, newPassword)
+		_, err := svc.ChangePassword(context.Background(), "nobody@example.com", testPassword, newPassword, "")
 		if !errors.Is(err, ErrInvalidCredentials) {
 			t.Errorf("ChangePassword() error = %v, want %v", err, ErrInvalidCredentials)
 		}
@@ -1202,7 +1269,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", testPassword, "short")
+		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", testPassword, "short", "")
 		if !errors.Is(err, model.ErrInvalidPassword) {
 			t.Errorf("ChangePassword() error = %v, want %v", err, model.ErrInvalidPassword)
 		}
@@ -1219,9 +1286,189 @@ func TestAuthService_ChangePassword(t *testing.T) {
 
 		svc := newTestAuthService(t, m)
 
-		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", testPassword, newPassword)
+		_, err := svc.ChangePassword(context.Background(), "ivan@example.com", testPassword, newPassword, "")
 		if err == nil || errors.Is(err, ErrInvalidCredentials) {
 			t.Errorf("ChangePassword() error = %v, want ошибку репозитория", err)
+		}
+	})
+}
+
+func TestAuthService_SwitchTenant(t *testing.T) {
+	t.Run("выдаёт сессию в выбранном тенанте", func(t *testing.T) {
+		tenant := activeTenant(otherTenantID)
+		tenant.Slug = "acme"
+
+		var created *model.Token
+
+		m := newAuthMocks()
+		m.tenants.getMemberBySlugFunc = func(_ context.Context, slug, userID string) (*model.TenantMembership, error) {
+			if slug != "acme" || userID != testPrincipal(t, model.RoleClient).User.ID {
+				t.Errorf("GetMemberBySlug() = %q/%q", slug, userID)
+			}
+
+			return &model.TenantMembership{
+				Tenant: *tenant,
+				Member: model.TenantMember{
+					TenantID: tenant.ID,
+					UserID:   userID,
+					Role:     model.RoleManager,
+				},
+			}, nil
+		}
+		m.tokens.createFunc = func(_ context.Context, token *model.Token) error {
+			created = token
+
+			return nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		session, err := svc.SwitchTenant(context.Background(), testPrincipal(t, model.RoleClient), "acme")
+		if err != nil {
+			t.Fatalf("SwitchTenant() unexpected error = %v", err)
+		}
+
+		if session.Tenant == nil || session.Tenant.ID != otherTenantID || session.Role != model.RoleManager {
+			t.Errorf("session = %+v", session)
+		}
+
+		if created == nil || created.TenantID != otherTenantID || created.Role != model.RoleManager {
+			t.Errorf("token = %+v", created)
+		}
+	})
+
+	t.Run("чужой тенант — запрещено", func(t *testing.T) {
+		m := newAuthMocks()
+		m.tenants.getMemberBySlugFunc = func(context.Context, string, string) (*model.TenantMembership, error) {
+			return nil, database.ErrNotFound
+		}
+
+		svc := newTestAuthService(t, m)
+
+		_, err := svc.SwitchTenant(context.Background(), testPrincipal(t, model.RoleClient), "other")
+		if !errors.Is(err, ErrForbidden) {
+			t.Errorf("SwitchTenant() error = %v, want %v", err, ErrForbidden)
+		}
+	})
+}
+
+func TestAuthService_ListMyTenants(t *testing.T) {
+	memberships := []*model.TenantMembership{
+		{Tenant: *activeTenant(testTenantID), Member: model.TenantMember{TenantID: testTenantID, Role: model.RoleClient}},
+	}
+
+	m := newAuthMocks()
+	m.tenants.listMembershipsFunc = func(_ context.Context, userID string) ([]*model.TenantMembership, error) {
+		if userID == "" {
+			t.Error("ListMemberships() userID пуст")
+		}
+
+		return memberships, nil
+	}
+
+	svc := newTestAuthService(t, m)
+
+	got, err := svc.ListMyTenants(context.Background(), testPrincipal(t, model.RoleClient))
+	if err != nil || len(got) != 1 || got[0].Tenant.ID != testTenantID {
+		t.Fatalf("ListMyTenants() = %v, %v", got, err)
+	}
+}
+
+func TestAuthService_LogoutAll(t *testing.T) {
+	var revokedUser string
+
+	m := newAuthMocks()
+	m.tokens.revokeByUserFunc = func(_ context.Context, userID string, _ time.Time) (int64, error) {
+		revokedUser = userID
+
+		return 3, nil
+	}
+
+	svc := newTestAuthService(t, m)
+	actor := testPrincipal(t, model.RoleClient)
+
+	if err := svc.LogoutAll(context.Background(), actor); err != nil {
+		t.Fatalf("LogoutAll() unexpected error = %v", err)
+	}
+
+	if revokedUser != actor.User.ID {
+		t.Errorf("revoked user = %q, want %q", revokedUser, actor.User.ID)
+	}
+
+	if len(m.events.events) != 1 || m.events.events[0] != EventUserLoggedOut {
+		t.Errorf("events = %v", m.events.events)
+	}
+}
+
+func TestAuthService_RegisterByTenantLink(t *testing.T) {
+	t.Run("создаёт клиентское членство без личного тенанта", func(t *testing.T) {
+		tenant := activeTenant(otherTenantID)
+		tenant.Slug = "acme"
+
+		var (
+			addedMember *model.TenantMember
+			personal    bool
+		)
+
+		m := newAuthMocks()
+		m.tenants.getBySlugFunc = func(_ context.Context, slug string) (*model.Tenant, error) {
+			if slug != "acme" {
+				t.Errorf("GetBySlug() slug = %q", slug)
+			}
+
+			return tenant, nil
+		}
+		m.tenants.addMemberFunc = func(_ context.Context, member *model.TenantMember) error {
+			addedMember = member
+
+			return nil
+		}
+		m.tenants.createWithOwnerFunc = func(context.Context, *model.Tenant, *model.TenantMember) error {
+			personal = true
+
+			return nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		user, session, err := svc.Register(context.Background(), model.RegisterInput{
+			CreateUserInput: testCreateInput(),
+			Password:        testPassword,
+			TenantSlug:      "acme",
+		})
+		if err != nil {
+			t.Fatalf("Register() unexpected error = %v", err)
+		}
+
+		if personal {
+			t.Error("Register() создал личный тенант, want членство по ссылке")
+		}
+
+		if addedMember == nil || addedMember.TenantID != tenant.ID ||
+			addedMember.UserID != user.ID || addedMember.Role != model.RoleClient || addedMember.IsOwner {
+			t.Errorf("member = %+v", addedMember)
+		}
+
+		if session.Tenant == nil || session.Tenant.ID != tenant.ID {
+			t.Errorf("session tenant = %+v", session.Tenant)
+		}
+	})
+
+	t.Run("приостановленный тенант — запрещено", func(t *testing.T) {
+		m := newAuthMocks()
+		m.tenants.getBySlugFunc = func(context.Context, string) (*model.Tenant, error) {
+			return &model.Tenant{ID: otherTenantID, Slug: "acme", Status: model.TenantStatusSuspended}, nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		_, _, err := svc.Register(context.Background(), model.RegisterInput{
+			CreateUserInput: testCreateInput(),
+			Password:        testPassword,
+			TenantSlug:      "acme",
+		})
+		if !errors.Is(err, ErrForbidden) {
+			t.Errorf("Register() error = %v, want %v", err, ErrForbidden)
 		}
 	})
 }

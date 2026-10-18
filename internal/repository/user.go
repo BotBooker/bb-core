@@ -38,6 +38,15 @@ type UserRepo interface {
 	// Delete помечает пользователя удалённым (soft delete: is_active = false);
 	// отсутствие активной строки — database.ErrNotFound.
 	Delete(ctx context.Context, id string) error
+	// ListAll возвращает активных пользователей с пагинацией: для глобальных
+	// администраторов.
+	ListAll(ctx context.Context, limit, offset int) ([]*model.User, error)
+	// ListVisible возвращает пользователей, видимых staff тенанта: сотрудников
+	// тенанта и клиентов, у которых есть хотя бы одна бронь в этом тенанте.
+	ListVisible(ctx context.Context, tenantID string, limit, offset int) ([]*model.User, error)
+	// GetVisible возвращает пользователя, видимого staff тенанта, или
+	// database.ErrNotFound.
+	GetVisible(ctx context.Context, tenantID, id string) (*model.User, error)
 }
 
 // userColumns — колонки users в том порядке, в котором их читает scanUser.
@@ -48,6 +57,15 @@ type UserRepo interface {
 const userColumns = "id, email, first_name, last_name, middle_name, phone_number," +
 	" gender, birth_date, created_at, updated_at, last_login_at, is_active, is_delete," +
 	" is_superuser, is_global_operator"
+
+// aliasedUserColumns — те же колонки с алиасом u: для JOIN с tenant_members и
+// bookings, где имя id/email иначе неоднозначно.
+const aliasedUserColumns = "u.id, u.email, u.first_name, u.last_name, u.middle_name, u.phone_number," +
+	" u.gender, u.birth_date, u.created_at, u.updated_at, u.last_login_at, u.is_active, u.is_delete," +
+	" u.is_superuser, u.is_global_operator"
+
+// activeAliasedUserFilter — условие «строка живая» для JOIN-запросов.
+const activeAliasedUserFilter = "u.is_active = true AND u.is_delete = false"
 
 // activeUserFilter — условие «строка живая»: удалённый пользователь
 // (is_active = false, is_delete = true) не виден ни по id, ни по email.
@@ -206,6 +224,102 @@ func (r *userRepo) Delete(ctx context.Context, id string) error {
 }
 
 // getBy выполняет SELECT одной строки и читает её в модель.
+// ListAll возвращает активных пользователей с пагинацией.
+//
+// Глобальный список доступен только глобальным администраторам; сервис
+// проверяет это до вызова, поэтому репозиторий остаётся tenant-agnostic.
+func (r *userRepo) ListAll(ctx context.Context, limit, offset int) ([]*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "ListAll")
+	defer spanEnd()
+
+	query := "SELECT " + userColumns + " FROM users WHERE is_active = true AND is_delete = false" +
+		" ORDER BY created_at DESC LIMIT ? OFFSET ?"
+
+	return r.list(traceCtx, query, limit, offset)
+}
+
+// ListVisible возвращает пользователей, видимых staff тенанта.
+//
+// Правило видимости (ADR 0001 §7): сотрудники видят друг друга в своём
+// тенанте, а клиента — только если у него есть хотя бы одна бронь в этом
+// тенанте, включая отменённые. EXISTS по bookings не зависит от статуса брони:
+// история броней и есть основание видеть клиента.
+func (r *userRepo) ListVisible(
+	ctx context.Context,
+	tenantID string,
+	limit, offset int,
+) ([]*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "ListVisible")
+	defer spanEnd()
+
+	if err := model.ValidateUUID(tenantID); err != nil {
+		return nil, fmt.Errorf("select visible users: %w", err)
+	}
+
+	query := "SELECT " + aliasedUserColumns + " FROM users u" +
+		" JOIN tenant_members m ON m.user_id = u.id" +
+		" WHERE m.tenant_id = ? AND " + activeAliasedUserFilter +
+		" AND (m.role_id <> ? OR EXISTS (" +
+		"SELECT 1 FROM bookings b WHERE b.tenant_id = ? AND b.client_id = u.id))" +
+		" ORDER BY u.created_at DESC LIMIT ? OFFSET ?"
+
+	return r.list(traceCtx, query, tenantID, model.RoleIDClient, tenantID, limit, offset)
+}
+
+// GetVisible возвращает пользователя, видимого staff тенанта.
+func (r *userRepo) GetVisible(ctx context.Context, tenantID, id string) (*model.User, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "GetVisible")
+	defer spanEnd()
+
+	if err := model.ValidateUUID(tenantID); err != nil {
+		return nil, fmt.Errorf("select visible user: %w", err)
+	}
+
+	if err := model.ValidateUUID(id); err != nil {
+		return nil, fmt.Errorf("select visible user: %w", err)
+	}
+
+	query := "SELECT " + aliasedUserColumns + " FROM users u" +
+		" JOIN tenant_members m ON m.user_id = u.id" +
+		" WHERE m.tenant_id = ? AND u.id = ? AND " + activeAliasedUserFilter +
+		" AND (m.role_id <> ? OR EXISTS (" +
+		"SELECT 1 FROM bookings b WHERE b.tenant_id = ? AND b.client_id = u.id))"
+
+	user, err := scanUser(r.db.QueryRowContext(traceCtx, r.rebind(query),
+		tenantID, id, model.RoleIDClient, tenantID))
+	if err != nil {
+		return nil, fmt.Errorf("select visible user: %w", database.MapError(err))
+	}
+
+	return user, nil
+}
+
+// list выполняет списочный запрос и читает строки в модели.
+func (r *userRepo) list(ctx context.Context, query string, args ...any) ([]*model.User, error) {
+	rows, err := r.db.QueryContext(ctx, r.rebind(query), args...)
+	if err != nil {
+		return nil, fmt.Errorf("select users: %w", database.MapError(err))
+	}
+	defer func() { _ = rows.Close() }()
+
+	users := make([]*model.User, 0)
+
+	for rows.Next() {
+		user, scanErr := scanUser(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("select users: %w", scanErr)
+		}
+
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("select users: %w", database.MapError(err))
+	}
+
+	return users, nil
+}
+
 func (r *userRepo) getBy(ctx context.Context, query string, args ...any) (*model.User, error) {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "getBy")
 	defer spanEnd()
@@ -222,7 +336,7 @@ func (r *userRepo) getBy(ctx context.Context, query string, args ...any) (*model
 //
 // Время и дату разбирают обёртки nullTime и nullDate: PostgreSQL отдаёт
 // time.Time, SQLite — строку в формате, который задал репозиторий.
-func scanUser(row *sql.Row) (*model.User, error) {
+func scanUser(row scanner) (*model.User, error) {
 	var (
 		user                 model.User
 		gender               string

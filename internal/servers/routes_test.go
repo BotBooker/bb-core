@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/internal/service"
 )
@@ -17,10 +18,13 @@ import (
 // проверяется в тестах service, здесь важен только транспорт.
 type mockAuthService struct {
 	authenticateFunc   func(ctx context.Context, token string) (*service.Principal, error)
-	loginFunc          func(ctx context.Context, email, password string) (*service.Session, error)
-	changePasswordFunc func(ctx context.Context, email, currentPassword, newPassword string) (*service.Session, error)
+	loginFunc          func(ctx context.Context, email, password, tenantSlug string) (*service.Session, error)
+	changePasswordFunc func(ctx context.Context, email, currentPassword, newPassword, tenantSlug string) (*service.Session, error)
 	registerFunc       func(ctx context.Context, in model.RegisterInput) (*model.User, *service.Session, error)
 	logoutFunc         func(ctx context.Context, token string) error
+	switchTenantFunc   func(ctx context.Context, actor *service.Principal, tenantSlug string) (*service.Session, error)
+	listMyTenantsFunc  func(ctx context.Context, actor *service.Principal) ([]*model.TenantMembership, error)
+	logoutAllFunc      func(ctx context.Context, actor *service.Principal) error
 }
 
 func (m *mockAuthService) Authenticate(ctx context.Context, token string) (*service.Principal, error) {
@@ -31,9 +35,12 @@ func (m *mockAuthService) Authenticate(ctx context.Context, token string) (*serv
 	return nil, service.ErrUnauthorized
 }
 
-func (m *mockAuthService) Login(ctx context.Context, email, password string) (*service.Session, error) {
+func (m *mockAuthService) Login(
+	ctx context.Context,
+	email, password, tenantSlug string,
+) (*service.Session, error) {
 	if m.loginFunc != nil {
-		return m.loginFunc(ctx, email, password)
+		return m.loginFunc(ctx, email, password, tenantSlug)
 	}
 
 	return nil, service.ErrInvalidCredentials
@@ -41,10 +48,10 @@ func (m *mockAuthService) Login(ctx context.Context, email, password string) (*s
 
 func (m *mockAuthService) ChangePassword(
 	ctx context.Context,
-	email, currentPassword, newPassword string,
+	email, currentPassword, newPassword, tenantSlug string,
 ) (*service.Session, error) {
 	if m.changePasswordFunc != nil {
-		return m.changePasswordFunc(ctx, email, currentPassword, newPassword)
+		return m.changePasswordFunc(ctx, email, currentPassword, newPassword, tenantSlug)
 	}
 
 	return nil, service.ErrInvalidCredentials
@@ -67,6 +74,84 @@ func (m *mockAuthService) Logout(ctx context.Context, token string) error {
 	}
 
 	return nil
+}
+
+func (m *mockAuthService) SwitchTenant(
+	ctx context.Context,
+	actor *service.Principal,
+	tenantSlug string,
+) (*service.Session, error) {
+	if m.switchTenantFunc != nil {
+		return m.switchTenantFunc(ctx, actor, tenantSlug)
+	}
+
+	return nil, service.ErrForbidden
+}
+
+func (m *mockAuthService) ListMyTenants(
+	ctx context.Context,
+	actor *service.Principal,
+) ([]*model.TenantMembership, error) {
+	if m.listMyTenantsFunc != nil {
+		return m.listMyTenantsFunc(ctx, actor)
+	}
+
+	return nil, nil
+}
+
+func (m *mockAuthService) LogoutAll(ctx context.Context, actor *service.Principal) error {
+	if m.logoutAllFunc != nil {
+		return m.logoutAllFunc(ctx, actor)
+	}
+
+	return nil
+}
+
+// mockTenantManagementService — заглушка адаптера тенантов: тесты HTTP-слоя
+// не вызывают эти ручки, но NewHandler регистрирует их в gateway.
+type mockTenantManagementService struct {
+	TenantManagementService
+}
+
+// mockPublicCatalogService — заглушка публичного каталога.
+type mockPublicCatalogService struct {
+	getTenantFunc   func(ctx context.Context, slug string) (*model.PublicTenant, error)
+	listTenantsFunc func(ctx context.Context, page model.Page) ([]*model.PublicTenant, string, error)
+	listObjectsFunc func(ctx context.Context, slug string, page model.Page) ([]*model.PublicObject, string, error)
+}
+
+func (m *mockPublicCatalogService) GetTenant(
+	ctx context.Context,
+	slug string,
+) (*model.PublicTenant, error) {
+	if m.getTenantFunc != nil {
+		return m.getTenantFunc(ctx, slug)
+	}
+
+	return nil, database.ErrNotFound
+}
+
+func (m *mockPublicCatalogService) ListTenants(
+	ctx context.Context,
+	page model.Page,
+) ([]*model.PublicTenant, string, error) {
+	if m.listTenantsFunc != nil {
+		return m.listTenantsFunc(ctx, page)
+	}
+
+	return nil, "", nil
+}
+
+func (m *mockPublicCatalogService) ListObjects(
+	ctx context.Context,
+	slug string,
+	page model.Page,
+) ([]*model.PublicObject, string, error) {
+	if m.listObjectsFunc != nil {
+		return m.listObjectsFunc(ctx, slug, page)
+	}
+
+	return nil, "", nil
 }
 
 // handlerTestUser — пользователь, которого «вернул» сервис авторизации.
@@ -128,7 +213,7 @@ func authenticatedHandler(t *testing.T, user *model.User) Handler {
 		return principal, nil
 	}}
 
-	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
 	if err != nil {
 		t.Fatalf("NewHandler() unexpected error = %v", err)
 	}
@@ -147,7 +232,7 @@ func TestHandler_NewHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, err := NewHandler(tt.auth, NewUserServiceServer(&mockUserServiceAPI{}))
+			handler, err := NewHandler(tt.auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
 			if err != nil {
 				t.Fatalf("NewHandler() unexpected error = %v", err)
 			}
@@ -359,7 +444,7 @@ func TestHandler_AuthenticateError(t *testing.T) {
 				return nil, tt.authErr
 			}}
 
-			handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+			handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
 			if err != nil {
 				t.Fatalf("NewHandler() unexpected error = %v", err)
 			}
@@ -387,11 +472,11 @@ func TestHandler_AuthenticateError(t *testing.T) {
 // паролем: 403 с признаком password_expired, по которому клиент ведёт
 // пользователя на смену пароля.
 func TestHandler_loginPasswordExpired(t *testing.T) {
-	auth := &mockAuthService{loginFunc: func(context.Context, string, string) (*service.Session, error) {
+	auth := &mockAuthService{loginFunc: func(context.Context, string, string, string) (*service.Session, error) {
 		return nil, service.ErrPasswordExpired
 	}}
 
-	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
 	if err != nil {
 		t.Fatalf("NewHandler() unexpected error = %v", err)
 	}
@@ -422,9 +507,13 @@ func TestHandler_changePassword(t *testing.T) {
 
 		auth := &mockAuthService{changePasswordFunc: func(
 			_ context.Context,
-			email, currentPassword, newPassword string,
+			email, currentPassword, newPassword, tenantSlug string,
 		) (*service.Session, error) {
 			gotEmail, gotCurrent, gotNew = email, currentPassword, newPassword
+
+			if tenantSlug != "" {
+				t.Errorf("ChangePassword() tenant slug = %q, want empty", tenantSlug)
+			}
 
 			now := time.Now().UTC()
 
@@ -441,7 +530,7 @@ func TestHandler_changePassword(t *testing.T) {
 			}, nil
 		}}
 
-		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
 		if err != nil {
 			t.Fatalf("NewHandler() unexpected error = %v", err)
 		}
@@ -466,11 +555,11 @@ func TestHandler_changePassword(t *testing.T) {
 	})
 
 	t.Run("неверные данные — 401", func(t *testing.T) {
-		auth := &mockAuthService{changePasswordFunc: func(context.Context, string, string, string) (*service.Session, error) {
+		auth := &mockAuthService{changePasswordFunc: func(context.Context, string, string, string, string) (*service.Session, error) {
 			return nil, service.ErrInvalidCredentials
 		}}
 
-		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}))
+		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
 		if err != nil {
 			t.Fatalf("NewHandler() unexpected error = %v", err)
 		}
@@ -485,7 +574,7 @@ func TestHandler_changePassword(t *testing.T) {
 	})
 
 	t.Run("битый JSON — 400", func(t *testing.T) {
-		handler, err := NewHandler(&mockAuthService{}, NewUserServiceServer(&mockUserServiceAPI{}))
+		handler, err := NewHandler(&mockAuthService{}, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
 		if err != nil {
 			t.Fatalf("NewHandler() unexpected error = %v", err)
 		}

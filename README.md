@@ -22,6 +22,7 @@ DSN=sqlite:/tmp/database.db go run ./cmd/api   # миграции применя
 | `SERVER_HOST`, `SERVER_PORT` | `localhost`, `8080` | HTTP: `/health`, `/api/v1`, `/api/swagger/` |
 | `SERVER_GRPC_HOST`, `SERVER_GRPC_PORT` | `localhost`, `50051` | gRPC: `user.v1.UserService`, `auth.v1.AuthService`, health, reflection |
 | `DSN` | — | подключение к БД; диалект (postgres/sqlite) определяется по DSN |
+| `MIGRATIONS_DIR` | `./migrations` | каталог goose-миграций (`postgres/`, `sqlite/`); в образе — `/app/migrations` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | адрес OTel Collector для всех сигналов |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | — | адрес OTel Collector для логов |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | — | адрес OTel Collector для метрик |
@@ -43,12 +44,18 @@ grpcurl -plaintext localhost:50051 list
 | `POST /auth/login` | Вход по email и паролю |
 | `POST /auth/password` | Смена пароля по текущему паролю |
 | `POST /auth/logout` | Выход (отзыв токена) |
+| `GET /auth/tenants` | Тенанты действующего пользователя |
+| `POST /auth/tenant/switch` | Новая сессия в выбранном тенанте |
+| `POST /auth/logout-all` | Выход из всех сессий пользователя |
 | `GET /users/me` | Профиль действующего пользователя |
 
 Те же операции доступны как proto-сервис `auth.v1.AuthService`
 (`proto/auth/v1/auth.proto`): gRPC-методы `Register`, `Login`, `ChangePassword`,
-`Logout`, `GetCurrentUser`, а через grpc-gateway — ручки
-`POST /api/v1/auth/{register,login,password,logout}` и `GET /api/v1/auth/me`.
+`Logout`, `GetCurrentUser`, `ListMyTenants`, `SwitchTenant`, `LogoutAll`, а через
+grpc-gateway — ручки
+`POST /api/v1/auth/{register,login,password,logout}`,
+`GET /api/v1/auth/tenants`, `POST /api/v1/auth/tenant/switch` и
+`POST /api/v1/auth/logout-all`, `GET /api/v1/auth/me`.
 Один адаптер (`internal/servers/auth_service.go`) обслуживает оба транспорта,
 поэтому коды и тела ответов совпадают.
 
@@ -57,6 +64,25 @@ grpcurl -plaintext localhost:50051 list
 ```sh
 BASE_URL=http://localhost:8080 tests/smoke/auth.sh
 ```
+
+## Мультитенантность
+
+Пользователь входит в тенант по ссылке `/t/{tenant_slug}`; публичный каталог
+тенанта доступен без токена (`/api/v1/public/tenants/{slug}` и
+`/api/v1/public/tenants/{slug}/objects`). Регистрация с `tenant_slug` создаёт
+клиентское членство в тенанте ссылки, без него — личный тенант (обратная
+совместимость).
+
+Сессия привязана к тенанту, роль — атрибут членства. `GET /auth/tenants`,
+`POST /auth/tenant/switch` и `POST /auth/logout-all` управляют сессиями;
+приостановка/удаление тенанта, исключение участника и смена роли отзывают
+затронутые сессии. Управление тенантами доступно через `tenant.v1.TenantService`
+(`/api/v1/tenants...`).
+
+On-premise: `deploy/compose.yaml`, Helm-чарт `deploy/helm/bb-core`, скрипты
+backup/restore и [docs/RUNBOOK.md](docs/RUNBOOK.md). Тестовый стенд в
+Kubernetes — `make kind-test` (kind-кластер, PostgreSQL в кластере,
+образ `bb-core:dev`, smoke-проверка `/health`); удалить стенд — `make kind-down`.
 
 Пароли хранятся только в виде хеша **Argon2id** (`internal/model/password.go`).
 Хеши прежнего формата (PBKDF2-HMAC-SHA256) продолжают проверяться и
@@ -148,6 +174,8 @@ ldflags; релиз собирается целью `make build-release`. Цел
 - [docs/HOWTO.md](docs/HOWTO.md) — наблюдаемость (трассировка, метрики, логи).
 - [docs/ROADMAP.md](docs/ROADMAP.md) — текущее состояние, продуктовые вехи и
   инженерный backlog.
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) — on-premise: деплой, backup/restore,
+  диагностика.
 
 ---
 [golang-image]: https://img.shields.io/github/go-mod/go-version/BotBooker/bb-core

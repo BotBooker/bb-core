@@ -161,20 +161,16 @@ func (s *bootstrapService) createAdminTenant(ctx context.Context, user *model.Us
 		return fmt.Errorf("create superuser tenant: %w", err)
 	}
 
-	if err := s.tenantRepo.Create(ctx, tenant); err != nil {
-		return fmt.Errorf("create superuser tenant: %w", err)
-	}
-
 	member, err := model.NewTenantMember(tenant.ID, user.ID, model.RoleAdmin, true, now)
 	if err != nil {
 		return fmt.Errorf("create superuser membership: %w", err)
 	}
 
-	if err := s.tenantRepo.AddMember(ctx, member); err != nil {
-		return fmt.Errorf("create superuser membership: %w", err)
+	if err := s.tenantRepo.CreateWithOwner(ctx, tenant, member); err != nil {
+		return fmt.Errorf("create superuser tenant: %w", err)
 	}
 
-	slog.InfoContext(ctx, "superuser tenant created", "tenant", tenant.ID, "uuid", user.ID)
+	slog.InfoContext(ctx, "superuser tenant created", "tenant", tenant.ID, "slug", tenant.Slug, "uuid", user.ID)
 
 	return nil
 }

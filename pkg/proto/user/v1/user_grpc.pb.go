@@ -24,6 +24,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	UserService_Create_FullMethodName               = "/user.v1.UserService/Create"
 	UserService_Get_FullMethodName                  = "/user.v1.UserService/Get"
+	UserService_List_FullMethodName                 = "/user.v1.UserService/List"
 	UserService_Update_FullMethodName               = "/user.v1.UserService/Update"
 	UserService_Delete_FullMethodName               = "/user.v1.UserService/Delete"
 	UserService_AssignGlobalOperator_FullMethodName = "/user.v1.UserService/AssignGlobalOperator"
@@ -40,6 +41,10 @@ type UserServiceClient interface {
 	Create(ctx context.Context, in *UserServiceCreateRequest, opts ...grpc.CallOption) (*UserServiceCreateResponse, error)
 	// Получить пользователя по UUID
 	Get(ctx context.Context, in *UserServiceGetRequest, opts ...grpc.CallOption) (*UserServiceGetResponse, error)
+	// Список пользователей в области видимости действующего пользователя.
+	// Клиент видит только себя, staff — участников своего тенанта
+	// (клиентов — только при наличии брони), глобальные администраторы — всех.
+	List(ctx context.Context, in *UserServiceListRequest, opts ...grpc.CallOption) (*UserServiceListResponse, error)
 	// Обновить данные пользователя
 	Update(ctx context.Context, in *UserServiceUpdateRequest, opts ...grpc.CallOption) (*UserServiceUpdateResponse, error)
 	// Удалить пользователя
@@ -75,6 +80,16 @@ func (c *userServiceClient) Get(ctx context.Context, in *UserServiceGetRequest, 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UserServiceGetResponse)
 	err := c.cc.Invoke(ctx, UserService_Get_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) List(ctx context.Context, in *UserServiceListRequest, opts ...grpc.CallOption) (*UserServiceListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserServiceListResponse)
+	err := c.cc.Invoke(ctx, UserService_List_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +146,10 @@ type UserServiceServer interface {
 	Create(context.Context, *UserServiceCreateRequest) (*UserServiceCreateResponse, error)
 	// Получить пользователя по UUID
 	Get(context.Context, *UserServiceGetRequest) (*UserServiceGetResponse, error)
+	// Список пользователей в области видимости действующего пользователя.
+	// Клиент видит только себя, staff — участников своего тенанта
+	// (клиентов — только при наличии брони), глобальные администраторы — всех.
+	List(context.Context, *UserServiceListRequest) (*UserServiceListResponse, error)
 	// Обновить данные пользователя
 	Update(context.Context, *UserServiceUpdateRequest) (*UserServiceUpdateResponse, error)
 	// Удалить пользователя
@@ -157,6 +176,9 @@ func (UnimplementedUserServiceServer) Create(context.Context, *UserServiceCreate
 }
 func (UnimplementedUserServiceServer) Get(context.Context, *UserServiceGetRequest) (*UserServiceGetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedUserServiceServer) List(context.Context, *UserServiceListRequest) (*UserServiceListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method List not implemented")
 }
 func (UnimplementedUserServiceServer) Update(context.Context, *UserServiceUpdateRequest) (*UserServiceUpdateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Update not implemented")
@@ -223,6 +245,24 @@ func _UserService_Get_Handler(srv interface{}, ctx context.Context, dec func(int
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(UserServiceServer).Get(ctx, req.(*UserServiceGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_List_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserServiceListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).List(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_List_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).List(ctx, req.(*UserServiceListRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -313,6 +353,10 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Get",
 			Handler:    _UserService_Get_Handler,
+		},
+		{
+			MethodName: "List",
+			Handler:    _UserService_List_Handler,
 		},
 		{
 			MethodName: "Update",

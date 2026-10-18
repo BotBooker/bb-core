@@ -32,6 +32,15 @@ type TokenRepo interface {
 	// Revoke помечает токен отозванным — это и есть выход из системы.
 	// Повторный отзыв не ошибка: клиент мог потерять ответ после первого выхода.
 	Revoke(ctx context.Context, id string, at time.Time) error
+	// RevokeByUser отзывает все действующие сессии пользователя во всех
+	// тенантах: это logout-all и отзыв при удалении пользователя.
+	RevokeByUser(ctx context.Context, userID string, at time.Time) (int64, error)
+	// RevokeByTenant отзывает все действующие сессии тенанта: приостановка и
+	// удаление тенанта должны немедленно закрывать доступ.
+	RevokeByTenant(ctx context.Context, tenantID string, at time.Time) (int64, error)
+	// RevokeByUserTenant отзывает сессии пользователя в одном тенанте: удаление
+	// членства и смена роли не должны оставлять старые права.
+	RevokeByUserTenant(ctx context.Context, userID, tenantID string, at time.Time) (int64, error)
 	// DeleteExpired удаляет записи, истёкшие до указанного момента, и возвращает
 	// число удалённых: таблица сессий не должна расти бесконечно.
 	DeleteExpired(ctx context.Context, user_id string, before time.Time) (int64, error)
@@ -146,6 +155,69 @@ func (r *tokenRepo) Revoke(ctx context.Context, id string, at time.Time) error {
 
 // DeleteExpired удаляет просроченные токены: у сессии с истёкшим сроком смысла
 // уже нет, а таблица растёт с каждым входом в систему.
+// RevokeByUser отзывает все действующие сессии пользователя.
+func (r *tokenRepo) RevokeByUser(ctx context.Context, userID string, at time.Time) (int64, error) {
+	return r.revokeWhere(ctx, "user_id = ?", "revoke user tokens", userID, at)
+}
+
+// RevokeByTenant отзывает все действующие сессии тенанта.
+func (r *tokenRepo) RevokeByTenant(ctx context.Context, tenantID string, at time.Time) (int64, error) {
+	return r.revokeWhere(ctx, "tenant_id = ?", "revoke tenant tokens", tenantID, at)
+}
+
+// RevokeByUserTenant отзывает действующие сессии пользователя в тенанте.
+func (r *tokenRepo) RevokeByUserTenant(
+	ctx context.Context,
+	userID, tenantID string,
+	at time.Time,
+) (int64, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "RevokeByUserTenant")
+	defer spanEnd()
+
+	const query = "UPDATE user_tokens SET revoked_at = COALESCE(revoked_at, ?)" +
+		" WHERE user_id = ? AND tenant_id = ? AND revoked_at IS NULL"
+
+	action := "revoke user tenant tokens"
+
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), userID, tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", action, database.MapError(err))
+	}
+
+	return rowsAffected(result, action)
+}
+
+// revokeWhere отзывает действующие сессии по одному условию.
+func (r *tokenRepo) revokeWhere(
+	ctx context.Context,
+	condition, action, value string,
+	at time.Time,
+) (int64, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "RevokeByCondition")
+	defer spanEnd()
+
+	query := "UPDATE user_tokens SET revoked_at = COALESCE(revoked_at, ?)" +
+		" WHERE " + condition + " AND revoked_at IS NULL"
+
+	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", action, database.MapError(err))
+	}
+
+	return rowsAffected(result, action)
+}
+
+// rowsAffected возвращает число изменённых строк: 0 — не ошибка, сессий могло
+// не быть вовсе.
+func rowsAffected(result sql.Result, action string) (int64, error) {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("%s: rows affected: %w", action, err)
+	}
+
+	return affected, nil
+}
+
 func (r *tokenRepo) DeleteExpired(ctx context.Context, user_id string, before time.Time) (int64, error) {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "DeleteExpired")
 	defer spanEnd()

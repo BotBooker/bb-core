@@ -19,6 +19,9 @@ type Config struct {
 	// GRPCAddr — адрес gRPC-сервера,
 	// собирается из SERVER_GRPC_HOST и SERVER_GRPC_PORT.
 	GRPCAddr string
+	// PublicBaseURL — внешний адрес приложения для ссылок вида /t/{tenant_slug}.
+	// Из окружения: PUBLIC_BASE_URL. Используется bootstrap и документацией.
+	PublicBaseURL string
 	// format: plain or json
 	LogFormat string `mapstructure:"logformat"`
 	// LogLevel: DEBUG, INFO, WARN, ERROR
@@ -36,6 +39,12 @@ type DatabaseConfig struct {
 	// MigrateOnStart — применять миграции при старте приложения.
 	// Выключается MIGRATE_ON_START=false, если миграции раскатывает отдельный шаг.
 	MigrateOnStart bool `mapstructure:"migrate_on_start"`
+	// MigrationsDir — каталог с goose-миграциями: внутри него подкаталоги
+	// postgres/ и sqlite/. Из окружения: MIGRATIONS_DIR. По умолчанию
+	// ./migrations — рядом с рабочим каталогом процесса. В Docker-образе
+	// миграции лежат в /app/migrations, а рабочий каталог — /app, поэтому
+	// значение по умолчанию подходит и там.
+	MigrationsDir string `mapstructure:"migrations_dir"`
 }
 
 // appConfig — глобальный экземпляр конфигурации.
@@ -49,9 +58,10 @@ var appConfig = &Config{
 		tools.GetEnvOrDefault("SERVER_GRPC_HOST", "localhost"),
 		tools.GetEnvOrDefault("SERVER_GRPC_PORT", "50051"),
 	}, ":"),
-	LogFormat: tools.GetEnvOrDefault("LOG_FORMAT", "json"),
-	LogLevel:  logger.ParseLogLevel(tools.GetEnvOrDefault("LOG_LEVEL", "INFO"), slog.LevelInfo),
-	RedisAddr: tools.GetEnvOrDefault("REDIS_HOST", "localhost:6379"),
+	PublicBaseURL: tools.GetEnvOrDefault("PUBLIC_BASE_URL", "http://localhost:8080"),
+	LogFormat:     tools.GetEnvOrDefault("LOG_FORMAT", "json"),
+	LogLevel:      logger.ParseLogLevel(tools.GetEnvOrDefault("LOG_LEVEL", "INFO"), slog.LevelInfo),
+	RedisAddr:     tools.GetEnvOrDefault("REDIS_HOST", "localhost:6379"),
 }
 
 // AuthConfig хранит настройки авторизации.
@@ -130,6 +140,7 @@ var databaseConfig = &DatabaseConfig{
 	DSN:            tools.GetEnvOrDefault("DSN", "postgres://localhost:5432/demo"),
 	MaxDBConnect:   tools.GetEnvOrDefaultToInt32("MAX_DB_CONNECT", 10),
 	MigrateOnStart: tools.GetEnvOrDefaultToBool("MIGRATE_ON_START", true),
+	MigrationsDir:  tools.GetEnvOrDefault("MIGRATIONS_DIR", "./migrations"),
 }
 
 // AppConfig возвращает конфигурацию приложения.

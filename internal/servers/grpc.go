@@ -15,6 +15,8 @@ import (
 	"github.com/botbooker/bb-core/internal/config"
 	"github.com/botbooker/bb-core/pkg/observability"
 	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
+	public_v1 "github.com/botbooker/bb-core/pkg/proto/public/v1"
+	tenant_v1 "github.com/botbooker/bb-core/pkg/proto/tenant/v1"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
@@ -42,7 +44,12 @@ func (a *ServerAPI) initGRPCServer(ctx context.Context) error {
 	}
 
 	a.grpcListener = listener
-	a.grpcServer = newGRPCServer(a.diContainer.UserServiceServer(traceCtx), a.diContainer.AuthService(traceCtx))
+	a.grpcServer = newGRPCServer(
+		a.diContainer.UserServiceServer(traceCtx),
+		a.diContainer.TenantServiceServer(traceCtx),
+		a.diContainer.PublicCatalogServiceServer(traceCtx),
+		a.diContainer.AuthService(traceCtx),
+	)
 
 	return nil
 }
@@ -60,12 +67,19 @@ func (a *ServerAPI) initGRPCServer(ctx context.Context) error {
 // значим. Access-лог (см. NewLogInterceptor) стоит первым — снаружи проверки
 // токена, поэтому в лог попадают и вызовы, отклонённые без токена. Метрики
 // (см. NewMetricsInterceptor) идут следом и тоже охватывают аутентификацию.
-func newGRPCServer(userServiceServer user_v1.UserServiceServer, authService AuthService) *grpc.Server {
+func newGRPCServer(
+	userServiceServer user_v1.UserServiceServer,
+	tenantServiceServer tenant_v1.TenantServiceServer,
+	publicCatalogServiceServer public_v1.PublicCatalogServiceServer,
+	authService AuthService,
+) *grpc.Server {
 	server := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(NewLogInterceptor(), NewMetricsInterceptor(), NewAuthInterceptor(authService)),
 	)
 
 	user_v1.RegisterUserServiceServer(server, userServiceServer)
+	tenant_v1.RegisterTenantServiceServer(server, tenantServiceServer)
+	public_v1.RegisterPublicCatalogServiceServer(server, publicCatalogServiceServer)
 	auth_v1.RegisterAuthServiceServer(server, NewAuthServiceServer(authService))
 	registerHealth(server)
 	reflection.Register(server)
@@ -85,6 +99,14 @@ func registerHealth(server grpc.ServiceRegistrar) {
 	)
 	healthServer.SetServingStatus(
 		auth_v1.AuthService_ServiceDesc.ServiceName,
+		health_v1.HealthCheckResponse_SERVING,
+	)
+	healthServer.SetServingStatus(
+		tenant_v1.TenantService_ServiceDesc.ServiceName,
+		health_v1.HealthCheckResponse_SERVING,
+	)
+	healthServer.SetServingStatus(
+		public_v1.PublicCatalogService_ServiceDesc.ServiceName,
 		health_v1.HealthCheckResponse_SERVING,
 	)
 

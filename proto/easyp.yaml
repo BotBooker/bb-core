@@ -56,9 +56,10 @@ linters:
 # не будет validate/gateway/openapi кода и проект перестанет собираться.
 generate:
   inputs:
-    # - directory: tenant
+    - directory: tenant
     - directory: user
     - directory: auth
+    - directory: public
 
   plugins:
     # Генерация базовых Go структур (messages, enums)

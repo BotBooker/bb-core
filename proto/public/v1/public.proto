@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+// Package содержит публичный API v1 каталога BotBooker: ручки доступны без
+// токена и без членства в тенанте. Внутренние идентификаторы и PII не отдаются.
+package public.v1;
+
+import "google/api/annotations.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/botbooker/bb-core/pkg/proto/public/v1;public_v1";
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Публичный API v1 каталога BotBooker"
+    version: "1.0.0"
+  }
+  base_path: "/api/v1"
+};
+
+// Публичный каталог тенантов и объектов аренды.
+//
+// Ручки не требуют аутентификации: ссылка /t/{tenant_slug} задаёт контекст
+// тенанта для брони и оплаты, а сами данные содержат только публичные поля.
+service PublicCatalogService {
+  // Публичный профиль тенанта по slug
+  rpc GetTenant(GetTenantRequest) returns (PublicTenantResponse) {
+    option (google.api.http) = {get: "/public/tenants/{slug}"};
+  }
+
+  // Список активных тенантов: публичный каталог всех тенантов
+  rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse) {
+    option (google.api.http) = {get: "/public/tenants"};
+  }
+
+  // Публичный каталог объектов тенанта
+  rpc ListObjects(ListObjectsRequest) returns (ListObjectsResponse) {
+    option (google.api.http) = {get: "/public/tenants/{slug}/objects"};
+  }
+}
+
+// Публичный профиль тенанта: без внутреннего UUID и служебных полей
+message PublicTenant {
+  // Название тенанта
+  string name = 1;
+  // Slug тенанта: он же сегмент ссылки /t/{slug}
+  string slug = 2;
+  // Описание тенанта для публичной страницы
+  string description = 3;
+  // Локация тенанта для публичной страницы
+  string location = 4;
+}
+
+// Запрос публичного профиля тенанта
+message GetTenantRequest {
+  // Slug тенанта
+  string slug = 1 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+}
+
+// Ответ с публичным профилем тенанта
+message PublicTenantResponse {
+  // Публичный профиль тенанта
+  PublicTenant tenant = 1;
+}
+
+// Запрос публичного каталога всех тенантов
+message ListTenantsRequest {
+  // Размер страницы: 0 означает значение по умолчанию
+  int32 page_size = 1 [(validate.rules).int32.gte = 0];
+  // Токен следующей страницы из предыдущего ответа
+  string page_token = 2;
+}
+
+// Ответ с публичным каталогом тенантов
+message ListTenantsResponse {
+  // Активные тенанты
+  repeated PublicTenant tenants = 1;
+  // Токен следующей страницы: пустой, если страниц больше нет
+  string next_page_token = 2;
+}
+
+// Публичная карточка объекта аренды: без UUID, владельца и служебных полей
+message PublicObject {
+  // Название объекта
+  string title = 1;
+  // Описание объекта
+  string description = 2;
+  // Цена в минорных единицах валюты
+  int64 price_minor = 3;
+  // Код валюты ISO-4217
+  string currency = 4;
+  // Адрес объекта
+  string address = 5;
+}
+
+// Запрос публичного каталога объектов тенанта
+message ListObjectsRequest {
+  // Slug тенанта
+  string slug = 1 [(validate.rules).string = {
+    min_len: 1
+    max_len: 100
+  }];
+  // Размер страницы: 0 означает значение по умолчанию
+  int32 page_size = 2 [(validate.rules).int32.gte = 0];
+  // Токен следующей страницы из предыдущего ответа
+  string page_token = 3;
+}
+
+// Ответ с публичным каталогом объектов
+message ListObjectsResponse {
+  // Объекты аренды в публичном представлении
+  repeated PublicObject objects = 1;
+  // Токен следующей страницы: пустой, если страниц больше нет
+  string next_page_token = 2;
+}

@@ -31,6 +31,10 @@ import (
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
+// migrationsDir — каталог с SQL-миграциями относительно пакета: go test
+// запускает тесты с рабочим каталогом пакета.
+const migrationsDir = "../../migrations"
+
 // smokeApp — приложение, собранное целиком, как в cmd/api: SQLite во временном
 // каталоге, репозиторий, сервис, адаптер, gRPC-сервер и HTTP-gateway.
 //
@@ -122,18 +126,36 @@ func newSmokeApp(t *testing.T) *smokeApp {
 		}
 	})
 
-	if err := database.Migrate(ctx, conn, database.DialectSQLite); err != nil {
+	if err := database.Migrate(ctx, conn, database.DialectSQLite, migrationsDir); err != nil {
 		t.Fatalf("database.Migrate() unexpected error = %v", err)
 	}
 
 	userRepo := repository.NewUserRepo(ctx, conn, database.DialectSQLite)
+	tenantRepo := repository.NewTenantRepo(ctx, conn, database.DialectSQLite)
+	tokenRepo := repository.NewTokenRepo(ctx, conn, database.DialectSQLite)
+	catalogRepo := repository.NewCatalogRepo(ctx, conn)
 	eventBus := events.NewEventBus(ctx)
 
-	// Авторизация мокается (см. newSmokeAuthService), но транспорт, сервис
-	// пользователей и репозиторий — настоящие.
+	// Тенант сессии: UserService.Create добавляет нового пользователя в тенант
+	// действующего сотрудника, поэтому строка тенанта должна существовать.
+	smokeTenant, err := model.NewTenant("Smoke Tenant", "smoke", time.Now())
+	if err != nil {
+		t.Fatalf("model.NewTenant() unexpected error = %v", err)
+	}
+
+	smokeTenant.ID = testTenantID
+	if err := tenantRepo.Create(ctx, smokeTenant); err != nil {
+		t.Fatalf("tenantRepo.Create() unexpected error = %v", err)
+	}
+
+	// Авторизация мокается (см. newSmokeAuthService), но транспорт, сервисы
+	// пользователей и тенантов и репозитории — настоящие.
 	authService := newSmokeAuthService(t)
-	userService := service.NewUserService(ctx, userRepo, eventBus)
+	userService := service.NewUserService(ctx, userRepo, tenantRepo, eventBus)
+	tenantService := service.NewTenantService(ctx, tenantRepo, userRepo, tokenRepo, eventBus)
+	catalogService := service.NewPublicCatalogService(ctx, tenantRepo, catalogRepo)
 	userServiceServer := NewUserServiceServer(userService)
+	tenantServiceServer := NewTenantServiceServer(tenantService)
 
 	// gRPC: тот же сервер, что создаёт initGRPCServer, — с health и reflection.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -141,7 +163,7 @@ func newSmokeApp(t *testing.T) *smokeApp {
 		t.Fatalf("net.Listen() unexpected error = %v", err)
 	}
 
-	grpcServer := newGRPCServer(userServiceServer, authService)
+	grpcServer := newGRPCServer(userServiceServer, tenantServiceServer, NewPublicCatalogServer(catalogService), authService)
 
 	go func() {
 		if serveErr := grpcServer.Serve(listener); serveErr != nil && serveErr != grpc.ErrServerStopped {
@@ -152,7 +174,7 @@ func newSmokeApp(t *testing.T) *smokeApp {
 	t.Cleanup(grpcServer.Stop)
 
 	// HTTP: те же ручки, что отдаёт initHTTPServer.
-	handler, err := NewHandler(authService, userServiceServer)
+	handler, err := NewHandler(authService, userServiceServer, tenantServiceServer, catalogService)
 	if err != nil {
 		t.Fatalf("NewHandler() unexpected error = %v", err)
 	}

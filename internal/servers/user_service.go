@@ -230,6 +230,9 @@ var invalidArgumentErrors = []error{
 	model.ErrInvalidRole,
 	model.ErrInvalidBirthDate,
 	model.ErrInvalidPassword,
+	model.ErrInvalidPageToken,
+	model.ErrInvalidTenant,
+	model.ErrInvalidTenantMember,
 }
 
 // toStatusError переводит доменные ошибки в коды gRPC.
@@ -262,7 +265,7 @@ func toStatusError(ctx context.Context, err error) error {
 	case isInvalidArgument(err):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
-		slog.ErrorContext(ctx, "user service call failed", "err", err)
+		slog.ErrorContext(ctx, "service call failed", "err", err)
 
 		return status.Error(codes.Internal, internalErrorMessage)
 	}

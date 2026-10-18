@@ -13,12 +13,20 @@ import (
 	"github.com/botbooker/bb-core/internal/database/sqlite"
 )
 
+// testMigrationsDir — каталог с SQL-миграциями относительно пакета: go test
+// запускает тесты с рабочим каталогом пакета.
+const testMigrationsDir = "../../migrations"
+
 // sqliteConfig возвращает конфигурацию файловой SQLite во временном каталоге:
 // каждый тест работает со своей базой, поэтому порядок тестов не важен.
 func sqliteConfig(t *testing.T) config.DatabaseConfig {
 	t.Helper()
 
-	return config.DatabaseConfig{DSN: filepath.Join(t.TempDir(), "database.db"), MaxDBConnect: 1}
+	return config.DatabaseConfig{
+		DSN:           filepath.Join(t.TempDir(), "database.db"),
+		MaxDBConnect:  1,
+		MigrationsDir: testMigrationsDir,
+	}
 }
 
 // tableExists открывает отдельное подключение и проверяет, что таблица есть.

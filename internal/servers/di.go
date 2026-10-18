@@ -16,6 +16,8 @@ import (
 	"github.com/botbooker/bb-core/internal/repository"
 	"github.com/botbooker/bb-core/internal/service"
 	"github.com/botbooker/bb-core/pkg/observability"
+	public_v1 "github.com/botbooker/bb-core/pkg/proto/public/v1"
+	tenant_v1 "github.com/botbooker/bb-core/pkg/proto/tenant/v1"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
 )
 
@@ -50,7 +52,7 @@ func applyMigrations(ctx context.Context, db database.DB) error {
 		return err
 	}
 
-	return database.Migrate(traceCtx, db, dialect)
+	return database.Migrate(traceCtx, db, dialect, cfg.MigrationsDir)
 }
 
 // newPostgresDB и newSQLiteDB — конструкторы драйверов.
@@ -115,16 +117,21 @@ type diContainer struct {
 	tokenRepo        repository.TokenRepo
 	credentialRepo   repository.CredentialRepo
 	tenantRepo       repository.TenantRepo
+	catalogRepo      repository.CatalogRepo
 	notificationRepo repository.NotificationRepo
 
 	// Сервисы
-	authService         service.AuthService
-	userService         service.UserService
-	notificationService service.NotificationService
+	authService          service.AuthService
+	userService          service.UserService
+	tenantService        service.TenantService
+	publicCatalogService service.PublicCatalogService
+	notificationService  service.NotificationService
 
 	// API
-	handler           Handler
-	userServiceServer user_v1.UserServiceServer
+	handler                    Handler
+	userServiceServer          user_v1.UserServiceServer
+	tenantServiceServer        tenant_v1.TenantServiceServer
+	publicCatalogServiceServer public_v1.PublicCatalogServiceServer
 }
 
 // newDIContainer создаёт контейнер, подключается к базе данных и применяет миграции.
@@ -258,6 +265,18 @@ func (d *diContainer) TenantRepo(ctx context.Context) repository.TenantRepo {
 	return d.tenantRepo
 }
 
+// CatalogRepo возвращает read-only репозиторий публичного каталога.
+func (d *diContainer) CatalogRepo(ctx context.Context) repository.CatalogRepo {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "CatalogRepo")
+	defer spanEnd()
+
+	if d.catalogRepo == nil {
+		d.catalogRepo = repository.NewCatalogRepo(traceCtx, d.DB())
+	}
+
+	return d.catalogRepo
+}
+
 // CredentialRepo возвращает репозиторий учётных данных (хешей паролей).
 func (d *diContainer) CredentialRepo(ctx context.Context) repository.CredentialRepo {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "CredentialRepo")
@@ -310,10 +329,49 @@ func (d *diContainer) UserService(ctx context.Context) service.UserService {
 	defer spanEnd()
 
 	if d.userService == nil {
-		d.userService = service.NewUserService(traceCtx, d.UserRepo(traceCtx), d.EventBus(traceCtx))
+		d.userService = service.NewUserService(
+			traceCtx,
+			d.UserRepo(traceCtx),
+			d.TenantRepo(traceCtx),
+			d.EventBus(traceCtx),
+		)
 	}
 
 	return d.userService
+}
+
+// TenantService возвращает сервис управления тенантами.
+func (d *diContainer) TenantService(ctx context.Context) service.TenantService {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "TenantService")
+	defer spanEnd()
+
+	if d.tenantService == nil {
+		d.tenantService = service.NewTenantService(
+			traceCtx,
+			d.TenantRepo(traceCtx),
+			d.UserRepo(traceCtx),
+			d.TokenRepo(traceCtx),
+			d.EventBus(traceCtx),
+		)
+	}
+
+	return d.tenantService
+}
+
+// PublicCatalogService возвращает сервис публичного каталога.
+func (d *diContainer) PublicCatalogService(ctx context.Context) service.PublicCatalogService {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "PublicCatalogService")
+	defer spanEnd()
+
+	if d.publicCatalogService == nil {
+		d.publicCatalogService = service.NewPublicCatalogService(
+			traceCtx,
+			d.TenantRepo(traceCtx),
+			d.CatalogRepo(traceCtx),
+		)
+	}
+
+	return d.publicCatalogService
 }
 
 // NotificationService возвращает сервис уведомлений.
@@ -331,7 +389,12 @@ func (d *diContainer) NotificationService(ctx context.Context) service.Notificat
 // Handler возвращает HTTP-хендлер.
 func (d *diContainer) Handler(ctx context.Context) (Handler, error) {
 	if d.handler == nil {
-		handler, err := NewHandler(d.AuthService(ctx), d.UserServiceServer(ctx))
+		handler, err := NewHandler(
+			d.AuthService(ctx),
+			d.UserServiceServer(ctx),
+			d.TenantServiceServer(ctx),
+			d.PublicCatalogService(ctx),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -354,4 +417,28 @@ func (d *diContainer) UserServiceServer(ctx context.Context) user_v1.UserService
 	}
 
 	return d.userServiceServer
+}
+
+// TenantServiceServer возвращает адаптер proto-сервиса тенантов.
+func (d *diContainer) TenantServiceServer(ctx context.Context) tenant_v1.TenantServiceServer {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "TenantServiceServer")
+	defer spanEnd()
+
+	if d.tenantServiceServer == nil {
+		d.tenantServiceServer = NewTenantServiceServer(d.TenantService(traceCtx))
+	}
+
+	return d.tenantServiceServer
+}
+
+// PublicCatalogServiceServer возвращает адаптер публичного каталога.
+func (d *diContainer) PublicCatalogServiceServer(ctx context.Context) public_v1.PublicCatalogServiceServer {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "PublicCatalogServiceServer")
+	defer spanEnd()
+
+	if d.publicCatalogServiceServer == nil {
+		d.publicCatalogServiceServer = NewPublicCatalogServer(d.PublicCatalogService(traceCtx))
+	}
+
+	return d.publicCatalogServiceServer
 }

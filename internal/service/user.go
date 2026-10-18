@@ -19,6 +19,21 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id string) (*model.User, error)
 	Update(ctx context.Context, user *model.User) error
 	Delete(ctx context.Context, id string) error
+	// ListAll возвращает активных пользователей: для глобальных администраторов.
+	ListAll(ctx context.Context, limit, offset int) ([]*model.User, error)
+	// ListVisible возвращает пользователей, видимых staff тенанта.
+	ListVisible(ctx context.Context, tenantID string, limit, offset int) ([]*model.User, error)
+	// GetVisible возвращает пользователя, видимого staff тенанта.
+	GetVisible(ctx context.Context, tenantID, id string) (*model.User, error)
+}
+
+// UserMembershipRepository — интерфейс членства в тенанте для UserService.
+//
+// Нужен, чтобы созданный сотрудником пользователь сразу стал клиентом тенанта
+// сотрудника, а не получал личный тенант при первом входе.
+type UserMembershipRepository interface {
+	AddMember(ctx context.Context, member *model.TenantMember) error
+	GetMember(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
 }
 
 // UserEventPublisher — интерфейс для публикации событий пользователей.
@@ -55,8 +70,10 @@ type UserService interface {
 	// проставляет модель, поэтому в API они не задаются.
 	Create(ctx context.Context, actor *Principal, in model.CreateUserInput) (*model.User, error)
 	// Get возвращает пользователя по идентификатору: свой профиль или, если
-	// actor — сотрудник, любой.
+	// actor — сотрудник, пользователя своего тенанта в пределах видимости.
 	Get(ctx context.Context, actor *Principal, id string) (*model.User, error)
+	// List возвращает пользователей в области видимости actor.
+	List(ctx context.Context, actor *Principal, page model.Page) ([]*model.User, string, error)
 	// Update применяет частичное обновление профиля: свой профиль или, если
 	// actor — администратор, любой.
 	Update(ctx context.Context, actor *Principal, id string, in model.UpdateUserInput) (*model.User, error)
@@ -72,18 +89,24 @@ type UserService interface {
 
 // userService — конкретная реализация, скрыта от внешних пакетов.
 type userService struct {
-	userRepo UserRepository
-	events   UserEventPublisher
+	userRepo    UserRepository
+	memberships UserMembershipRepository
+	events      UserEventPublisher
 }
 
 // NewUserService создаёт сервис пользователей.
-func NewUserService(ctx context.Context, userRepo UserRepository, events UserEventPublisher) UserService {
+func NewUserService(
+	ctx context.Context,
+	userRepo UserRepository,
+	memberships UserMembershipRepository,
+	events UserEventPublisher,
+) UserService {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewUserService")
 	defer spanEnd()
 
 	slog.DebugContext(traceCtx, "user service created")
 
-	return &userService{userRepo: userRepo, events: events}
+	return &userService{userRepo: userRepo, memberships: memberships, events: events}
 }
 
 // principalUser возвращает профиль действующего пользователя.
@@ -132,22 +155,55 @@ func (s *userService) Create(
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
-	slog.InfoContext(traceCtx, "user created", "uuid", user.ID, "actor", current.ID)
+	tenantID := actor.TenantID()
+	if tenantID == "" {
+		s.rollbackUser(traceCtx, user.ID)
+
+		return nil, fmt.Errorf("create user: %w: actor has no tenant", ErrUnauthorized)
+	}
+
+	member, err := model.NewTenantMember(tenantID, user.ID, model.RoleClient, false, time.Now())
+	if err != nil {
+		s.rollbackUser(traceCtx, user.ID)
+
+		return nil, fmt.Errorf("create user: %w", err)
+	}
+
+	if err := s.memberships.AddMember(traceCtx, member); err != nil {
+		s.rollbackUser(traceCtx, user.ID)
+
+		return nil, fmt.Errorf("create user: %w", err)
+	}
+
+	slog.InfoContext(traceCtx, "user created",
+		"uuid", user.ID, "tenant", tenantID, "actor", current.ID)
 	s.publish(traceCtx, EventUserCreated)
 
 	return user, nil
+}
+
+// rollbackUser удаляет профиль, если членство создать не удалось: иначе
+// пользователь занял бы email, но не смог бы войти в тенант.
+func (s *userService) rollbackUser(ctx context.Context, id string) {
+	if err := s.userRepo.Delete(ctx, id); err != nil {
+		slog.ErrorContext(ctx, "failed to roll back user creation", "uuid", id, "err", err)
+	}
 }
 
 // Get возвращает пользователя по идентификатору.
 //
 // Формат идентификатора проверяется до запроса в базу: PostgreSQL на строку,
 // не похожую на UUID, ответил бы ошибкой приведения типа, а не «не найдено».
-// Чужой профиль доступен только сотруднику (оператору или администратору).
+//
+// Область видимости: свой профиль — всегда, глобальный администратор — любой,
+// staff — только участник своего тенанта (клиент — при наличии брони, см.
+// repository.UserRepo.ListVisible), остальные — только себя.
 func (s *userService) Get(ctx context.Context, actor *Principal, id string) (*model.User, error) {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "Get")
 	defer spanEnd()
 
-	if _, err := principalUser(actor); err != nil {
+	current, err := principalUser(actor)
+	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
@@ -155,16 +211,79 @@ func (s *userService) Get(ctx context.Context, actor *Principal, id string) (*mo
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
-	user, err := s.userRepo.GetByID(traceCtx, id)
+	if current.ID == id {
+		return current, nil
+	}
+
+	if actor.CanAdminAllTenants() {
+		user, getErr := s.userRepo.GetByID(traceCtx, id)
+		if getErr != nil {
+			return nil, fmt.Errorf("get user: %w", getErr)
+		}
+
+		return user, nil
+	}
+
+	if !actor.IsStaff() {
+		return nil, fmt.Errorf("get user: %w: only staff can read other profiles", ErrForbidden)
+	}
+
+	user, err := s.userRepo.GetVisible(traceCtx, actor.TenantID(), id)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
-	if !actor.CanRead(user) {
-		return nil, fmt.Errorf("get user: %w: role %q", ErrForbidden, actor.Role)
+	return user, nil
+}
+
+// List возвращает пользователей в области видимости actor.
+func (s *userService) List(
+	ctx context.Context,
+	actor *Principal,
+	page model.Page,
+) ([]*model.User, string, error) {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "List")
+	defer spanEnd()
+
+	current, err := principalUser(actor)
+	if err != nil {
+		return nil, "", fmt.Errorf("list users: %w", err)
 	}
 
-	return user, nil
+	switch {
+	case actor.CanAdminAllTenants():
+		users, listErr := s.userRepo.ListAll(traceCtx, page.Limit+1, page.Offset)
+		if listErr != nil {
+			return nil, "", fmt.Errorf("list users: %w", listErr)
+		}
+
+		return trimUsers(users, page)
+	case actor.IsStaff():
+		users, listErr := s.userRepo.ListVisible(traceCtx, actor.TenantID(), page.Limit+1, page.Offset)
+		if listErr != nil {
+			return nil, "", fmt.Errorf("list users: %w", listErr)
+		}
+
+		return trimUsers(users, page)
+	default:
+		// Клиент видит только себя: список из одного элемента, следующей
+		// страницы нет.
+		if page.Offset > 0 {
+			return []*model.User{}, "", nil
+		}
+
+		return []*model.User{current}, "", nil
+	}
+}
+
+// trimUsers применяет окно к списку пользователей.
+func trimUsers(users []*model.User, page model.Page) ([]*model.User, string, error) {
+	hasMore := len(users) > page.Limit
+	if hasMore {
+		users = users[:page.Limit]
+	}
+
+	return users, page.Next(hasMore), nil
 }
 
 // Update применяет частичное обновление профиля.
@@ -232,6 +351,17 @@ func (s *userService) Delete(ctx context.Context, actor *Principal, id string) e
 
 	if err := model.ValidateUUID(id); err != nil {
 		return fmt.Errorf("delete user: %w", err)
+	}
+
+	if !actor.CanAdminAllTenants() {
+		member, memberErr := s.memberships.GetMember(traceCtx, actor.TenantID(), id)
+		if memberErr != nil {
+			return fmt.Errorf("delete user: %w: target is not a member of the tenant", ErrForbidden)
+		}
+
+		if member.IsOwner {
+			return fmt.Errorf("delete user: %w: tenant owner cannot be deleted, transfer ownership first", ErrForbidden)
+		}
 	}
 
 	if err := s.userRepo.Delete(traceCtx, id); err != nil {

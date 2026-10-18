@@ -265,3 +265,159 @@ func TestTenantRepo_MemberOfUser(t *testing.T) {
 		}
 	})
 }
+
+// TestTenantRepo_Management проверяет tenant-scoped операции управления:
+// владелец, участники, роли, передача владения и статус.
+func TestTenantRepo_Management(t *testing.T) {
+	ctx := context.Background()
+	conn := newSQLiteTestDB(t)
+
+	userRepo := NewUserRepo(ctx, conn, database.DialectSQLite)
+	tenantRepo := NewTenantRepo(ctx, conn, database.DialectSQLite)
+
+	owner := testUser(t, "tenant-mgmt-owner@example.com", "+79990000031")
+	memberUser := testUser(t, "tenant-mgmt-member@example.com", "+79990000032")
+
+	for _, user := range []*model.User{owner, memberUser} {
+		if err := userRepo.Create(ctx, user); err != nil {
+			t.Fatalf("UserRepo.Create() unexpected error = %v", err)
+		}
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	tenant, err := model.NewTenant("Управление", "management", now)
+	if err != nil {
+		t.Fatalf("model.NewTenant() unexpected error = %v", err)
+	}
+
+	ownerMember, err := model.NewTenantMember(tenant.ID, owner.ID, model.RoleAdmin, true, now)
+	if err != nil {
+		t.Fatalf("model.NewTenantMember() unexpected error = %v", err)
+	}
+
+	if err := tenantRepo.CreateWithOwner(ctx, tenant, ownerMember); err != nil {
+		t.Fatalf("CreateWithOwner() unexpected error = %v", err)
+	}
+
+	t.Run("владелец и список действующих", func(t *testing.T) {
+		active, err := tenantRepo.ListActive(ctx, 10, 0)
+		if err != nil {
+			t.Fatalf("ListActive() unexpected error = %v", err)
+		}
+
+		if len(active) != 1 || active[0].ID != tenant.ID {
+			t.Errorf("ListActive() = %v", active)
+		}
+
+		member, err := tenantRepo.GetMember(ctx, tenant.ID, owner.ID)
+		if err != nil || !member.IsOwner || member.Role != model.RoleAdmin {
+			t.Fatalf("GetMember() = %+v, %v", member, err)
+		}
+	})
+
+	if err := tenantRepo.AddMember(ctx, mustMember(t, tenant.ID, memberUser.ID, model.RoleClient, now)); err != nil {
+		t.Fatalf("AddMember() unexpected error = %v", err)
+	}
+
+	t.Run("список участников и представление", func(t *testing.T) {
+		members, err := tenantRepo.ListMembers(ctx, tenant.ID, 10, 0)
+		if err != nil {
+			t.Fatalf("ListMembers() unexpected error = %v", err)
+		}
+
+		if len(members) != 2 {
+			t.Fatalf("ListMembers() = %d, want 2", len(members))
+		}
+
+		view, err := tenantRepo.GetMemberView(ctx, tenant.ID, memberUser.ID)
+		if err != nil {
+			t.Fatalf("GetMemberView() unexpected error = %v", err)
+		}
+
+		if view.Email != memberUser.Email || view.FirstName != memberUser.FirstName {
+			t.Errorf("view = %+v", view)
+		}
+
+		memberships, err := tenantRepo.ListMemberships(ctx, memberUser.ID)
+		if err != nil || len(memberships) != 1 || memberships[0].Tenant.ID != tenant.ID {
+			t.Fatalf("ListMemberships() = %v, %v", memberships, err)
+		}
+
+		bySlug, err := tenantRepo.GetMemberBySlug(ctx, "management", memberUser.ID)
+		if err != nil || bySlug.Member.Role != model.RoleClient {
+			t.Fatalf("GetMemberBySlug() = %+v, %v", bySlug, err)
+		}
+	})
+
+	t.Run("смена роли и исключение", func(t *testing.T) {
+		if err := tenantRepo.UpdateMemberRole(ctx, tenant.ID, memberUser.ID, model.RoleManager); err != nil {
+			t.Fatalf("UpdateMemberRole() unexpected error = %v", err)
+		}
+
+		member, err := tenantRepo.GetMember(ctx, tenant.ID, memberUser.ID)
+		if err != nil || member.Role != model.RoleManager {
+			t.Fatalf("GetMember() = %+v, %v", member, err)
+		}
+
+		if err := tenantRepo.RemoveMember(ctx, tenant.ID, memberUser.ID); err != nil {
+			t.Fatalf("RemoveMember() unexpected error = %v", err)
+		}
+
+		if _, err := tenantRepo.GetMember(ctx, tenant.ID, memberUser.ID); !errors.Is(err, database.ErrNotFound) {
+			t.Errorf("GetMember() error = %v, want %v", err, database.ErrNotFound)
+		}
+
+		if err := tenantRepo.AddMember(ctx, mustMember(t, tenant.ID, memberUser.ID, model.RoleClient, now)); err != nil {
+			t.Fatalf("AddMember() unexpected error = %v", err)
+		}
+	})
+
+	t.Run("передача владения", func(t *testing.T) {
+		if err := tenantRepo.TransferOwnership(ctx, tenant.ID, memberUser.ID); err != nil {
+			t.Fatalf("TransferOwnership() unexpected error = %v", err)
+		}
+
+		previous, err := tenantRepo.GetMember(ctx, tenant.ID, owner.ID)
+		if err != nil || previous.IsOwner {
+			t.Fatalf("previous owner = %+v, %v", previous, err)
+		}
+
+		current, err := tenantRepo.GetMember(ctx, tenant.ID, memberUser.ID)
+		if err != nil || !current.IsOwner {
+			t.Fatalf("current owner = %+v, %v", current, err)
+		}
+	})
+
+	t.Run("приостановка убирает из действующих", func(t *testing.T) {
+		if err := tenantRepo.UpdateStatus(ctx, tenant.ID, model.TenantStatusSuspended, now); err != nil {
+			t.Fatalf("UpdateStatus() unexpected error = %v", err)
+		}
+
+		active, err := tenantRepo.ListActive(ctx, 10, 0)
+		if err != nil {
+			t.Fatalf("ListActive() unexpected error = %v", err)
+		}
+
+		if len(active) != 0 {
+			t.Errorf("ListActive() = %v, want пусто", active)
+		}
+
+		got, err := tenantRepo.GetByID(ctx, tenant.ID)
+		if err != nil || got.Status != model.TenantStatusSuspended {
+			t.Fatalf("GetByID() = %+v, %v", got, err)
+		}
+	})
+}
+
+// mustMember создаёт членство или роняет тест: вспомогательная функция для
+// сценариев, где невалидные данные не являются предметом проверки.
+func mustMember(t *testing.T, tenantID, userID string, role model.Role, now time.Time) *model.TenantMember {
+	t.Helper()
+
+	member, err := model.NewTenantMember(tenantID, userID, role, false, now)
+	if err != nil {
+		t.Fatalf("model.NewTenantMember() unexpected error = %v", err)
+	}
+
+	return member
+}

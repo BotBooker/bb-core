@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/botbooker/bb-core/internal/config"
 	"github.com/botbooker/bb-core/internal/database"
@@ -65,15 +66,17 @@ func run(ctx context.Context, dbCfg config.DatabaseConfig, superuser config.Boot
 
 	slog.InfoContext(ctx, "applying migrations", "dialect", dialect)
 
-	if err := database.Migrate(ctx, db, dialect); err != nil {
+	if err := database.Migrate(ctx, db, dialect, dbCfg.MigrationsDir); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+
+	tenantRepo := repository.NewTenantRepo(ctx, db, dialect)
 
 	svc := service.NewBootstrapService(
 		ctx,
 		repository.NewUserRepo(ctx, db, dialect),
 		repository.NewCredentialRepo(ctx, db, dialect),
-		repository.NewTenantRepo(ctx, db, dialect),
+		tenantRepo,
 		config.Auth().PasswordTTL,
 	)
 
@@ -87,9 +90,45 @@ func run(ctx context.Context, dbCfg config.DatabaseConfig, superuser config.Boot
 		return fmt.Errorf("ensure superuser: %w", err)
 	}
 
-	slog.InfoContext(ctx, "bootstrap finished", "email", user.Email, "uuid", user.ID, "created", created)
+	tenantSlug, loginURL := superuserTenantLink(ctx, tenantRepo, user.ID)
+
+	slog.InfoContext(ctx, "bootstrap finished",
+		"email", user.Email,
+		"uuid", user.ID,
+		"created", created,
+		"tenant_slug", tenantSlug,
+		"login_url", loginURL,
+	)
 
 	return nil
+}
+
+// superuserTenantLink возвращает slug личного тенанта суперпользователя и
+// ссылку для входа. Если тенант ещё не создан (пользователь существовал до
+// появления bootstrap-тенантов), возвращаются пустые строки: bootstrap не должен
+// падать из-за диагностики.
+func superuserTenantLink(
+	ctx context.Context,
+	tenantRepo repository.TenantRepo,
+	userID string,
+) (slug, loginURL string) {
+	member, err := tenantRepo.MemberOfUser(ctx, userID)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to resolve superuser tenant", "uuid", userID, "err", err)
+
+		return "", ""
+	}
+
+	tenant, err := tenantRepo.GetByID(ctx, member.TenantID)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to read superuser tenant", "tenant", member.TenantID, "err", err)
+
+		return "", ""
+	}
+
+	baseURL := strings.TrimRight(config.AppConfig().PublicBaseURL, "/")
+
+	return tenant.Slug, baseURL + "/t/" + tenant.Slug
 }
 
 // openDatabase открывает подключение драйвером диалекта.

@@ -15,6 +15,10 @@ import (
 	"github.com/botbooker/bb-core/internal/database/sqlite"
 )
 
+// testMigrationsDir — каталог с SQL-миграциями относительно пакета: go test
+// запускает тесты с рабочим каталогом пакета.
+const testMigrationsDir = "../../migrations"
+
 // newSQLiteTestDB открывает SQLite во временном каталоге и накатывает миграции
 // теми же файлами, что и приложение: в тестах участвует настоящая схема.
 func newSQLiteTestDB(t *testing.T) database.DB {
@@ -30,7 +34,7 @@ func newSQLiteTestDB(t *testing.T) database.DB {
 		t.Fatalf("sqlite.New() unexpected error = %v", err)
 	}
 
-	if err := database.Migrate(ctx, conn, database.DialectSQLite); err != nil {
+	if err := database.Migrate(ctx, conn, database.DialectSQLite, testMigrationsDir); err != nil {
 		_ = conn.Close()
 
 		t.Fatalf("database.Migrate() unexpected error = %v", err)
@@ -84,7 +88,7 @@ func newPostgresTestDB(t *testing.T) database.DB {
 		t.Fatalf("CREATE SCHEMA unexpected error = %v", err)
 	}
 
-	if err := database.Migrate(ctx, conn, database.DialectPostgres); err != nil {
+	if err := database.Migrate(ctx, conn, database.DialectPostgres, testMigrationsDir); err != nil {
 		t.Fatalf("database.Migrate() unexpected error = %v", err)
 	}
 

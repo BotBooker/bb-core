@@ -476,6 +476,573 @@ func (x *DeleteTenantRequest) GetUuid() string {
 	return ""
 }
 
+// Запрос на изменение статуса тенанта
+type UpdateTenantStatusRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID тенанта
+	Uuid string `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	// Новый статус: active, suspended или deleted
+	Status        TenantStatus `protobuf:"varint,2,opt,name=status,proto3,enum=tenant.v1.TenantStatus" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateTenantStatusRequest) Reset() {
+	*x = UpdateTenantStatusRequest{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateTenantStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateTenantStatusRequest) ProtoMessage() {}
+
+func (x *UpdateTenantStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateTenantStatusRequest.ProtoReflect.Descriptor instead.
+func (*UpdateTenantStatusRequest) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *UpdateTenantStatusRequest) GetUuid() string {
+	if x != nil {
+		return x.Uuid
+	}
+	return ""
+}
+
+func (x *UpdateTenantStatusRequest) GetStatus() TenantStatus {
+	if x != nil {
+		return x.Status
+	}
+	return TenantStatus_TENANT_STATUS_UNSPECIFIED
+}
+
+// Участник тенанта: роль принадлежит членству, а не профилю пользователя
+type TenantMember struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID тенанта
+	TenantUuid string `protobuf:"bytes,1,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
+	// UUID пользователя
+	UserUuid string `protobuf:"bytes,2,opt,name=user_uuid,json=userUuid,proto3" json:"user_uuid,omitempty"`
+	// Роль пользователя в тенанте: admin, operator, manager или client
+	Role string `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	// Признак владельца тенанта
+	IsOwner bool `protobuf:"varint,4,opt,name=is_owner,json=isOwner,proto3" json:"is_owner,omitempty"`
+	// Когда пользователь вступил в тенант
+	JoinedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=joined_at,json=joinedAt,proto3" json:"joined_at,omitempty"`
+	// Email участника для интерфейса управления участниками
+	Email string `protobuf:"bytes,6,opt,name=email,proto3" json:"email,omitempty"`
+	// Имя участника для интерфейса управления участниками
+	FirstName string `protobuf:"bytes,7,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
+	// Фамилия участника для интерфейса управления участниками
+	LastName      string `protobuf:"bytes,8,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TenantMember) Reset() {
+	*x = TenantMember{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TenantMember) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TenantMember) ProtoMessage() {}
+
+func (x *TenantMember) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TenantMember.ProtoReflect.Descriptor instead.
+func (*TenantMember) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *TenantMember) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *TenantMember) GetUserUuid() string {
+	if x != nil {
+		return x.UserUuid
+	}
+	return ""
+}
+
+func (x *TenantMember) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *TenantMember) GetIsOwner() bool {
+	if x != nil {
+		return x.IsOwner
+	}
+	return false
+}
+
+func (x *TenantMember) GetJoinedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.JoinedAt
+	}
+	return nil
+}
+
+func (x *TenantMember) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *TenantMember) GetFirstName() string {
+	if x != nil {
+		return x.FirstName
+	}
+	return ""
+}
+
+func (x *TenantMember) GetLastName() string {
+	if x != nil {
+		return x.LastName
+	}
+	return ""
+}
+
+// Запрос списка участников тенанта
+type ListMembersRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID тенанта
+	TenantUuid string `protobuf:"bytes,1,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
+	// Размер страницы: 0 означает значение по умолчанию
+	PageSize int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Токен следующей страницы из предыдущего ответа
+	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMembersRequest) Reset() {
+	*x = ListMembersRequest{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMembersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMembersRequest) ProtoMessage() {}
+
+func (x *ListMembersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMembersRequest.ProtoReflect.Descriptor instead.
+func (*ListMembersRequest) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ListMembersRequest) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *ListMembersRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListMembersRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+// Ответ со списком участников тенанта
+type ListMembersResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Участники тенанта
+	Members []*TenantMember `protobuf:"bytes,1,rep,name=members,proto3" json:"members,omitempty"`
+	// Токен следующей страницы: пустой, если страниц больше нет
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMembersResponse) Reset() {
+	*x = ListMembersResponse{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMembersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMembersResponse) ProtoMessage() {}
+
+func (x *ListMembersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMembersResponse.ProtoReflect.Descriptor instead.
+func (*ListMembersResponse) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ListMembersResponse) GetMembers() []*TenantMember {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+func (x *ListMembersResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+// Запрос на добавление участника в тенант
+type AddMemberRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID тенанта
+	TenantUuid string `protobuf:"bytes,1,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
+	// UUID пользователя
+	UserUuid string `protobuf:"bytes,2,opt,name=user_uuid,json=userUuid,proto3" json:"user_uuid,omitempty"`
+	// Роль участника: admin, operator, manager или client
+	Role          string `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddMemberRequest) Reset() {
+	*x = AddMemberRequest{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddMemberRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddMemberRequest) ProtoMessage() {}
+
+func (x *AddMemberRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddMemberRequest.ProtoReflect.Descriptor instead.
+func (*AddMemberRequest) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AddMemberRequest) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *AddMemberRequest) GetUserUuid() string {
+	if x != nil {
+		return x.UserUuid
+	}
+	return ""
+}
+
+func (x *AddMemberRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+// Ответ с данными участника тенанта
+type MemberResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Участник тенанта
+	Member        *TenantMember `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemberResponse) Reset() {
+	*x = MemberResponse{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemberResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemberResponse) ProtoMessage() {}
+
+func (x *MemberResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemberResponse.ProtoReflect.Descriptor instead.
+func (*MemberResponse) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *MemberResponse) GetMember() *TenantMember {
+	if x != nil {
+		return x.Member
+	}
+	return nil
+}
+
+// Запрос на исключение участника из тенанта
+type RemoveMemberRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID тенанта
+	TenantUuid string `protobuf:"bytes,1,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
+	// UUID пользователя
+	UserUuid      string `protobuf:"bytes,2,opt,name=user_uuid,json=userUuid,proto3" json:"user_uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveMemberRequest) Reset() {
+	*x = RemoveMemberRequest{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveMemberRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveMemberRequest) ProtoMessage() {}
+
+func (x *RemoveMemberRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveMemberRequest.ProtoReflect.Descriptor instead.
+func (*RemoveMemberRequest) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RemoveMemberRequest) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *RemoveMemberRequest) GetUserUuid() string {
+	if x != nil {
+		return x.UserUuid
+	}
+	return ""
+}
+
+// Запрос на изменение роли участника
+type ChangeMemberRoleRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID тенанта
+	TenantUuid string `protobuf:"bytes,1,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
+	// UUID пользователя
+	UserUuid string `protobuf:"bytes,2,opt,name=user_uuid,json=userUuid,proto3" json:"user_uuid,omitempty"`
+	// Новая роль участника: admin, operator, manager или client
+	Role          string `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChangeMemberRoleRequest) Reset() {
+	*x = ChangeMemberRoleRequest{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChangeMemberRoleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangeMemberRoleRequest) ProtoMessage() {}
+
+func (x *ChangeMemberRoleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangeMemberRoleRequest.ProtoReflect.Descriptor instead.
+func (*ChangeMemberRoleRequest) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ChangeMemberRoleRequest) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *ChangeMemberRoleRequest) GetUserUuid() string {
+	if x != nil {
+		return x.UserUuid
+	}
+	return ""
+}
+
+func (x *ChangeMemberRoleRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+// Запрос на передачу владения тенантом
+type TransferOwnershipRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// UUID тенанта
+	TenantUuid string `protobuf:"bytes,1,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
+	// UUID участника, который станет владельцем
+	UserUuid      string `protobuf:"bytes,2,opt,name=user_uuid,json=userUuid,proto3" json:"user_uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TransferOwnershipRequest) Reset() {
+	*x = TransferOwnershipRequest{}
+	mi := &file_tenant_v1_tenant_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransferOwnershipRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransferOwnershipRequest) ProtoMessage() {}
+
+func (x *TransferOwnershipRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tenant_v1_tenant_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransferOwnershipRequest.ProtoReflect.Descriptor instead.
+func (*TransferOwnershipRequest) Descriptor() ([]byte, []int) {
+	return file_tenant_v1_tenant_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *TransferOwnershipRequest) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *TransferOwnershipRequest) GetUserUuid() string {
+	if x != nil {
+		return x.UserUuid
+	}
+	return ""
+}
+
 var File_tenant_v1_tenant_proto protoreflect.FileDescriptor
 
 const file_tenant_v1_tenant_proto_rawDesc = "" +
@@ -513,18 +1080,67 @@ const file_tenant_v1_tenant_proto_rawDesc = "" +
 	"\atenants\x18\x01 \x03(\v2\x11.tenant.v1.TenantR\atenants\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"3\n" +
 	"\x13DeleteTenantRequest\x12\x1c\n" +
-	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid*\x7f\n" +
+	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid\"j\n" +
+	"\x19UpdateTenantStatusRequest\x12\x1c\n" +
+	"\x04uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\x04uuid\x12/\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x17.tenant.v1.TenantStatusR\x06status\"\x86\x02\n" +
+	"\fTenantMember\x12\x1f\n" +
+	"\vtenant_uuid\x18\x01 \x01(\tR\n" +
+	"tenantUuid\x12\x1b\n" +
+	"\tuser_uuid\x18\x02 \x01(\tR\buserUuid\x12\x12\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\x12\x19\n" +
+	"\bis_owner\x18\x04 \x01(\bR\aisOwner\x127\n" +
+	"\tjoined_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\bjoinedAt\x12\x14\n" +
+	"\x05email\x18\x06 \x01(\tR\x05email\x12\x1d\n" +
+	"\n" +
+	"first_name\x18\a \x01(\tR\tfirstName\x12\x1b\n" +
+	"\tlast_name\x18\b \x01(\tR\blastName\"\x84\x01\n" +
+	"\x12ListMembersRequest\x12)\n" +
+	"\vtenant_uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\n" +
+	"tenantUuid\x12$\n" +
+	"\tpage_size\x18\x02 \x01(\x05B\a\xfaB\x04\x1a\x02(\x00R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"p\n" +
+	"\x13ListMembersResponse\x121\n" +
+	"\amembers\x18\x01 \x03(\v2\x17.tenant.v1.TenantMemberR\amembers\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x81\x01\n" +
+	"\x10AddMemberRequest\x12)\n" +
+	"\vtenant_uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\n" +
+	"tenantUuid\x12%\n" +
+	"\tuser_uuid\x18\x02 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\buserUuid\x12\x1b\n" +
+	"\x04role\x18\x03 \x01(\tB\a\xfaB\x04r\x02\x18 R\x04role\"A\n" +
+	"\x0eMemberResponse\x12/\n" +
+	"\x06member\x18\x01 \x01(\v2\x17.tenant.v1.TenantMemberR\x06member\"g\n" +
+	"\x13RemoveMemberRequest\x12)\n" +
+	"\vtenant_uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\n" +
+	"tenantUuid\x12%\n" +
+	"\tuser_uuid\x18\x02 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\buserUuid\"\x88\x01\n" +
+	"\x17ChangeMemberRoleRequest\x12)\n" +
+	"\vtenant_uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\n" +
+	"tenantUuid\x12%\n" +
+	"\tuser_uuid\x18\x02 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\buserUuid\x12\x1b\n" +
+	"\x04role\x18\x03 \x01(\tB\a\xfaB\x04r\x02\x18 R\x04role\"l\n" +
+	"\x18TransferOwnershipRequest\x12)\n" +
+	"\vtenant_uuid\x18\x01 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\n" +
+	"tenantUuid\x12%\n" +
+	"\tuser_uuid\x18\x02 \x01(\tB\b\xfaB\x05r\x03\xb0\x01\x01R\buserUuid*\x7f\n" +
 	"\fTenantStatus\x12\x1d\n" +
 	"\x19TENANT_STATUS_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14TENANT_STATUS_ACTIVE\x10\x01\x12\x1b\n" +
 	"\x17TENANT_STATUS_SUSPENDED\x10\x02\x12\x19\n" +
-	"\x15TENANT_STATUS_DELETED\x10\x032\x8e\x03\n" +
+	"\x15TENANT_STATUS_DELETED\x10\x032\xf8\b\n" +
 	"\rTenantService\x12\\\n" +
 	"\tGetTenant\x12\x1b.tenant.v1.GetTenantRequest\x1a\x19.tenant.v1.TenantResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/tenants/{uuid}\x12^\n" +
 	"\fCreateTenant\x12\x1e.tenant.v1.CreateTenantRequest\x1a\x19.tenant.v1.TenantResponse\"\x13\x82\xd3\xe4\x93\x02\r:\x01*\"\b/tenants\x12^\n" +
 	"\vListTenants\x12\x1d.tenant.v1.ListTenantsRequest\x1a\x1e.tenant.v1.ListTenantsResponse\"\x10\x82\xd3\xe4\x93\x02\n" +
 	"\x12\b/tenants\x12_\n" +
-	"\fDeleteTenant\x12\x1e.tenant.v1.DeleteTenantRequest\x1a\x16.google.protobuf.Empty\"\x17\x82\xd3\xe4\x93\x02\x11*\x0f/tenants/{uuid}B\x86\x02\x92A\xc6\x01\x12A\n" +
+	"\fDeleteTenant\x12\x1e.tenant.v1.DeleteTenantRequest\x1a\x16.google.protobuf.Empty\"\x17\x82\xd3\xe4\x93\x02\x11*\x0f/tenants/{uuid}\x12x\n" +
+	"\x12UpdateTenantStatus\x12$.tenant.v1.UpdateTenantStatusRequest\x1a\x19.tenant.v1.TenantResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*2\x16/tenants/{uuid}/status\x12t\n" +
+	"\vListMembers\x12\x1d.tenant.v1.ListMembersRequest\x1a\x1e.tenant.v1.ListMembersResponse\"&\x82\xd3\xe4\x93\x02 \x12\x1e/tenants/{tenant_uuid}/members\x12n\n" +
+	"\tAddMember\x12\x1b.tenant.v1.AddMemberRequest\x1a\x19.tenant.v1.MemberResponse\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/tenants/{tenant_uuid}/members\x12z\n" +
+	"\fRemoveMember\x12\x1e.tenant.v1.RemoveMemberRequest\x1a\x16.google.protobuf.Empty\"2\x82\xd3\xe4\x93\x02,**/tenants/{tenant_uuid}/members/{user_uuid}\x12\x88\x01\n" +
+	"\x10ChangeMemberRole\x12\".tenant.v1.ChangeMemberRoleRequest\x1a\x19.tenant.v1.MemberResponse\"5\x82\xd3\xe4\x93\x02/:\x01*2*/tenants/{tenant_uuid}/members/{user_uuid}\x12\x80\x01\n" +
+	"\x11TransferOwnership\x12#.tenant.v1.TransferOwnershipRequest\x1a\x19.tenant.v1.MemberResponse\"+\x82\xd3\xe4\x93\x02%:\x01*\" /tenants/{tenant_uuid}/ownershipB\x86\x02\x92A\xc6\x01\x12A\n" +
 	"8API v1 для работы с сервисом BotBooker2\x051.0.0\"\a/api/v1Zf\n" +
 	"d\n" +
 	"\n" +
@@ -546,42 +1162,67 @@ func file_tenant_v1_tenant_proto_rawDescGZIP() []byte {
 }
 
 var file_tenant_v1_tenant_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_tenant_v1_tenant_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_tenant_v1_tenant_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_tenant_v1_tenant_proto_goTypes = []any{
-	(TenantStatus)(0),             // 0: tenant.v1.TenantStatus
-	(*Tenant)(nil),                // 1: tenant.v1.Tenant
-	(*GetTenantRequest)(nil),      // 2: tenant.v1.GetTenantRequest
-	(*CreateTenantRequest)(nil),   // 3: tenant.v1.CreateTenantRequest
-	(*TenantResponse)(nil),        // 4: tenant.v1.TenantResponse
-	(*ListTenantsRequest)(nil),    // 5: tenant.v1.ListTenantsRequest
-	(*ListTenantsResponse)(nil),   // 6: tenant.v1.ListTenantsResponse
-	(*DeleteTenantRequest)(nil),   // 7: tenant.v1.DeleteTenantRequest
-	nil,                           // 8: tenant.v1.Tenant.MetadataEntry
-	nil,                           // 9: tenant.v1.CreateTenantRequest.MetadataEntry
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),         // 11: google.protobuf.Empty
+	(TenantStatus)(0),                 // 0: tenant.v1.TenantStatus
+	(*Tenant)(nil),                    // 1: tenant.v1.Tenant
+	(*GetTenantRequest)(nil),          // 2: tenant.v1.GetTenantRequest
+	(*CreateTenantRequest)(nil),       // 3: tenant.v1.CreateTenantRequest
+	(*TenantResponse)(nil),            // 4: tenant.v1.TenantResponse
+	(*ListTenantsRequest)(nil),        // 5: tenant.v1.ListTenantsRequest
+	(*ListTenantsResponse)(nil),       // 6: tenant.v1.ListTenantsResponse
+	(*DeleteTenantRequest)(nil),       // 7: tenant.v1.DeleteTenantRequest
+	(*UpdateTenantStatusRequest)(nil), // 8: tenant.v1.UpdateTenantStatusRequest
+	(*TenantMember)(nil),              // 9: tenant.v1.TenantMember
+	(*ListMembersRequest)(nil),        // 10: tenant.v1.ListMembersRequest
+	(*ListMembersResponse)(nil),       // 11: tenant.v1.ListMembersResponse
+	(*AddMemberRequest)(nil),          // 12: tenant.v1.AddMemberRequest
+	(*MemberResponse)(nil),            // 13: tenant.v1.MemberResponse
+	(*RemoveMemberRequest)(nil),       // 14: tenant.v1.RemoveMemberRequest
+	(*ChangeMemberRoleRequest)(nil),   // 15: tenant.v1.ChangeMemberRoleRequest
+	(*TransferOwnershipRequest)(nil),  // 16: tenant.v1.TransferOwnershipRequest
+	nil,                               // 17: tenant.v1.Tenant.MetadataEntry
+	nil,                               // 18: tenant.v1.CreateTenantRequest.MetadataEntry
+	(*timestamppb.Timestamp)(nil),     // 19: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),             // 20: google.protobuf.Empty
 }
 var file_tenant_v1_tenant_proto_depIdxs = []int32{
 	0,  // 0: tenant.v1.Tenant.status:type_name -> tenant.v1.TenantStatus
-	8,  // 1: tenant.v1.Tenant.metadata:type_name -> tenant.v1.Tenant.MetadataEntry
-	10, // 2: tenant.v1.Tenant.created_at:type_name -> google.protobuf.Timestamp
-	10, // 3: tenant.v1.Tenant.updated_at:type_name -> google.protobuf.Timestamp
-	9,  // 4: tenant.v1.CreateTenantRequest.metadata:type_name -> tenant.v1.CreateTenantRequest.MetadataEntry
+	17, // 1: tenant.v1.Tenant.metadata:type_name -> tenant.v1.Tenant.MetadataEntry
+	19, // 2: tenant.v1.Tenant.created_at:type_name -> google.protobuf.Timestamp
+	19, // 3: tenant.v1.Tenant.updated_at:type_name -> google.protobuf.Timestamp
+	18, // 4: tenant.v1.CreateTenantRequest.metadata:type_name -> tenant.v1.CreateTenantRequest.MetadataEntry
 	1,  // 5: tenant.v1.TenantResponse.tenant:type_name -> tenant.v1.Tenant
 	1,  // 6: tenant.v1.ListTenantsResponse.tenants:type_name -> tenant.v1.Tenant
-	2,  // 7: tenant.v1.TenantService.GetTenant:input_type -> tenant.v1.GetTenantRequest
-	3,  // 8: tenant.v1.TenantService.CreateTenant:input_type -> tenant.v1.CreateTenantRequest
-	5,  // 9: tenant.v1.TenantService.ListTenants:input_type -> tenant.v1.ListTenantsRequest
-	7,  // 10: tenant.v1.TenantService.DeleteTenant:input_type -> tenant.v1.DeleteTenantRequest
-	4,  // 11: tenant.v1.TenantService.GetTenant:output_type -> tenant.v1.TenantResponse
-	4,  // 12: tenant.v1.TenantService.CreateTenant:output_type -> tenant.v1.TenantResponse
-	6,  // 13: tenant.v1.TenantService.ListTenants:output_type -> tenant.v1.ListTenantsResponse
-	11, // 14: tenant.v1.TenantService.DeleteTenant:output_type -> google.protobuf.Empty
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	0,  // 7: tenant.v1.UpdateTenantStatusRequest.status:type_name -> tenant.v1.TenantStatus
+	19, // 8: tenant.v1.TenantMember.joined_at:type_name -> google.protobuf.Timestamp
+	9,  // 9: tenant.v1.ListMembersResponse.members:type_name -> tenant.v1.TenantMember
+	9,  // 10: tenant.v1.MemberResponse.member:type_name -> tenant.v1.TenantMember
+	2,  // 11: tenant.v1.TenantService.GetTenant:input_type -> tenant.v1.GetTenantRequest
+	3,  // 12: tenant.v1.TenantService.CreateTenant:input_type -> tenant.v1.CreateTenantRequest
+	5,  // 13: tenant.v1.TenantService.ListTenants:input_type -> tenant.v1.ListTenantsRequest
+	7,  // 14: tenant.v1.TenantService.DeleteTenant:input_type -> tenant.v1.DeleteTenantRequest
+	8,  // 15: tenant.v1.TenantService.UpdateTenantStatus:input_type -> tenant.v1.UpdateTenantStatusRequest
+	10, // 16: tenant.v1.TenantService.ListMembers:input_type -> tenant.v1.ListMembersRequest
+	12, // 17: tenant.v1.TenantService.AddMember:input_type -> tenant.v1.AddMemberRequest
+	14, // 18: tenant.v1.TenantService.RemoveMember:input_type -> tenant.v1.RemoveMemberRequest
+	15, // 19: tenant.v1.TenantService.ChangeMemberRole:input_type -> tenant.v1.ChangeMemberRoleRequest
+	16, // 20: tenant.v1.TenantService.TransferOwnership:input_type -> tenant.v1.TransferOwnershipRequest
+	4,  // 21: tenant.v1.TenantService.GetTenant:output_type -> tenant.v1.TenantResponse
+	4,  // 22: tenant.v1.TenantService.CreateTenant:output_type -> tenant.v1.TenantResponse
+	6,  // 23: tenant.v1.TenantService.ListTenants:output_type -> tenant.v1.ListTenantsResponse
+	20, // 24: tenant.v1.TenantService.DeleteTenant:output_type -> google.protobuf.Empty
+	4,  // 25: tenant.v1.TenantService.UpdateTenantStatus:output_type -> tenant.v1.TenantResponse
+	11, // 26: tenant.v1.TenantService.ListMembers:output_type -> tenant.v1.ListMembersResponse
+	13, // 27: tenant.v1.TenantService.AddMember:output_type -> tenant.v1.MemberResponse
+	20, // 28: tenant.v1.TenantService.RemoveMember:output_type -> google.protobuf.Empty
+	13, // 29: tenant.v1.TenantService.ChangeMemberRole:output_type -> tenant.v1.MemberResponse
+	13, // 30: tenant.v1.TenantService.TransferOwnership:output_type -> tenant.v1.MemberResponse
+	21, // [21:31] is the sub-list for method output_type
+	11, // [11:21] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_tenant_v1_tenant_proto_init() }
@@ -595,7 +1236,7 @@ func file_tenant_v1_tenant_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tenant_v1_tenant_proto_rawDesc), len(file_tenant_v1_tenant_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

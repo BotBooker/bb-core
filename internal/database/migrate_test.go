@@ -21,8 +21,12 @@ import (
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/database/postgres"
 	"github.com/botbooker/bb-core/internal/database/sqlite"
-	"github.com/botbooker/bb-core/migrations"
 )
+
+// migrationsDir — каталог с SQL-миграциями относительно пакета: go test
+// запускает тесты с рабочим каталогом пакета, поэтому путь поднимается на два
+// уровня до корня репозитория.
+const migrationsDir = "../../migrations"
 
 // wantUserColumns — набор колонок таблицы users: одинаковый в обоих диалектах.
 var wantUserColumns = []string{
@@ -96,6 +100,44 @@ func sqliteColumns(t *testing.T, ctx context.Context, conn database.DB) []string
 	rows, err := conn.QueryContext(ctx, "PRAGMA table_info(users)")
 	if err != nil {
 		t.Fatalf("PRAGMA table_info(users): %v", err)
+	}
+	defer rows.Close()
+
+	var result []string
+
+	for rows.Next() {
+		var (
+			cid, notNull, pk int
+			name, columnType string
+			defaultValue     sql.NullString
+		)
+
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatalf("scan table_info: %v", err)
+		}
+
+		result = append(result, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err() = %v", err)
+	}
+
+	return result
+}
+
+// objectColumns возвращает колонки rental_objects: их набор меняется
+// миграцией tenant-изоляции.
+func objectColumns(t *testing.T, ctx context.Context, conn database.DB, dialect string) []string {
+	t.Helper()
+
+	if dialect != database.DialectSQLite {
+		return nil
+	}
+
+	rows, err := conn.QueryContext(ctx, "PRAGMA table_info(rental_objects)")
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(rental_objects): %v", err)
 	}
 	defer rows.Close()
 
@@ -287,7 +329,7 @@ func TestMigrateSQLite(t *testing.T) {
 	ctx := context.Background()
 	conn := newSQLiteConnection(t)
 
-	if err := database.Migrate(ctx, conn, database.DialectSQLite); err != nil {
+	if err := database.Migrate(ctx, conn, database.DialectSQLite, migrationsDir); err != nil {
 		t.Fatalf("Migrate() unexpected error = %v", err)
 	}
 
@@ -317,7 +359,7 @@ func TestMigrateSQLite(t *testing.T) {
 	})
 
 	// Повторный запуск ничего не делает: версии уже применены.
-	if err := database.Migrate(ctx, conn, database.DialectSQLite); err != nil {
+	if err := database.Migrate(ctx, conn, database.DialectSQLite, migrationsDir); err != nil {
 		t.Fatalf("повторный Migrate() unexpected error = %v", err)
 	}
 
@@ -417,9 +459,18 @@ func TestMigrateSQLite(t *testing.T) {
 		}
 	})
 
+	// 00009_tenant_isolation откатывается первой: колонки tenant_id исчезают.
+	if err := database.MigrateDown(ctx, conn, database.DialectSQLite, migrationsDir); err != nil {
+		t.Fatalf("MigrateDown(00009_tenant_isolation) unexpected error = %v", err)
+	}
+
+	if got := objectColumns(t, ctx, conn, database.DialectSQLite); slices.Contains(got, "tenant_id") {
+		t.Errorf("колонки rental_objects после отката 00009 = %v, want без tenant_id", got)
+	}
+
 	// 00008_global_administrators не создаёт таблицу: откат убирает добавленные
 	// колонки, а не объект схемы.
-	if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
+	if err := database.MigrateDown(ctx, conn, database.DialectSQLite, migrationsDir); err != nil {
 		t.Fatalf("MigrateDown(00008_global_administrators) unexpected error = %v", err)
 	}
 
@@ -445,7 +496,7 @@ func TestMigrateSQLite(t *testing.T) {
 		{"00002_users", "users"},
 		{"00001_foundation", "roles"},
 	} {
-		if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
+		if err := database.MigrateDown(ctx, conn, database.DialectSQLite, migrationsDir); err != nil {
 			t.Fatalf("MigrateDown(%s) unexpected error = %v", tc.version, err)
 		}
 
@@ -455,7 +506,7 @@ func TestMigrateSQLite(t *testing.T) {
 	}
 
 	// Откат, когда миграций не осталось, ошибкой не считается.
-	if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
+	if err := database.MigrateDown(ctx, conn, database.DialectSQLite, migrationsDir); err != nil {
 		t.Fatalf("MigrateDown() без миграций unexpected error = %v", err)
 	}
 }
@@ -463,7 +514,7 @@ func TestMigrateSQLite(t *testing.T) {
 func TestMigrateUnsupportedDialect(t *testing.T) {
 	conn := newSQLiteConnection(t)
 
-	err := database.Migrate(context.Background(), conn, "mysql")
+	err := database.Migrate(context.Background(), conn, "mysql", migrationsDir)
 	if !errors.Is(err, database.ErrUnsupportedDialect) {
 		t.Fatalf("Migrate() error = %v, want %v", err, database.ErrUnsupportedDialect)
 	}
@@ -476,9 +527,39 @@ func TestMigrateWithoutStdDB(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 
-	err = database.Migrate(context.Background(), conn, database.DialectSQLite)
+	err = database.Migrate(context.Background(), conn, database.DialectSQLite, migrationsDir)
 	if !errors.Is(err, database.ErrMigrationsUnavailable) {
 		t.Fatalf("Migrate() error = %v, want %v", err, database.ErrMigrationsUnavailable)
+	}
+}
+
+// TestMigrateEmptyMigrationsDir проверяет, что пустой путь к каталогу миграций
+// отклоняется до обращения к диску: иначе os.DirFS("") молча смотрел бы в
+// рабочий каталог процесса и ошибка была бы непонятной.
+func TestMigrateEmptyMigrationsDir(t *testing.T) {
+	conn := newSQLiteConnection(t)
+
+	err := database.Migrate(context.Background(), conn, database.DialectSQLite, " ")
+	if !errors.Is(err, database.ErrMigrationsDirEmpty) {
+		t.Fatalf("Migrate() error = %v, want %v", err, database.ErrMigrationsDirEmpty)
+	}
+}
+
+// TestMigrateMissingMigrationsDir проверяет, что отсутствие каталога миграций
+// даёт ошибку, а не тихий запуск без миграций: SQL теперь читается с диска, и
+// забытый MIGRATIONS_DIR должен быть заметен сразу.
+func TestMigrateMissingMigrationsDir(t *testing.T) {
+	conn := newSQLiteConnection(t)
+
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	err := database.Migrate(context.Background(), conn, database.DialectSQLite, missing)
+	if err == nil {
+		t.Fatal("Migrate() error = nil, want ошибку чтения каталога миграций")
+	}
+
+	if !strings.Contains(err.Error(), missing) {
+		t.Fatalf("Migrate() error = %v, want упоминание каталога %q", err, missing)
 	}
 }
 
@@ -488,10 +569,12 @@ func TestMigrateWithoutStdDB(t *testing.T) {
 // Пары 00001_x.up.sql + 00001_x.down.sql goose не поддерживает: он считает
 // каждый файл отдельной миграцией и падает на дубликате версии.
 func TestMigrationFiles(t *testing.T) {
+	migrationsFS := os.DirFS(migrationsDir)
+
 	versionSets := map[string][]string{}
 
 	for _, dir := range []string{"postgres", "sqlite"} {
-		entries, err := fs.ReadDir(migrations.FS, dir)
+		entries, err := fs.ReadDir(migrationsFS, dir)
 		if err != nil {
 			t.Fatalf("fs.ReadDir(%s): %v", dir, err)
 		}
@@ -514,7 +597,7 @@ func TestMigrationFiles(t *testing.T) {
 
 			versions = append(versions, version)
 
-			content, err := fs.ReadFile(migrations.FS, dir+"/"+name)
+			content, err := fs.ReadFile(migrationsFS, dir+"/"+name)
 			if err != nil {
 				t.Fatalf("fs.ReadFile(%s/%s): %v", dir, name, err)
 			}
@@ -600,7 +683,7 @@ func TestMigratePostgres(t *testing.T) {
 		}
 	})
 
-	if err := database.Migrate(ctx, conn, database.DialectPostgres); err != nil {
+	if err := database.Migrate(ctx, conn, database.DialectPostgres, migrationsDir); err != nil {
 		t.Fatalf("Migrate() unexpected error = %v", err)
 	}
 
@@ -704,7 +787,7 @@ func TestMigratePostgres(t *testing.T) {
 
 	// 00008_global_administrators не создаёт таблицу: откат убирает добавленные
 	// колонки, а не объект схемы.
-	if err := database.MigrateDown(ctx, conn, database.DialectPostgres); err != nil {
+	if err := database.MigrateDown(ctx, conn, database.DialectPostgres, migrationsDir); err != nil {
 		t.Fatalf("MigrateDown(00008_global_administrators) unexpected error = %v", err)
 	}
 
@@ -729,7 +812,7 @@ func TestMigratePostgres(t *testing.T) {
 		{"00002_users", "users"},
 		{"00001_foundation", "roles"},
 	} {
-		if err := database.MigrateDown(ctx, conn, database.DialectPostgres); err != nil {
+		if err := database.MigrateDown(ctx, conn, database.DialectPostgres, migrationsDir); err != nil {
 			t.Fatalf("MigrateDown(%s) unexpected error = %v", tc.version, err)
 		}
 

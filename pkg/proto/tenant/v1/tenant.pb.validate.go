@@ -989,3 +989,1227 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = DeleteTenantRequestValidationError{}
+
+// Validate checks the field values on UpdateTenantStatusRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *UpdateTenantStatusRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on UpdateTenantStatusRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// UpdateTenantStatusRequestMultiError, or nil if none found.
+func (m *UpdateTenantStatusRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UpdateTenantStatusRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if err := m._validateUuid(m.GetUuid()); err != nil {
+		err = UpdateTenantStatusRequestValidationError{
+			field:  "Uuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for Status
+
+	if len(errors) > 0 {
+		return UpdateTenantStatusRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+func (m *UpdateTenantStatusRequest) _validateUuid(uuid string) error {
+	if matched := _tenant_uuidPattern.MatchString(uuid); !matched {
+		return errors.New("invalid uuid format")
+	}
+
+	return nil
+}
+
+// UpdateTenantStatusRequestMultiError is an error wrapping multiple validation
+// errors returned by UpdateTenantStatusRequest.ValidateAll() if the
+// designated constraints aren't met.
+type UpdateTenantStatusRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UpdateTenantStatusRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UpdateTenantStatusRequestMultiError) AllErrors() []error { return m }
+
+// UpdateTenantStatusRequestValidationError is the validation error returned by
+// UpdateTenantStatusRequest.Validate if the designated constraints aren't met.
+type UpdateTenantStatusRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UpdateTenantStatusRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UpdateTenantStatusRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UpdateTenantStatusRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UpdateTenantStatusRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UpdateTenantStatusRequestValidationError) ErrorName() string {
+	return "UpdateTenantStatusRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UpdateTenantStatusRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUpdateTenantStatusRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UpdateTenantStatusRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UpdateTenantStatusRequestValidationError{}
+
+// Validate checks the field values on TenantMember with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *TenantMember) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on TenantMember with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in TenantMemberMultiError, or
+// nil if none found.
+func (m *TenantMember) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *TenantMember) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for TenantUuid
+
+	// no validation rules for UserUuid
+
+	// no validation rules for Role
+
+	// no validation rules for IsOwner
+
+	if all {
+		switch v := interface{}(m.GetJoinedAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, TenantMemberValidationError{
+					field:  "JoinedAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, TenantMemberValidationError{
+					field:  "JoinedAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetJoinedAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return TenantMemberValidationError{
+				field:  "JoinedAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for Email
+
+	// no validation rules for FirstName
+
+	// no validation rules for LastName
+
+	if len(errors) > 0 {
+		return TenantMemberMultiError(errors)
+	}
+
+	return nil
+}
+
+// TenantMemberMultiError is an error wrapping multiple validation errors
+// returned by TenantMember.ValidateAll() if the designated constraints aren't met.
+type TenantMemberMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m TenantMemberMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m TenantMemberMultiError) AllErrors() []error { return m }
+
+// TenantMemberValidationError is the validation error returned by
+// TenantMember.Validate if the designated constraints aren't met.
+type TenantMemberValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e TenantMemberValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e TenantMemberValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e TenantMemberValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e TenantMemberValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e TenantMemberValidationError) ErrorName() string { return "TenantMemberValidationError" }
+
+// Error satisfies the builtin error interface
+func (e TenantMemberValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTenantMember.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = TenantMemberValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = TenantMemberValidationError{}
+
+// Validate checks the field values on ListMembersRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ListMembersRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ListMembersRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ListMembersRequestMultiError, or nil if none found.
+func (m *ListMembersRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ListMembersRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if err := m._validateUuid(m.GetTenantUuid()); err != nil {
+		err = ListMembersRequestValidationError{
+			field:  "TenantUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if m.GetPageSize() < 0 {
+		err := ListMembersRequestValidationError{
+			field:  "PageSize",
+			reason: "value must be greater than or equal to 0",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	// no validation rules for PageToken
+
+	if len(errors) > 0 {
+		return ListMembersRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+func (m *ListMembersRequest) _validateUuid(uuid string) error {
+	if matched := _tenant_uuidPattern.MatchString(uuid); !matched {
+		return errors.New("invalid uuid format")
+	}
+
+	return nil
+}
+
+// ListMembersRequestMultiError is an error wrapping multiple validation errors
+// returned by ListMembersRequest.ValidateAll() if the designated constraints
+// aren't met.
+type ListMembersRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ListMembersRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ListMembersRequestMultiError) AllErrors() []error { return m }
+
+// ListMembersRequestValidationError is the validation error returned by
+// ListMembersRequest.Validate if the designated constraints aren't met.
+type ListMembersRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ListMembersRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ListMembersRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ListMembersRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ListMembersRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ListMembersRequestValidationError) ErrorName() string {
+	return "ListMembersRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ListMembersRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sListMembersRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ListMembersRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ListMembersRequestValidationError{}
+
+// Validate checks the field values on ListMembersResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ListMembersResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ListMembersResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ListMembersResponseMultiError, or nil if none found.
+func (m *ListMembersResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ListMembersResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetMembers() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ListMembersResponseValidationError{
+						field:  fmt.Sprintf("Members[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ListMembersResponseValidationError{
+						field:  fmt.Sprintf("Members[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ListMembersResponseValidationError{
+					field:  fmt.Sprintf("Members[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	// no validation rules for NextPageToken
+
+	if len(errors) > 0 {
+		return ListMembersResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// ListMembersResponseMultiError is an error wrapping multiple validation
+// errors returned by ListMembersResponse.ValidateAll() if the designated
+// constraints aren't met.
+type ListMembersResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ListMembersResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ListMembersResponseMultiError) AllErrors() []error { return m }
+
+// ListMembersResponseValidationError is the validation error returned by
+// ListMembersResponse.Validate if the designated constraints aren't met.
+type ListMembersResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ListMembersResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ListMembersResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ListMembersResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ListMembersResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ListMembersResponseValidationError) ErrorName() string {
+	return "ListMembersResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ListMembersResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sListMembersResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ListMembersResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ListMembersResponseValidationError{}
+
+// Validate checks the field values on AddMemberRequest with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *AddMemberRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on AddMemberRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// AddMemberRequestMultiError, or nil if none found.
+func (m *AddMemberRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *AddMemberRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if err := m._validateUuid(m.GetTenantUuid()); err != nil {
+		err = AddMemberRequestValidationError{
+			field:  "TenantUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if err := m._validateUuid(m.GetUserUuid()); err != nil {
+		err = AddMemberRequestValidationError{
+			field:  "UserUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if utf8.RuneCountInString(m.GetRole()) > 32 {
+		err := AddMemberRequestValidationError{
+			field:  "Role",
+			reason: "value length must be at most 32 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return AddMemberRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+func (m *AddMemberRequest) _validateUuid(uuid string) error {
+	if matched := _tenant_uuidPattern.MatchString(uuid); !matched {
+		return errors.New("invalid uuid format")
+	}
+
+	return nil
+}
+
+// AddMemberRequestMultiError is an error wrapping multiple validation errors
+// returned by AddMemberRequest.ValidateAll() if the designated constraints
+// aren't met.
+type AddMemberRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m AddMemberRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m AddMemberRequestMultiError) AllErrors() []error { return m }
+
+// AddMemberRequestValidationError is the validation error returned by
+// AddMemberRequest.Validate if the designated constraints aren't met.
+type AddMemberRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e AddMemberRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e AddMemberRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e AddMemberRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e AddMemberRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e AddMemberRequestValidationError) ErrorName() string { return "AddMemberRequestValidationError" }
+
+// Error satisfies the builtin error interface
+func (e AddMemberRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sAddMemberRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = AddMemberRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = AddMemberRequestValidationError{}
+
+// Validate checks the field values on MemberResponse with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *MemberResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on MemberResponse with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in MemberResponseMultiError,
+// or nil if none found.
+func (m *MemberResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *MemberResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetMember()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, MemberResponseValidationError{
+					field:  "Member",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, MemberResponseValidationError{
+					field:  "Member",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetMember()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return MemberResponseValidationError{
+				field:  "Member",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return MemberResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// MemberResponseMultiError is an error wrapping multiple validation errors
+// returned by MemberResponse.ValidateAll() if the designated constraints
+// aren't met.
+type MemberResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m MemberResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m MemberResponseMultiError) AllErrors() []error { return m }
+
+// MemberResponseValidationError is the validation error returned by
+// MemberResponse.Validate if the designated constraints aren't met.
+type MemberResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e MemberResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e MemberResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e MemberResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e MemberResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e MemberResponseValidationError) ErrorName() string { return "MemberResponseValidationError" }
+
+// Error satisfies the builtin error interface
+func (e MemberResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sMemberResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = MemberResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = MemberResponseValidationError{}
+
+// Validate checks the field values on RemoveMemberRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *RemoveMemberRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on RemoveMemberRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// RemoveMemberRequestMultiError, or nil if none found.
+func (m *RemoveMemberRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *RemoveMemberRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if err := m._validateUuid(m.GetTenantUuid()); err != nil {
+		err = RemoveMemberRequestValidationError{
+			field:  "TenantUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if err := m._validateUuid(m.GetUserUuid()); err != nil {
+		err = RemoveMemberRequestValidationError{
+			field:  "UserUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return RemoveMemberRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+func (m *RemoveMemberRequest) _validateUuid(uuid string) error {
+	if matched := _tenant_uuidPattern.MatchString(uuid); !matched {
+		return errors.New("invalid uuid format")
+	}
+
+	return nil
+}
+
+// RemoveMemberRequestMultiError is an error wrapping multiple validation
+// errors returned by RemoveMemberRequest.ValidateAll() if the designated
+// constraints aren't met.
+type RemoveMemberRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m RemoveMemberRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m RemoveMemberRequestMultiError) AllErrors() []error { return m }
+
+// RemoveMemberRequestValidationError is the validation error returned by
+// RemoveMemberRequest.Validate if the designated constraints aren't met.
+type RemoveMemberRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e RemoveMemberRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e RemoveMemberRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e RemoveMemberRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e RemoveMemberRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e RemoveMemberRequestValidationError) ErrorName() string {
+	return "RemoveMemberRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e RemoveMemberRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sRemoveMemberRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = RemoveMemberRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = RemoveMemberRequestValidationError{}
+
+// Validate checks the field values on ChangeMemberRoleRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ChangeMemberRoleRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ChangeMemberRoleRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ChangeMemberRoleRequestMultiError, or nil if none found.
+func (m *ChangeMemberRoleRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ChangeMemberRoleRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if err := m._validateUuid(m.GetTenantUuid()); err != nil {
+		err = ChangeMemberRoleRequestValidationError{
+			field:  "TenantUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if err := m._validateUuid(m.GetUserUuid()); err != nil {
+		err = ChangeMemberRoleRequestValidationError{
+			field:  "UserUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if utf8.RuneCountInString(m.GetRole()) > 32 {
+		err := ChangeMemberRoleRequestValidationError{
+			field:  "Role",
+			reason: "value length must be at most 32 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return ChangeMemberRoleRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+func (m *ChangeMemberRoleRequest) _validateUuid(uuid string) error {
+	if matched := _tenant_uuidPattern.MatchString(uuid); !matched {
+		return errors.New("invalid uuid format")
+	}
+
+	return nil
+}
+
+// ChangeMemberRoleRequestMultiError is an error wrapping multiple validation
+// errors returned by ChangeMemberRoleRequest.ValidateAll() if the designated
+// constraints aren't met.
+type ChangeMemberRoleRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ChangeMemberRoleRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ChangeMemberRoleRequestMultiError) AllErrors() []error { return m }
+
+// ChangeMemberRoleRequestValidationError is the validation error returned by
+// ChangeMemberRoleRequest.Validate if the designated constraints aren't met.
+type ChangeMemberRoleRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ChangeMemberRoleRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ChangeMemberRoleRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ChangeMemberRoleRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ChangeMemberRoleRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ChangeMemberRoleRequestValidationError) ErrorName() string {
+	return "ChangeMemberRoleRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ChangeMemberRoleRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sChangeMemberRoleRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ChangeMemberRoleRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ChangeMemberRoleRequestValidationError{}
+
+// Validate checks the field values on TransferOwnershipRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *TransferOwnershipRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on TransferOwnershipRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// TransferOwnershipRequestMultiError, or nil if none found.
+func (m *TransferOwnershipRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *TransferOwnershipRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if err := m._validateUuid(m.GetTenantUuid()); err != nil {
+		err = TransferOwnershipRequestValidationError{
+			field:  "TenantUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if err := m._validateUuid(m.GetUserUuid()); err != nil {
+		err = TransferOwnershipRequestValidationError{
+			field:  "UserUuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return TransferOwnershipRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+func (m *TransferOwnershipRequest) _validateUuid(uuid string) error {
+	if matched := _tenant_uuidPattern.MatchString(uuid); !matched {
+		return errors.New("invalid uuid format")
+	}
+
+	return nil
+}
+
+// TransferOwnershipRequestMultiError is an error wrapping multiple validation
+// errors returned by TransferOwnershipRequest.ValidateAll() if the designated
+// constraints aren't met.
+type TransferOwnershipRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m TransferOwnershipRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m TransferOwnershipRequestMultiError) AllErrors() []error { return m }
+
+// TransferOwnershipRequestValidationError is the validation error returned by
+// TransferOwnershipRequest.Validate if the designated constraints aren't met.
+type TransferOwnershipRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e TransferOwnershipRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e TransferOwnershipRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e TransferOwnershipRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e TransferOwnershipRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e TransferOwnershipRequestValidationError) ErrorName() string {
+	return "TransferOwnershipRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e TransferOwnershipRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTransferOwnershipRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = TransferOwnershipRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = TransferOwnershipRequestValidationError{}

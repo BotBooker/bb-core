@@ -35,7 +35,15 @@ type Session struct {
 	// Подписанный JWT: клиент присылает его в заголовке Authorization
 	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
 	// Момент, когда токен перестаёт действовать
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// Тенант сессии: идентификатор нужен для аудита и переключения
+	TenantUuid string `protobuf:"bytes,3,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
+	// Тенант сессии: slug нужен для ссылки и повторного входа
+	TenantSlug string `protobuf:"bytes,4,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
+	// Название тенанта для отображения в интерфейсе
+	TenantName string `protobuf:"bytes,5,opt,name=tenant_name,json=tenantName,proto3" json:"tenant_name,omitempty"`
+	// Роль пользователя в тенанте сессии
+	Role          string `protobuf:"bytes,6,opt,name=role,proto3" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -84,6 +92,34 @@ func (x *Session) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Session) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *Session) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
+func (x *Session) GetTenantName() string {
+	if x != nil {
+		return x.TenantName
+	}
+	return ""
+}
+
+func (x *Session) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
 // Запрос на самостоятельную регистрацию: профиль и пароль
 type AuthServiceRegisterRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -100,7 +136,10 @@ type AuthServiceRegisterRequest struct {
 	// Пол пользователя (по умолчанию GENDER_UNSPECIFIED)
 	Gender v1.Gender `protobuf:"varint,6,opt,name=gender,proto3,enum=user.v1.Gender" json:"gender,omitempty"`
 	// Пароль: не короче 8 символов и не длиннее 128
-	Password      string `protobuf:"bytes,7,opt,name=password,proto3" json:"password,omitempty"`
+	Password string `protobuf:"bytes,7,opt,name=password,proto3" json:"password,omitempty"`
+	// Slug тенанта, по ссылке которого идёт регистрация.
+	// Пустое значение означает личный тенант (обратная совместимость).
+	TenantSlug    string `protobuf:"bytes,8,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -184,6 +223,13 @@ func (x *AuthServiceRegisterRequest) GetPassword() string {
 	return ""
 }
 
+func (x *AuthServiceRegisterRequest) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
 // Ответ на регистрацию: созданный пользователь и выданная сессия
 type AuthServiceRegisterResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -245,7 +291,9 @@ type AuthServiceLoginRequest struct {
 	// Email зарегистрированного пользователя
 	Email string `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
 	// Пароль пользователя
-	Password      string `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	Password string `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	// Slug тенанта. Пустое значение — самое раннее членство (обратная совместимость).
+	TenantSlug    string `protobuf:"bytes,3,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -290,6 +338,13 @@ func (x *AuthServiceLoginRequest) GetEmail() string {
 func (x *AuthServiceLoginRequest) GetPassword() string {
 	if x != nil {
 		return x.Password
+	}
+	return ""
+}
+
+func (x *AuthServiceLoginRequest) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -348,7 +403,9 @@ type AuthServiceChangePasswordRequest struct {
 	// Текущий пароль
 	CurrentPassword string `protobuf:"bytes,2,opt,name=current_password,json=currentPassword,proto3" json:"current_password,omitempty"`
 	// Новый пароль: не короче 8 символов
-	NewPassword   string `protobuf:"bytes,3,opt,name=new_password,json=newPassword,proto3" json:"new_password,omitempty"`
+	NewPassword string `protobuf:"bytes,3,opt,name=new_password,json=newPassword,proto3" json:"new_password,omitempty"`
+	// Slug тенанта. Пустое значение — самое раннее членство (обратная совместимость).
+	TenantSlug    string `protobuf:"bytes,4,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -400,6 +457,13 @@ func (x *AuthServiceChangePasswordRequest) GetCurrentPassword() string {
 func (x *AuthServiceChangePasswordRequest) GetNewPassword() string {
 	if x != nil {
 		return x.NewPassword
+	}
+	return ""
+}
+
+func (x *AuthServiceChangePasswordRequest) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
 	}
 	return ""
 }
@@ -570,15 +634,334 @@ func (x *AuthServiceGetCurrentUserResponse) GetUser() *v1.User {
 	return nil
 }
 
+// Членство действующего пользователя в тенанте
+type TenantMembership struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Идентификатор тенанта
+	TenantUuid string `protobuf:"bytes,1,opt,name=tenant_uuid,json=tenantUuid,proto3" json:"tenant_uuid,omitempty"`
+	// Slug тенанта: по нему выполняется вход и переключение сессии
+	TenantSlug string `protobuf:"bytes,2,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
+	// Название тенанта
+	TenantName string `protobuf:"bytes,3,opt,name=tenant_name,json=tenantName,proto3" json:"tenant_name,omitempty"`
+	// Статус тенанта: active, suspended или deleted
+	Status string `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	// Роль пользователя в этом тенанте
+	Role string `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
+	// Признак владельца тенанта
+	IsOwner bool `protobuf:"varint,6,opt,name=is_owner,json=isOwner,proto3" json:"is_owner,omitempty"`
+	// Когда пользователь вступил в тенант
+	JoinedAt      *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=joined_at,json=joinedAt,proto3" json:"joined_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TenantMembership) Reset() {
+	*x = TenantMembership{}
+	mi := &file_auth_v1_auth_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TenantMembership) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TenantMembership) ProtoMessage() {}
+
+func (x *TenantMembership) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TenantMembership.ProtoReflect.Descriptor instead.
+func (*TenantMembership) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *TenantMembership) GetTenantUuid() string {
+	if x != nil {
+		return x.TenantUuid
+	}
+	return ""
+}
+
+func (x *TenantMembership) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
+func (x *TenantMembership) GetTenantName() string {
+	if x != nil {
+		return x.TenantName
+	}
+	return ""
+}
+
+func (x *TenantMembership) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *TenantMembership) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *TenantMembership) GetIsOwner() bool {
+	if x != nil {
+		return x.IsOwner
+	}
+	return false
+}
+
+func (x *TenantMembership) GetJoinedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.JoinedAt
+	}
+	return nil
+}
+
+// Запрос списка тенантов действующего пользователя
+type AuthServiceListMyTenantsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthServiceListMyTenantsRequest) Reset() {
+	*x = AuthServiceListMyTenantsRequest{}
+	mi := &file_auth_v1_auth_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthServiceListMyTenantsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthServiceListMyTenantsRequest) ProtoMessage() {}
+
+func (x *AuthServiceListMyTenantsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthServiceListMyTenantsRequest.ProtoReflect.Descriptor instead.
+func (*AuthServiceListMyTenantsRequest) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{11}
+}
+
+// Ответ со списком тенантов действующего пользователя
+type AuthServiceListMyTenantsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Членства пользователя, упорядоченные по времени вступления
+	Tenants       []*TenantMembership `protobuf:"bytes,1,rep,name=tenants,proto3" json:"tenants,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthServiceListMyTenantsResponse) Reset() {
+	*x = AuthServiceListMyTenantsResponse{}
+	mi := &file_auth_v1_auth_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthServiceListMyTenantsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthServiceListMyTenantsResponse) ProtoMessage() {}
+
+func (x *AuthServiceListMyTenantsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthServiceListMyTenantsResponse.ProtoReflect.Descriptor instead.
+func (*AuthServiceListMyTenantsResponse) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AuthServiceListMyTenantsResponse) GetTenants() []*TenantMembership {
+	if x != nil {
+		return x.Tenants
+	}
+	return nil
+}
+
+// Запрос на переключение сессии на другой тенант
+type AuthServiceSwitchTenantRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Slug целевого тенанта
+	TenantSlug    string `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthServiceSwitchTenantRequest) Reset() {
+	*x = AuthServiceSwitchTenantRequest{}
+	mi := &file_auth_v1_auth_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthServiceSwitchTenantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthServiceSwitchTenantRequest) ProtoMessage() {}
+
+func (x *AuthServiceSwitchTenantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthServiceSwitchTenantRequest.ProtoReflect.Descriptor instead.
+func (*AuthServiceSwitchTenantRequest) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AuthServiceSwitchTenantRequest) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
+// Ответ на переключение: новая сессия в целевом тенанте
+type AuthServiceSwitchTenantResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Выданный доступ
+	Session       *Session `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthServiceSwitchTenantResponse) Reset() {
+	*x = AuthServiceSwitchTenantResponse{}
+	mi := &file_auth_v1_auth_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthServiceSwitchTenantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthServiceSwitchTenantResponse) ProtoMessage() {}
+
+func (x *AuthServiceSwitchTenantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthServiceSwitchTenantResponse.ProtoReflect.Descriptor instead.
+func (*AuthServiceSwitchTenantResponse) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AuthServiceSwitchTenantResponse) GetSession() *Session {
+	if x != nil {
+		return x.Session
+	}
+	return nil
+}
+
+// Запрос на выход из всех сессий (токен берётся из заголовка Authorization)
+type AuthServiceLogoutAllRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthServiceLogoutAllRequest) Reset() {
+	*x = AuthServiceLogoutAllRequest{}
+	mi := &file_auth_v1_auth_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthServiceLogoutAllRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthServiceLogoutAllRequest) ProtoMessage() {}
+
+func (x *AuthServiceLogoutAllRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthServiceLogoutAllRequest.ProtoReflect.Descriptor instead.
+func (*AuthServiceLogoutAllRequest) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{15}
+}
+
 var File_auth_v1_auth_proto protoreflect.FileDescriptor
 
 const file_auth_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x12auth/v1/auth.proto\x12\aauth.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a.protoc-gen-openapiv2/options/annotations.proto\x1a\x12user/v1/user.proto\x1a\x17validate/validate.proto\"Z\n" +
+	"\x12auth/v1/auth.proto\x12\aauth.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a.protoc-gen-openapiv2/options/annotations.proto\x1a\x12user/v1/user.proto\x1a\x17validate/validate.proto\"\xd1\x01\n" +
 	"\aSession\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xc8\x02\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x1f\n" +
+	"\vtenant_uuid\x18\x03 \x01(\tR\n" +
+	"tenantUuid\x12\x1f\n" +
+	"\vtenant_slug\x18\x04 \x01(\tR\n" +
+	"tenantSlug\x12\x1f\n" +
+	"\vtenant_name\x18\x05 \x01(\tR\n" +
+	"tenantName\x12\x12\n" +
+	"\x04role\x18\x06 \x01(\tR\x04role\"\xf2\x02\n" +
 	"\x1aAuthServiceRegisterRequest\x12\x1d\n" +
 	"\x05email\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\x05email\x12(\n" +
 	"\n" +
@@ -589,35 +972,64 @@ const file_auth_v1_auth_proto_rawDesc = "" +
 	"\fphone_number\x18\x05 \x01(\tB\x1b\xfaB\x18r\x162\x11^\\+[1-9]\\d{1,14}$\xd0\x01\x01R\vphoneNumber\x12'\n" +
 	"\x06gender\x18\x06 \x01(\x0e2\x0f.user.v1.GenderR\x06gender\x12&\n" +
 	"\bpassword\x18\a \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\b\x18\x80\x01R\bpassword\"l\n" +
+	"\xfaB\ar\x05\x10\b\x18\x80\x01R\bpassword\x12(\n" +
+	"\vtenant_slug\x18\b \x01(\tB\a\xfaB\x04r\x02\x18dR\n" +
+	"tenantSlug\"l\n" +
 	"\x1bAuthServiceRegisterResponse\x12!\n" +
 	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\x12*\n" +
-	"\asession\x18\x02 \x01(\v2\x10.auth.v1.SessionR\asession\"`\n" +
+	"\asession\x18\x02 \x01(\v2\x10.auth.v1.SessionR\asession\"\x8a\x01\n" +
 	"\x17AuthServiceLoginRequest\x12\x1d\n" +
 	"\x05email\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\x05email\x12&\n" +
 	"\bpassword\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x01R\bpassword\"F\n" +
+	"\xfaB\ar\x05\x10\x01\x18\x80\x01R\bpassword\x12(\n" +
+	"\vtenant_slug\x18\x03 \x01(\tB\a\xfaB\x04r\x02\x18dR\n" +
+	"tenantSlug\"F\n" +
 	"\x18AuthServiceLoginResponse\x12*\n" +
-	"\asession\x18\x01 \x01(\v2\x10.auth.v1.SessionR\asession\"\xa7\x01\n" +
+	"\asession\x18\x01 \x01(\v2\x10.auth.v1.SessionR\asession\"\xd1\x01\n" +
 	" AuthServiceChangePasswordRequest\x12\x1d\n" +
 	"\x05email\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\x05email\x125\n" +
 	"\x10current_password\x18\x02 \x01(\tB\n" +
 	"\xfaB\ar\x05\x10\x01\x18\x80\x01R\x0fcurrentPassword\x12-\n" +
 	"\fnew_password\x18\x03 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\b\x18\x80\x01R\vnewPassword\"O\n" +
+	"\xfaB\ar\x05\x10\b\x18\x80\x01R\vnewPassword\x12(\n" +
+	"\vtenant_slug\x18\x04 \x01(\tB\a\xfaB\x04r\x02\x18dR\n" +
+	"tenantSlug\"O\n" +
 	"!AuthServiceChangePasswordResponse\x12*\n" +
 	"\asession\x18\x01 \x01(\v2\x10.auth.v1.SessionR\asession\"\x1a\n" +
 	"\x18AuthServiceLogoutRequest\"\"\n" +
 	" AuthServiceGetCurrentUserRequest\"F\n" +
 	"!AuthServiceGetCurrentUserResponse\x12!\n" +
-	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user2\xc3\x04\n" +
+	"\x04user\x18\x01 \x01(\v2\r.user.v1.UserR\x04user\"\xf5\x01\n" +
+	"\x10TenantMembership\x12\x1f\n" +
+	"\vtenant_uuid\x18\x01 \x01(\tR\n" +
+	"tenantUuid\x12\x1f\n" +
+	"\vtenant_slug\x18\x02 \x01(\tR\n" +
+	"tenantSlug\x12\x1f\n" +
+	"\vtenant_name\x18\x03 \x01(\tR\n" +
+	"tenantName\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12\x12\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\x12\x19\n" +
+	"\bis_owner\x18\x06 \x01(\bR\aisOwner\x127\n" +
+	"\tjoined_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\bjoinedAt\"!\n" +
+	"\x1fAuthServiceListMyTenantsRequest\"W\n" +
+	" AuthServiceListMyTenantsResponse\x123\n" +
+	"\atenants\x18\x01 \x03(\v2\x19.auth.v1.TenantMembershipR\atenants\"L\n" +
+	"\x1eAuthServiceSwitchTenantRequest\x12*\n" +
+	"\vtenant_slug\x18\x01 \x01(\tB\t\xfaB\x06r\x04\x10\x01\x18dR\n" +
+	"tenantSlug\"M\n" +
+	"\x1fAuthServiceSwitchTenantResponse\x12*\n" +
+	"\asession\x18\x01 \x01(\v2\x10.auth.v1.SessionR\asession\"\x1d\n" +
+	"\x1bAuthServiceLogoutAllRequest2\xac\a\n" +
 	"\vAuthService\x12p\n" +
 	"\bRegister\x12#.auth.v1.AuthServiceRegisterRequest\x1a$.auth.v1.AuthServiceRegisterResponse\"\x19\x82\xd3\xe4\x93\x02\x13:\x01*\"\x0e/auth/register\x12d\n" +
 	"\x05Login\x12 .auth.v1.AuthServiceLoginRequest\x1a!.auth.v1.AuthServiceLoginResponse\"\x16\x82\xd3\xe4\x93\x02\x10:\x01*\"\v/auth/login\x12\x82\x01\n" +
 	"\x0eChangePassword\x12).auth.v1.AuthServiceChangePasswordRequest\x1a*.auth.v1.AuthServiceChangePasswordResponse\"\x19\x82\xd3\xe4\x93\x02\x13:\x01*\"\x0e/auth/password\x12\\\n" +
 	"\x06Logout\x12!.auth.v1.AuthServiceLogoutRequest\x1a\x16.google.protobuf.Empty\"\x17\x82\xd3\xe4\x93\x02\x11:\x01*\"\f/auth/logout\x12y\n" +
 	"\x0eGetCurrentUser\x12).auth.v1.AuthServiceGetCurrentUserRequest\x1a*.auth.v1.AuthServiceGetCurrentUserResponse\"\x10\x82\xd3\xe4\x93\x02\n" +
-	"\x12\b/auth/meB\x82\x02\x92A\xc6\x01\x12A\n" +
+	"\x12\b/auth/me\x12{\n" +
+	"\rListMyTenants\x12(.auth.v1.AuthServiceListMyTenantsRequest\x1a).auth.v1.AuthServiceListMyTenantsResponse\"\x15\x82\xd3\xe4\x93\x02\x0f\x12\r/auth/tenants\x12\x81\x01\n" +
+	"\fSwitchTenant\x12'.auth.v1.AuthServiceSwitchTenantRequest\x1a(.auth.v1.AuthServiceSwitchTenantResponse\"\x1e\x82\xd3\xe4\x93\x02\x18:\x01*\"\x13/auth/tenant/switch\x12f\n" +
+	"\tLogoutAll\x12$.auth.v1.AuthServiceLogoutAllRequest\x1a\x16.google.protobuf.Empty\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/auth/logout-allB\x82\x02\x92A\xc6\x01\x12A\n" +
 	"8API v1 для работы с сервисом BotBooker2\x051.0.0\"\a/api/v1Zf\n" +
 	"d\n" +
 	"\n" +
@@ -638,7 +1050,7 @@ func file_auth_v1_auth_proto_rawDescGZIP() []byte {
 	return file_auth_v1_auth_proto_rawDescData
 }
 
-var file_auth_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_auth_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_auth_v1_auth_proto_goTypes = []any{
 	(*Session)(nil),                           // 0: auth.v1.Session
 	(*AuthServiceRegisterRequest)(nil),        // 1: auth.v1.AuthServiceRegisterRequest
@@ -650,34 +1062,49 @@ var file_auth_v1_auth_proto_goTypes = []any{
 	(*AuthServiceLogoutRequest)(nil),          // 7: auth.v1.AuthServiceLogoutRequest
 	(*AuthServiceGetCurrentUserRequest)(nil),  // 8: auth.v1.AuthServiceGetCurrentUserRequest
 	(*AuthServiceGetCurrentUserResponse)(nil), // 9: auth.v1.AuthServiceGetCurrentUserResponse
-	(*timestamppb.Timestamp)(nil),             // 10: google.protobuf.Timestamp
-	(v1.Gender)(0),                            // 11: user.v1.Gender
-	(*v1.User)(nil),                           // 12: user.v1.User
-	(*emptypb.Empty)(nil),                     // 13: google.protobuf.Empty
+	(*TenantMembership)(nil),                  // 10: auth.v1.TenantMembership
+	(*AuthServiceListMyTenantsRequest)(nil),   // 11: auth.v1.AuthServiceListMyTenantsRequest
+	(*AuthServiceListMyTenantsResponse)(nil),  // 12: auth.v1.AuthServiceListMyTenantsResponse
+	(*AuthServiceSwitchTenantRequest)(nil),    // 13: auth.v1.AuthServiceSwitchTenantRequest
+	(*AuthServiceSwitchTenantResponse)(nil),   // 14: auth.v1.AuthServiceSwitchTenantResponse
+	(*AuthServiceLogoutAllRequest)(nil),       // 15: auth.v1.AuthServiceLogoutAllRequest
+	(*timestamppb.Timestamp)(nil),             // 16: google.protobuf.Timestamp
+	(v1.Gender)(0),                            // 17: user.v1.Gender
+	(*v1.User)(nil),                           // 18: user.v1.User
+	(*emptypb.Empty)(nil),                     // 19: google.protobuf.Empty
 }
 var file_auth_v1_auth_proto_depIdxs = []int32{
-	10, // 0: auth.v1.Session.expires_at:type_name -> google.protobuf.Timestamp
-	11, // 1: auth.v1.AuthServiceRegisterRequest.gender:type_name -> user.v1.Gender
-	12, // 2: auth.v1.AuthServiceRegisterResponse.user:type_name -> user.v1.User
+	16, // 0: auth.v1.Session.expires_at:type_name -> google.protobuf.Timestamp
+	17, // 1: auth.v1.AuthServiceRegisterRequest.gender:type_name -> user.v1.Gender
+	18, // 2: auth.v1.AuthServiceRegisterResponse.user:type_name -> user.v1.User
 	0,  // 3: auth.v1.AuthServiceRegisterResponse.session:type_name -> auth.v1.Session
 	0,  // 4: auth.v1.AuthServiceLoginResponse.session:type_name -> auth.v1.Session
 	0,  // 5: auth.v1.AuthServiceChangePasswordResponse.session:type_name -> auth.v1.Session
-	12, // 6: auth.v1.AuthServiceGetCurrentUserResponse.user:type_name -> user.v1.User
-	1,  // 7: auth.v1.AuthService.Register:input_type -> auth.v1.AuthServiceRegisterRequest
-	3,  // 8: auth.v1.AuthService.Login:input_type -> auth.v1.AuthServiceLoginRequest
-	5,  // 9: auth.v1.AuthService.ChangePassword:input_type -> auth.v1.AuthServiceChangePasswordRequest
-	7,  // 10: auth.v1.AuthService.Logout:input_type -> auth.v1.AuthServiceLogoutRequest
-	8,  // 11: auth.v1.AuthService.GetCurrentUser:input_type -> auth.v1.AuthServiceGetCurrentUserRequest
-	2,  // 12: auth.v1.AuthService.Register:output_type -> auth.v1.AuthServiceRegisterResponse
-	4,  // 13: auth.v1.AuthService.Login:output_type -> auth.v1.AuthServiceLoginResponse
-	6,  // 14: auth.v1.AuthService.ChangePassword:output_type -> auth.v1.AuthServiceChangePasswordResponse
-	13, // 15: auth.v1.AuthService.Logout:output_type -> google.protobuf.Empty
-	9,  // 16: auth.v1.AuthService.GetCurrentUser:output_type -> auth.v1.AuthServiceGetCurrentUserResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	18, // 6: auth.v1.AuthServiceGetCurrentUserResponse.user:type_name -> user.v1.User
+	16, // 7: auth.v1.TenantMembership.joined_at:type_name -> google.protobuf.Timestamp
+	10, // 8: auth.v1.AuthServiceListMyTenantsResponse.tenants:type_name -> auth.v1.TenantMembership
+	0,  // 9: auth.v1.AuthServiceSwitchTenantResponse.session:type_name -> auth.v1.Session
+	1,  // 10: auth.v1.AuthService.Register:input_type -> auth.v1.AuthServiceRegisterRequest
+	3,  // 11: auth.v1.AuthService.Login:input_type -> auth.v1.AuthServiceLoginRequest
+	5,  // 12: auth.v1.AuthService.ChangePassword:input_type -> auth.v1.AuthServiceChangePasswordRequest
+	7,  // 13: auth.v1.AuthService.Logout:input_type -> auth.v1.AuthServiceLogoutRequest
+	8,  // 14: auth.v1.AuthService.GetCurrentUser:input_type -> auth.v1.AuthServiceGetCurrentUserRequest
+	11, // 15: auth.v1.AuthService.ListMyTenants:input_type -> auth.v1.AuthServiceListMyTenantsRequest
+	13, // 16: auth.v1.AuthService.SwitchTenant:input_type -> auth.v1.AuthServiceSwitchTenantRequest
+	15, // 17: auth.v1.AuthService.LogoutAll:input_type -> auth.v1.AuthServiceLogoutAllRequest
+	2,  // 18: auth.v1.AuthService.Register:output_type -> auth.v1.AuthServiceRegisterResponse
+	4,  // 19: auth.v1.AuthService.Login:output_type -> auth.v1.AuthServiceLoginResponse
+	6,  // 20: auth.v1.AuthService.ChangePassword:output_type -> auth.v1.AuthServiceChangePasswordResponse
+	19, // 21: auth.v1.AuthService.Logout:output_type -> google.protobuf.Empty
+	9,  // 22: auth.v1.AuthService.GetCurrentUser:output_type -> auth.v1.AuthServiceGetCurrentUserResponse
+	12, // 23: auth.v1.AuthService.ListMyTenants:output_type -> auth.v1.AuthServiceListMyTenantsResponse
+	14, // 24: auth.v1.AuthService.SwitchTenant:output_type -> auth.v1.AuthServiceSwitchTenantResponse
+	19, // 25: auth.v1.AuthService.LogoutAll:output_type -> google.protobuf.Empty
+	18, // [18:26] is the sub-list for method output_type
+	10, // [10:18] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_auth_v1_auth_proto_init() }
@@ -691,7 +1118,7 @@ func file_auth_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_auth_v1_auth_proto_rawDesc), len(file_auth_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

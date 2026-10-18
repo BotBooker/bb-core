@@ -112,9 +112,9 @@ func TestAuthServiceServer_Register_InvalidRequest(t *testing.T) {
 func TestAuthServiceServer_Login(t *testing.T) {
 	session := authTestSession(t)
 
-	auth := &mockAuthService{loginFunc: func(_ context.Context, email, password string) (*service.Session, error) {
-		if email != "ivan@example.com" || password != "secret-password" {
-			t.Errorf("Login() args = %q, %q", email, password)
+	auth := &mockAuthService{loginFunc: func(_ context.Context, email, password, tenantSlug string) (*service.Session, error) {
+		if email != "ivan@example.com" || password != "secret-password" || tenantSlug != "acme" {
+			t.Errorf("Login() args = %q, %q, %q", email, password, tenantSlug)
 		}
 
 		return session, nil
@@ -123,8 +123,9 @@ func TestAuthServiceServer_Login(t *testing.T) {
 	server := NewAuthServiceServer(auth)
 
 	resp, err := server.Login(context.Background(), &auth_v1.AuthServiceLoginRequest{
-		Email:    "ivan@example.com",
-		Password: "secret-password",
+		Email:      "ivan@example.com",
+		Password:   "secret-password",
+		TenantSlug: "acme",
 	})
 	if err != nil {
 		t.Fatalf("Login() unexpected error = %v", err)
@@ -136,7 +137,7 @@ func TestAuthServiceServer_Login(t *testing.T) {
 }
 
 func TestAuthServiceServer_Login_InvalidCredentials(t *testing.T) {
-	auth := &mockAuthService{loginFunc: func(context.Context, string, string) (*service.Session, error) {
+	auth := &mockAuthService{loginFunc: func(context.Context, string, string, string) (*service.Session, error) {
 		return nil, service.ErrInvalidCredentials
 	}}
 
@@ -156,10 +157,10 @@ func TestAuthServiceServer_ChangePassword(t *testing.T) {
 
 	auth := &mockAuthService{changePasswordFunc: func(
 		_ context.Context,
-		email, currentPassword, newPassword string,
+		email, currentPassword, newPassword, tenantSlug string,
 	) (*service.Session, error) {
-		if email != "ivan@example.com" || currentPassword != "old-password" || newPassword != "new-password" {
-			t.Errorf("ChangePassword() args = %q, %q, %q", email, currentPassword, newPassword)
+		if email != "ivan@example.com" || currentPassword != "old-password" || newPassword != "new-password" || tenantSlug != "acme" {
+			t.Errorf("ChangePassword() args = %q, %q, %q, %q", email, currentPassword, newPassword, tenantSlug)
 		}
 
 		return session, nil
@@ -171,6 +172,7 @@ func TestAuthServiceServer_ChangePassword(t *testing.T) {
 		Email:           "ivan@example.com",
 		CurrentPassword: "old-password",
 		NewPassword:     "new-password",
+		TenantSlug:      "acme",
 	})
 	if err != nil {
 		t.Fatalf("ChangePassword() unexpected error = %v", err)
