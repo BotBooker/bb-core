@@ -1,0 +1,79 @@
+# Default values for bb-core.
+image:
+  repository: bb-core
+  tag: dev
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Секреты не хранятся в values: создайте Secret заранее и укажите его имя.
+# Обязательные ключи: DSN, JWT_SECRET. Необязательный: SUPERUSER_PASSWORD.
+existingSecret: bb-core-secrets
+
+config:
+  serverHost: 0.0.0.0
+  serverPort: "8080"
+  grpcHost: 0.0.0.0
+  grpcPort: "50051"
+  publicBaseURL: http://localhost:8080
+  migrateOnStart: "true"
+  # SQL-миграции входят в образ (embed отключён): каталог читается с диска.
+  migrationsDir: /app/migrations
+  logFormat: json
+  logLevel: INFO
+  authJWTIssuer: bb-core
+  authTokenTTL: 720h
+  passwordTTL: 2160h
+  otelServiceName: bb-core
+  otelExporterOTLPEndpoint: ""
+  otelExporterOTLPTracesEndpoint: ""
+  otelMetricsExporter: none
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  grpcPort: 50051
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: bb-core.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  # Штатный seccomp-профиль ядра; без него контейнер считается неограниченным.
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+probes:
+  httpPath: /health
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

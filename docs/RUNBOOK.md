@@ -61,6 +61,12 @@ Bootstrap выполняется один раз (Job или `kubectl run`, см
 Повторный запуск безопасен: пароль существующего суперпользователя не
 сбрасывается.
 
+Чарт по умолчанию запускает контейнер по модели `restricted`
+(`docs/specification/programming.md`, §7): non-root `65532:65532`, read-only
+корневая ФС, seccomp `RuntimeDefault`, `capabilities.drop: [ALL]`. Меняя
+`podSecurityContext`/`securityContext` в `values.yaml`, сохраняйте эти
+инварианты — иначе CI-сканер `trivy config` вернёт HIGH.
+
 ## 4. Первичная инициализация и вход
 
 1. `bootstrap` создаёт суперпользователя, его личный тенант и членство

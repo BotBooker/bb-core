@@ -1,0 +1,24 @@
+1. Создайте Secret с обязательными ключами:
+
+   kubectl create secret generic {{ .Values.existingSecret }} \
+     --from-literal=DSN='postgres://user:password@postgres:5432/bbcore?sslmode=require' \
+     --from-literal=JWT_SECRET="$(openssl rand -base64 32)"
+
+2. Установите чарт:
+
+   helm upgrade --install {{ .Release.Name }} ./deploy/helm/bb-core \
+     --set image.repository=registry.example.com/bb-core \
+     --set image.tag={{ .Chart.AppVersion }} \
+     --set config.publicBaseURL=https://bb.example.com
+
+3. Первый суперпользователь (однократно, Job или ручной запуск):
+
+   kubectl run bb-core-bootstrap --rm -it --restart=Never \
+     --image=registry.example.com/bb-core:{{ .Chart.AppVersion }} \
+     --env=DSN="$DSN" --env=JWT_SECRET="$JWT_SECRET" \
+     --env=SUPERUSER_EMAIL=admin@example.com \
+     --env=SUPERUSER_PASSWORD='change-me-please' \
+     --command -- /app/bootstrap
+
+Проверка: `kubectl port-forward svc/{{ include "bb-core.fullname" . }} 8080:{{ .Values.service.httpPort }}`
+и `curl http://localhost:8080/health`.
