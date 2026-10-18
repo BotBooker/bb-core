@@ -28,7 +28,9 @@ type mockUserServiceAPI struct {
 		id string,
 		in model.UpdateUserInput,
 	) (*model.User, error)
-	deleteFunc func(ctx context.Context, actor *service.Principal, id string) error
+	deleteFunc               func(ctx context.Context, actor *service.Principal, id string) error
+	assignGlobalOperatorFunc func(ctx context.Context, actor *service.Principal, id string) (*model.User, error)
+	revokeGlobalOperatorFunc func(ctx context.Context, actor *service.Principal, id string) error
 }
 
 func (m *mockUserServiceAPI) Create(
@@ -67,6 +69,26 @@ func (m *mockUserServiceAPI) Update(
 func (m *mockUserServiceAPI) Delete(ctx context.Context, actor *service.Principal, id string) error {
 	if m.deleteFunc != nil {
 		return m.deleteFunc(ctx, actor, id)
+	}
+
+	return database.ErrNotFound
+}
+
+func (m *mockUserServiceAPI) AssignGlobalOperator(
+	ctx context.Context,
+	actor *service.Principal,
+	id string,
+) (*model.User, error) {
+	if m.assignGlobalOperatorFunc != nil {
+		return m.assignGlobalOperatorFunc(ctx, actor, id)
+	}
+
+	return nil, database.ErrNotFound
+}
+
+func (m *mockUserServiceAPI) RevokeGlobalOperator(ctx context.Context, actor *service.Principal, id string) error {
+	if m.revokeGlobalOperatorFunc != nil {
+		return m.revokeGlobalOperatorFunc(ctx, actor, id)
 	}
 
 	return database.ErrNotFound
@@ -434,6 +456,166 @@ func TestUserServiceServer_Delete(t *testing.T) {
 	})
 }
 
+func TestUserServiceServer_AssignGlobalOperator(t *testing.T) {
+	t.Run("назначает глобального оператора", func(t *testing.T) {
+		want := adapterTestUser(t)
+		want.IsGlobalOperator = true
+
+		var gotID string
+
+		api := &mockUserServiceAPI{
+			assignGlobalOperatorFunc: func(_ context.Context, _ *service.Principal, id string) (*model.User, error) {
+				gotID = id
+
+				return want, nil
+			},
+		}
+
+		resp, err := NewUserServiceServer(api).AssignGlobalOperator(
+			adapterContext(t),
+			&user_v1.UserServiceAssignGlobalOperatorRequest{Uuid: validUUID},
+		)
+		if err != nil {
+			t.Fatalf("AssignGlobalOperator() unexpected error = %v", err)
+		}
+
+		if gotID != validUUID {
+			t.Errorf("сервис получил id = %q, want %q", gotID, validUUID)
+		}
+		if !resp.GetUser().GetIsGlobalOperator() {
+			t.Error("is_global_operator = false, want true")
+		}
+	})
+
+	t.Run("коды ошибок", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			req      *user_v1.UserServiceAssignGlobalOperatorRequest
+			err      error
+			wantCode codes.Code
+		}{
+			{
+				name:     "nil-запрос",
+				req:      nil,
+				wantCode: codes.InvalidArgument,
+			},
+			{
+				name:     "невалидный UUID",
+				req:      &user_v1.UserServiceAssignGlobalOperatorRequest{Uuid: "not-a-uuid"},
+				wantCode: codes.InvalidArgument,
+			},
+			{
+				name:     "нет прав",
+				req:      &user_v1.UserServiceAssignGlobalOperatorRequest{Uuid: validUUID},
+				err:      service.ErrForbidden,
+				wantCode: codes.PermissionDenied,
+			},
+			{
+				name:     "пользователь не найден",
+				req:      &user_v1.UserServiceAssignGlobalOperatorRequest{Uuid: validUUID},
+				err:      database.ErrNotFound,
+				wantCode: codes.NotFound,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				api := &mockUserServiceAPI{
+					assignGlobalOperatorFunc: func(context.Context, *service.Principal, string) (*model.User, error) {
+						return nil, tt.err
+					},
+				}
+
+				_, err := NewUserServiceServer(api).AssignGlobalOperator(adapterContext(t), tt.req)
+				if status.Code(err) != tt.wantCode {
+					t.Errorf("AssignGlobalOperator() code = %v, want %v (err = %v)",
+						status.Code(err), tt.wantCode, err)
+				}
+			})
+		}
+	})
+}
+
+func TestUserServiceServer_RevokeGlobalOperator(t *testing.T) {
+	t.Run("снимает права глобального оператора", func(t *testing.T) {
+		called := false
+
+		api := &mockUserServiceAPI{
+			revokeGlobalOperatorFunc: func(_ context.Context, _ *service.Principal, id string) error {
+				called = true
+
+				if id != validUUID {
+					t.Errorf("сервис получил id = %q, want %q", id, validUUID)
+				}
+
+				return nil
+			},
+		}
+
+		resp, err := NewUserServiceServer(api).RevokeGlobalOperator(
+			adapterContext(t),
+			&user_v1.UserServiceRevokeGlobalOperatorRequest{Uuid: validUUID},
+		)
+		if err != nil {
+			t.Fatalf("RevokeGlobalOperator() unexpected error = %v", err)
+		}
+		if resp == nil {
+			t.Error("RevokeGlobalOperator() вернул nil-ответ, want google.protobuf.Empty")
+		}
+		if !called {
+			t.Error("RevokeGlobalOperator() не вызвал сервис")
+		}
+	})
+
+	t.Run("коды ошибок", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			req      *user_v1.UserServiceRevokeGlobalOperatorRequest
+			err      error
+			wantCode codes.Code
+		}{
+			{
+				name:     "nil-запрос",
+				req:      nil,
+				wantCode: codes.InvalidArgument,
+			},
+			{
+				name:     "невалидный UUID",
+				req:      &user_v1.UserServiceRevokeGlobalOperatorRequest{Uuid: "not-a-uuid"},
+				wantCode: codes.InvalidArgument,
+			},
+			{
+				name:     "нет прав",
+				req:      &user_v1.UserServiceRevokeGlobalOperatorRequest{Uuid: validUUID},
+				err:      service.ErrForbidden,
+				wantCode: codes.PermissionDenied,
+			},
+			{
+				name:     "пользователь не найден",
+				req:      &user_v1.UserServiceRevokeGlobalOperatorRequest{Uuid: validUUID},
+				err:      database.ErrNotFound,
+				wantCode: codes.NotFound,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				api := &mockUserServiceAPI{
+					revokeGlobalOperatorFunc: func(context.Context, *service.Principal, string) error {
+						return tt.err
+					},
+				}
+
+				_, err := NewUserServiceServer(api).RevokeGlobalOperator(adapterContext(t), tt.req)
+				if status.Code(err) != tt.wantCode {
+					t.Errorf("RevokeGlobalOperator() code = %v, want %v (err = %v)",
+						status.Code(err), tt.wantCode, err)
+				}
+			})
+		}
+	})
+}
+
 func TestToStatusError(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -524,6 +706,16 @@ func TestUserServiceServer_NoPrincipal(t *testing.T) {
 
 			return nil
 		},
+		assignGlobalOperatorFunc: func(context.Context, *service.Principal, string) (*model.User, error) {
+			t.Error("AssignGlobalOperator() дошёл до сервиса без действующего пользователя")
+
+			return nil, nil
+		},
+		revokeGlobalOperatorFunc: func(context.Context, *service.Principal, string) error {
+			t.Error("RevokeGlobalOperator() дошёл до сервиса без действующего пользователя")
+
+			return nil
+		},
 	}
 
 	server := NewUserServiceServer(api)
@@ -546,6 +738,12 @@ func TestUserServiceServer_NoPrincipal(t *testing.T) {
 
 	_, err = server.Delete(ctx, &user_v1.UserServiceDeleteRequest{Uuid: validUUID})
 	calls["Delete"] = err
+
+	_, err = server.AssignGlobalOperator(ctx, &user_v1.UserServiceAssignGlobalOperatorRequest{Uuid: validUUID})
+	calls["AssignGlobalOperator"] = err
+
+	_, err = server.RevokeGlobalOperator(ctx, &user_v1.UserServiceRevokeGlobalOperatorRequest{Uuid: validUUID})
+	calls["RevokeGlobalOperator"] = err
 
 	for method, err := range calls {
 		if status.Code(err) != codes.Unauthenticated {

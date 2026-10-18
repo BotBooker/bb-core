@@ -83,6 +83,10 @@ func TestRun(t *testing.T) {
 
 		user := findSuperuser(t, cfg)
 
+		if !user.IsSuperuser {
+			t.Error("IsSuperuser = false, want true")
+		}
+
 		// Роль — атрибут членства в тенанте: суперпользователь владелец
 		// личного тенанта с ролью admin.
 		member := findMembership(t, cfg, user)
@@ -201,6 +205,10 @@ func TestMain_CreatesSuperuser(t *testing.T) {
 	}
 
 	user := findSuperuser(t, cfg)
+
+	if !user.IsSuperuser {
+		t.Error("IsSuperuser = false, want true")
+	}
 
 	if member := findMembership(t, cfg, user); member.Role != model.RoleAdmin {
 		t.Errorf("Role = %q, want %q", member.Role, model.RoleAdmin)

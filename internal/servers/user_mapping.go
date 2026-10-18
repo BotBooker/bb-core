@@ -19,6 +19,8 @@ var errNilRequest = errors.New("request is nil")
 // UserToProto конвертирует доменную модель пользователя в proto-сообщение User.
 // Служебные поля модели (LastLoginAt, IsActive, IsDelete) в proto v1 не
 // отдаются; роли у профиля нет — она принадлежит членству в тенанте.
+// Глобальные флаги (IsSuperuser, IsGlobalOperator) — наоборот, отдаются: это
+// системный уровень доступа, и клиенту нужно видеть, кто управляет тенантами.
 func UserToProto(user *model.User) *user_v1.User {
 	if user == nil {
 		return nil
@@ -35,6 +37,11 @@ func UserToProto(user *model.User) *user_v1.User {
 		Birthday:    dateToProto(user.BirthDate),
 		CreatedAt:   timestamppb.New(user.CreatedAt.UTC()),
 		UpdatedAt:   timestamppb.New(user.UpdatedAt.UTC()),
+		// Глобальные флаги — часть профиля: по ним клиент и staff видят, кто
+		// управляет всеми тенантами. Менять их через Update нельзя: для выдачи
+		// прав глобального оператора есть отдельные RPC.
+		IsSuperuser:      user.IsSuperuser,
+		IsGlobalOperator: user.IsGlobalOperator,
 	}
 }
 

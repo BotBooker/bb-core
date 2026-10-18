@@ -28,7 +28,7 @@ import (
 var wantUserColumns = []string{
 	"id", "email", "first_name", "last_name", "middle_name",
 	"phone_number", "gender", "birth_date", "created_at", "updated_at",
-	"last_login_at", "is_active", "is_delete",
+	"last_login_at", "is_active", "is_delete", "is_superuser", "is_global_operator",
 }
 
 // fakePool — пул без настоящего database/sql: проверяет отказ миграций
@@ -417,8 +417,19 @@ func TestMigrateSQLite(t *testing.T) {
 		}
 	})
 
-	// Каждый откат снимает ровно одну миграцию — с последней (00007_notifications)
-	// до первой (00001_foundation). Таблица, которую миграция создавала, должна
+	// 00008_global_administrators не создаёт таблицу: откат убирает добавленные
+	// колонки, а не объект схемы.
+	if err := database.MigrateDown(ctx, conn, database.DialectSQLite); err != nil {
+		t.Fatalf("MigrateDown(00008_global_administrators) unexpected error = %v", err)
+	}
+
+	if got := columns(t, ctx, conn, database.DialectSQLite); slices.Contains(got, "is_superuser") ||
+		slices.Contains(got, "is_global_operator") {
+		t.Errorf("колонки users после отката 00008 = %v, want без глобальных флагов", got)
+	}
+
+	// Каждый откат снимает ровно одну миграцию — с 00007_notifications
+	// до 00001_foundation. Таблица, которую миграция создавала, должна
 	// исчезнуть вместе с ней.
 	var count int
 
@@ -689,6 +700,17 @@ func TestMigratePostgres(t *testing.T) {
 
 	if err := insertUser(ctx, conn, database.DialectPostgres, "not-a-uuid", "nikita@example.com"); err == nil {
 		t.Error("insert не-UUID в id: ошибки нет, want нарушение типа uuid")
+	}
+
+	// 00008_global_administrators не создаёт таблицу: откат убирает добавленные
+	// колонки, а не объект схемы.
+	if err := database.MigrateDown(ctx, conn, database.DialectPostgres); err != nil {
+		t.Fatalf("MigrateDown(00008_global_administrators) unexpected error = %v", err)
+	}
+
+	if got := columns(t, ctx, conn, database.DialectPostgres); slices.Contains(got, "is_superuser") ||
+		slices.Contains(got, "is_global_operator") {
+		t.Errorf("колонки users после отката 00008 = %v, want без глобальных флагов", got)
 	}
 
 	// Каждый откат снимает ровно одну миграцию — с 00007_notifications до

@@ -69,6 +69,11 @@ func newSmokeAuthService(t *testing.T) AuthService {
 		t.Fatalf("model.NewUser() unexpected error = %v", err)
 	}
 
+	// Смок-администратор — суперпользователь: он управляет всеми тенантами и
+	// может назначать глобальных операторов. Флаг — системный уровень доступа,
+	// он хранится в профиле, а не в членстве.
+	admin.IsSuperuser = true
+
 	// Роль в профиле не хранится: администратором пользователь становится
 	// через членство в тенанте (tenant_members.role_id), поэтому роль
 	// задаётся в Principal — так же, как это делает service.Authenticate.
@@ -223,11 +228,12 @@ func (a *smokeApp) do(t *testing.T, method, path, body string) (int, []byte) {
 // smokeUser — то, что возвращает HTTP-ручка: имена полей — как их отдаёт
 // protojson (camelCase).
 type smokeUser struct {
-	UUID      string     `json:"uuid"`
-	Email     string     `json:"email"`
-	FirstName string     `json:"firstName"`
-	LastName  string     `json:"lastName"`
-	BirthDate *smokeDate `json:"birthday"`
+	UUID             string     `json:"uuid"`
+	Email            string     `json:"email"`
+	FirstName        string     `json:"firstName"`
+	LastName         string     `json:"lastName"`
+	BirthDate        *smokeDate `json:"birthday"`
+	IsGlobalOperator bool       `json:"isGlobalOperator"`
 }
 
 // smokeDate — google.type.Date в JSON: год, месяц и день без времени.
@@ -416,6 +422,30 @@ func TestSmokeGRPC(t *testing.T) {
 		assertBirthDate(t, user.GetBirthday(), 1990, 5, 17)
 	})
 
+	t.Run("AssignGlobalOperator", func(t *testing.T) {
+		resp, err := client.AssignGlobalOperator(ctx, &user_v1.UserServiceAssignGlobalOperatorRequest{Uuid: uuid})
+		if err != nil {
+			t.Fatalf("AssignGlobalOperator() unexpected error = %v", err)
+		}
+		if !resp.GetUser().GetIsGlobalOperator() {
+			t.Error("is_global_operator = false, want true")
+		}
+	})
+
+	t.Run("RevokeGlobalOperator", func(t *testing.T) {
+		if _, err := client.RevokeGlobalOperator(ctx, &user_v1.UserServiceRevokeGlobalOperatorRequest{Uuid: uuid}); err != nil {
+			t.Fatalf("RevokeGlobalOperator() unexpected error = %v", err)
+		}
+
+		resp, err := client.Get(ctx, &user_v1.UserServiceGetRequest{Uuid: uuid})
+		if err != nil {
+			t.Fatalf("Get() unexpected error = %v", err)
+		}
+		if resp.GetUser().GetIsGlobalOperator() {
+			t.Error("is_global_operator = true после RevokeGlobalOperator, want false")
+		}
+	})
+
 	t.Run("Delete", func(t *testing.T) {
 		if _, err := client.Delete(ctx, &user_v1.UserServiceDeleteRequest{Uuid: uuid}); err != nil {
 			t.Fatalf("Delete() unexpected error = %v", err)
@@ -550,6 +580,32 @@ func TestSmokeHTTP(t *testing.T) {
 		}
 
 		assertSmokeDate(t, user.BirthDate, smokeDate{Year: 1990, Month: 5, Day: 17})
+	})
+
+	t.Run("POST /api/v1/users/{uuid}/global-operator", func(t *testing.T) {
+		statusCode, payload := app.do(t, http.MethodPost, "/api/v1/users/"+uuid+"/global-operator", "")
+		if statusCode != http.StatusOK {
+			t.Fatalf("статус = %d (%s), want %d", statusCode, payload, http.StatusOK)
+		}
+
+		if user := decodeUser(t, payload); !user.IsGlobalOperator {
+			t.Error("isGlobalOperator = false, want true")
+		}
+	})
+
+	t.Run("DELETE /api/v1/users/{uuid}/global-operator", func(t *testing.T) {
+		statusCode, payload := app.do(t, http.MethodDelete, "/api/v1/users/"+uuid+"/global-operator", "")
+		if statusCode != http.StatusOK {
+			t.Fatalf("статус = %d (%s), want %d", statusCode, payload, http.StatusOK)
+		}
+
+		statusCode, payload = app.do(t, http.MethodGet, "/api/v1/users/"+uuid, "")
+		if statusCode != http.StatusOK {
+			t.Fatalf("GET после DELETE = %d (%s), want %d", statusCode, payload, http.StatusOK)
+		}
+		if user := decodeUser(t, payload); user.IsGlobalOperator {
+			t.Error("isGlobalOperator = true после DELETE, want false")
+		}
 	})
 
 	t.Run("DELETE /api/v1/users/{uuid}", func(t *testing.T) {

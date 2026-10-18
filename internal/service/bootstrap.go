@@ -71,8 +71,10 @@ func NewBootstrapService(
 //
 // Наличие проверяется по email: повторный запуск bootstrap — обычная ситуация
 // (например, при раскатке), и он не должен ни падать, ни сбрасывать пароль уже
-// созданного администратора. Гонку двух экземпляров разрешает уникальный индекс
-// email: проигравший вставку считает суперпользователя созданным.
+// созданного администратора. Системный флаг is_superuser при этом гарантируется:
+// профиль, созданный до появления флага, получает права на все тенанты. Гонку
+// двух экземпляров разрешает уникальный индекс email: проигравший вставку
+// считает суперпользователя созданным и тоже выставляет флаг.
 func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInput) (*model.User, bool, error) {
 	if err := validateBootstrapInput(in); err != nil {
 		return nil, false, err
@@ -84,9 +86,10 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 
 	switch {
 	case err == nil:
-		slog.InfoContext(ctx, "superuser already exists", "uuid", existing.ID, "email", existing.Email)
-
-		return existing, false, nil
+		// Пользователь уже есть: повторный bootstrap не сбрасывает пароль, но
+		// гарантирует системный флаг суперпользователя (он мог быть создан до
+		// появления is_superuser).
+		return s.markSuperuser(ctx, existing)
 	case errors.Is(err, database.ErrNotFound):
 		// Пользователя нет — создаём его ниже.
 	default:
@@ -103,6 +106,11 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 	if err != nil {
 		return nil, false, fmt.Errorf("bootstrap superuser: %w", err)
 	}
+
+	// Суперпользователь — системный уровень доступа: он управляет всеми
+	// объектами и тенантами, поэтому флаг ставится вместе с профилем, а не
+	// через членство в тенанте.
+	user.IsSuperuser = true
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		if errors.Is(err, database.ErrDuplicate) {
@@ -143,8 +151,10 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 //
 // Тенант нужен, потому что сессия действует в рамках одного тенанта
 // (user_tokens.tenant_id NOT NULL), а роль — атрибут членства: без членства
-// суперпользователь не смог бы войти, а без роли admin — управлять системой.
-// Владельцем тенанта становится он сам (is_owner = true).
+// суперпользователь не смог бы войти. Права на все тенанты даёт системный флаг
+// is_superuser, а роль admin в личном тенанте делает bootstrap-администратора
+// полноценным администратором и без него. Владельцем тенанта становится он сам
+// (is_owner = true).
 func (s *bootstrapService) createAdminTenant(ctx context.Context, user *model.User, now time.Time) error {
 	tenant, err := model.NewTenant(user.FullName(), personalTenantSlug(user.ID), now)
 	if err != nil {
@@ -179,7 +189,32 @@ func (s *bootstrapService) ensureSuperuserAfterRace(ctx context.Context, email s
 
 	slog.InfoContext(ctx, "superuser created concurrently", "uuid", existing.ID, "email", existing.Email)
 
-	return existing, false, nil
+	return s.markSuperuser(ctx, existing)
+}
+
+// markSuperuser гарантирует системный флаг суперпользователя у найденного
+// профиля.
+//
+// Нужен для идемпотентности: bootstrap мог выполняться до появления колонки
+// is_superuser, а также проиграть гонку другому экземпляру, который успел
+// создать профиль. Пароль и членство при этом не меняются.
+func (s *bootstrapService) markSuperuser(ctx context.Context, user *model.User) (*model.User, bool, error) {
+	if user.IsSuperuser {
+		slog.InfoContext(ctx, "superuser already exists", "uuid", user.ID, "email", user.Email)
+
+		return user, false, nil
+	}
+
+	user.IsSuperuser = true
+	user.UpdatedAt = s.now().UTC()
+
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return nil, false, fmt.Errorf("bootstrap superuser: %w", err)
+	}
+
+	slog.InfoContext(ctx, "superuser promoted", "uuid", user.ID, "email", user.Email)
+
+	return user, false, nil
 }
 
 // rollback убирает пользователя после неудачного создания учётных данных.

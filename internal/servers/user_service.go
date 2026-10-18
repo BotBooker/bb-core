@@ -27,6 +27,8 @@ type UserServiceAPI interface {
 		in model.UpdateUserInput,
 	) (*model.User, error)
 	Delete(ctx context.Context, actor *service.Principal, id string) error
+	AssignGlobalOperator(ctx context.Context, actor *service.Principal, id string) (*model.User, error)
+	RevokeGlobalOperator(ctx context.Context, actor *service.Principal, id string) error
 }
 
 // actor возвращает действующего пользователя из контекста вызова.
@@ -154,6 +156,61 @@ func (s *userServiceServer) Delete(
 	}
 
 	if err := s.users.Delete(ctx, current, req.GetUuid()); err != nil {
+		return nil, toStatusError(ctx, err)
+	}
+
+	return &emptypb.Empty{}, nil
+}
+
+// AssignGlobalOperator назначает пользователя глобальным оператором.
+//
+// Право назначать проверяет сервис: суперпользователь — системная роль, и
+// транспорт не должен дублировать это правило. Глобальный оператор получает
+// права администратора во всех тенантах.
+func (s *userServiceServer) AssignGlobalOperator(
+	ctx context.Context,
+	req *user_v1.UserServiceAssignGlobalOperatorRequest,
+) (*user_v1.UserServiceAssignGlobalOperatorResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, errNilRequest.Error())
+	}
+
+	if err := req.Validate(); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	current, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := s.users.AssignGlobalOperator(ctx, current, req.GetUuid())
+	if err != nil {
+		return nil, toStatusError(ctx, err)
+	}
+
+	return &user_v1.UserServiceAssignGlobalOperatorResponse{User: UserToProto(user)}, nil
+}
+
+// RevokeGlobalOperator снимает права глобального оператора.
+func (s *userServiceServer) RevokeGlobalOperator(
+	ctx context.Context,
+	req *user_v1.UserServiceRevokeGlobalOperatorRequest,
+) (*emptypb.Empty, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, errNilRequest.Error())
+	}
+
+	if err := req.Validate(); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	current, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.users.RevokeGlobalOperator(ctx, current, req.GetUuid()); err != nil {
 		return nil, toStatusError(ctx, err)
 	}
 

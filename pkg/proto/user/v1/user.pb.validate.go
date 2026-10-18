@@ -160,6 +160,10 @@ func (m *User) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for IsSuperuser
+
+	// no validation rules for IsGlobalOperator
+
 	if len(errors) > 0 {
 		return UserMultiError(errors)
 	}
@@ -1364,3 +1368,390 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = UserServiceDeleteRequestValidationError{}
+
+// Validate checks the field values on UserServiceAssignGlobalOperatorRequest
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the first error encountered is returned, or nil if
+// there are no violations.
+func (m *UserServiceAssignGlobalOperatorRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// UserServiceAssignGlobalOperatorRequest with the rules defined in the proto
+// definition for this message. If any rules are violated, the result is a
+// list of violation errors wrapped in
+// UserServiceAssignGlobalOperatorRequestMultiError, or nil if none found.
+func (m *UserServiceAssignGlobalOperatorRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UserServiceAssignGlobalOperatorRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if err := m._validateUuid(m.GetUuid()); err != nil {
+		err = UserServiceAssignGlobalOperatorRequestValidationError{
+			field:  "Uuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return UserServiceAssignGlobalOperatorRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+func (m *UserServiceAssignGlobalOperatorRequest) _validateUuid(uuid string) error {
+	if matched := _user_uuidPattern.MatchString(uuid); !matched {
+		return errors.New("invalid uuid format")
+	}
+
+	return nil
+}
+
+// UserServiceAssignGlobalOperatorRequestMultiError is an error wrapping
+// multiple validation errors returned by
+// UserServiceAssignGlobalOperatorRequest.ValidateAll() if the designated
+// constraints aren't met.
+type UserServiceAssignGlobalOperatorRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UserServiceAssignGlobalOperatorRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UserServiceAssignGlobalOperatorRequestMultiError) AllErrors() []error { return m }
+
+// UserServiceAssignGlobalOperatorRequestValidationError is the validation
+// error returned by UserServiceAssignGlobalOperatorRequest.Validate if the
+// designated constraints aren't met.
+type UserServiceAssignGlobalOperatorRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UserServiceAssignGlobalOperatorRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UserServiceAssignGlobalOperatorRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UserServiceAssignGlobalOperatorRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UserServiceAssignGlobalOperatorRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UserServiceAssignGlobalOperatorRequestValidationError) ErrorName() string {
+	return "UserServiceAssignGlobalOperatorRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UserServiceAssignGlobalOperatorRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUserServiceAssignGlobalOperatorRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UserServiceAssignGlobalOperatorRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UserServiceAssignGlobalOperatorRequestValidationError{}
+
+// Validate checks the field values on UserServiceAssignGlobalOperatorResponse
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the first error encountered is returned, or nil if
+// there are no violations.
+func (m *UserServiceAssignGlobalOperatorResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// UserServiceAssignGlobalOperatorResponse with the rules defined in the proto
+// definition for this message. If any rules are violated, the result is a
+// list of violation errors wrapped in
+// UserServiceAssignGlobalOperatorResponseMultiError, or nil if none found.
+func (m *UserServiceAssignGlobalOperatorResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UserServiceAssignGlobalOperatorResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetUser()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, UserServiceAssignGlobalOperatorResponseValidationError{
+					field:  "User",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, UserServiceAssignGlobalOperatorResponseValidationError{
+					field:  "User",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetUser()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return UserServiceAssignGlobalOperatorResponseValidationError{
+				field:  "User",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return UserServiceAssignGlobalOperatorResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// UserServiceAssignGlobalOperatorResponseMultiError is an error wrapping
+// multiple validation errors returned by
+// UserServiceAssignGlobalOperatorResponse.ValidateAll() if the designated
+// constraints aren't met.
+type UserServiceAssignGlobalOperatorResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UserServiceAssignGlobalOperatorResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UserServiceAssignGlobalOperatorResponseMultiError) AllErrors() []error { return m }
+
+// UserServiceAssignGlobalOperatorResponseValidationError is the validation
+// error returned by UserServiceAssignGlobalOperatorResponse.Validate if the
+// designated constraints aren't met.
+type UserServiceAssignGlobalOperatorResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UserServiceAssignGlobalOperatorResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UserServiceAssignGlobalOperatorResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UserServiceAssignGlobalOperatorResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UserServiceAssignGlobalOperatorResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UserServiceAssignGlobalOperatorResponseValidationError) ErrorName() string {
+	return "UserServiceAssignGlobalOperatorResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UserServiceAssignGlobalOperatorResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUserServiceAssignGlobalOperatorResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UserServiceAssignGlobalOperatorResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UserServiceAssignGlobalOperatorResponseValidationError{}
+
+// Validate checks the field values on UserServiceRevokeGlobalOperatorRequest
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the first error encountered is returned, or nil if
+// there are no violations.
+func (m *UserServiceRevokeGlobalOperatorRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// UserServiceRevokeGlobalOperatorRequest with the rules defined in the proto
+// definition for this message. If any rules are violated, the result is a
+// list of violation errors wrapped in
+// UserServiceRevokeGlobalOperatorRequestMultiError, or nil if none found.
+func (m *UserServiceRevokeGlobalOperatorRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UserServiceRevokeGlobalOperatorRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if err := m._validateUuid(m.GetUuid()); err != nil {
+		err = UserServiceRevokeGlobalOperatorRequestValidationError{
+			field:  "Uuid",
+			reason: "value must be a valid UUID",
+			cause:  err,
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return UserServiceRevokeGlobalOperatorRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+func (m *UserServiceRevokeGlobalOperatorRequest) _validateUuid(uuid string) error {
+	if matched := _user_uuidPattern.MatchString(uuid); !matched {
+		return errors.New("invalid uuid format")
+	}
+
+	return nil
+}
+
+// UserServiceRevokeGlobalOperatorRequestMultiError is an error wrapping
+// multiple validation errors returned by
+// UserServiceRevokeGlobalOperatorRequest.ValidateAll() if the designated
+// constraints aren't met.
+type UserServiceRevokeGlobalOperatorRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UserServiceRevokeGlobalOperatorRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UserServiceRevokeGlobalOperatorRequestMultiError) AllErrors() []error { return m }
+
+// UserServiceRevokeGlobalOperatorRequestValidationError is the validation
+// error returned by UserServiceRevokeGlobalOperatorRequest.Validate if the
+// designated constraints aren't met.
+type UserServiceRevokeGlobalOperatorRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UserServiceRevokeGlobalOperatorRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UserServiceRevokeGlobalOperatorRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UserServiceRevokeGlobalOperatorRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UserServiceRevokeGlobalOperatorRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UserServiceRevokeGlobalOperatorRequestValidationError) ErrorName() string {
+	return "UserServiceRevokeGlobalOperatorRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UserServiceRevokeGlobalOperatorRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUserServiceRevokeGlobalOperatorRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UserServiceRevokeGlobalOperatorRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UserServiceRevokeGlobalOperatorRequestValidationError{}

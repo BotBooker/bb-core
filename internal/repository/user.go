@@ -43,8 +43,11 @@ type UserRepo interface {
 // userColumns — колонки users в том порядке, в котором их читает scanUser.
 // Порядок должен совпадать: рассинхрон ловят тесты репозитория.
 // Колонки роли здесь нет: роль хранится в членстве (tenant_members.role_id).
+// is_superuser/is_global_operator — системный уровень доступа (см. model.User):
+// они принадлежат профилю, а не членству, поэтому читаются вместе с ним.
 const userColumns = "id, email, first_name, last_name, middle_name, phone_number," +
-	" gender, birth_date, created_at, updated_at, last_login_at, is_active, is_delete"
+	" gender, birth_date, created_at, updated_at, last_login_at, is_active, is_delete," +
+	" is_superuser, is_global_operator"
 
 // activeUserFilter — условие «строка живая»: удалённый пользователь
 // (is_active = false, is_delete = true) не виден ни по id, ни по email.
@@ -72,15 +75,17 @@ func NewUserRepo(ctx context.Context, db UserDB, dialect string) UserRepo {
 // Create вставляет активного пользователя.
 //
 // Роль не записывается: её хранит членство в тенанте (tenant_members), а
-// профиль в users колонки с ролью не имеет.
+// профиль в users колонки с ролью не имеет. Системные флаги is_superuser и
+// is_global_operator — часть профиля, поэтому пишутся вместе с ним.
 func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "Create")
 	defer spanEnd()
 
 	const query = `INSERT INTO users` +
 		` (id, email, first_name, last_name, middle_name, phone_number,` +
-		` gender, birth_date, created_at, updated_at, last_login_at, is_active, is_delete)` +
-		` VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		` gender, birth_date, created_at, updated_at, last_login_at, is_active, is_delete,` +
+		` is_superuser, is_global_operator)` +
+		` VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		user.ID,
@@ -96,6 +101,8 @@ func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 		r.nullTimeArg(user.LastLoginAt),
 		user.IsActive,
 		user.IsDelete,
+		user.IsSuperuser,
+		user.IsGlobalOperator,
 	)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", database.MapError(err))
@@ -131,7 +138,8 @@ func (r *userRepo) GetByEmail(ctx context.Context, email string) (*model.User, e
 	return r.getBy(traceCtx, query, email)
 }
 
-// Update перезаписывает изменяемые поля активного пользователя.
+// Update перезаписывает изменяемые поля активного пользователя, включая
+// системные флаги глобального доступа.
 // Отсутствие активной строки — database.ErrNotFound, а не тихий успех:
 // удалённого пользователя менять нельзя.
 func (r *userRepo) Update(ctx context.Context, user *model.User) error {
@@ -139,7 +147,8 @@ func (r *userRepo) Update(ctx context.Context, user *model.User) error {
 	defer spanEnd()
 
 	const query = `UPDATE users SET email = ?, first_name = ?, last_name = ?, middle_name = ?,` +
-		` phone_number = ?, gender = ?, birth_date = ?, updated_at = ?, last_login_at = ?` +
+		` phone_number = ?, gender = ?, birth_date = ?, updated_at = ?, last_login_at = ?,` +
+		` is_superuser = ?, is_global_operator = ?` +
 		` WHERE id = ? AND is_active = true AND is_delete = false`
 
 	result, err := r.db.ExecContext(traceCtx, r.rebind(query),
@@ -152,6 +161,8 @@ func (r *userRepo) Update(ctx context.Context, user *model.User) error {
 		r.dateArg(user.BirthDate),
 		r.timeArg(user.UpdatedAt),
 		r.nullTimeArg(user.LastLoginAt),
+		user.IsSuperuser,
+		user.IsGlobalOperator,
 		user.ID,
 	)
 	if err != nil {
@@ -220,8 +231,9 @@ func scanUser(row *sql.Row) (*model.User, error) {
 		lastLogin            nullTime
 	)
 
-	// is_active и is_delete читаются в bool: PostgreSQL отдаёт BOOLEAN,
-	// SQLite — INTEGER (0/1), и database/sql приводит оба вида через driver.Bool.
+	// Флаги (is_active, is_delete, is_superuser, is_global_operator) читаются в
+	// bool: PostgreSQL отдаёт BOOLEAN, SQLite — INTEGER (0/1), и database/sql
+	// приводит оба вида через driver.Bool.
 	err := row.Scan(
 		&user.ID,
 		&user.Email,
@@ -236,6 +248,8 @@ func scanUser(row *sql.Row) (*model.User, error) {
 		&lastLogin,
 		&user.IsActive,
 		&user.IsDelete,
+		&user.IsSuperuser,
+		&user.IsGlobalOperator,
 	)
 	if err != nil {
 		return nil, err

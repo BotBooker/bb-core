@@ -770,6 +770,29 @@ func TestParseGender(t *testing.T) {
 	}
 }
 
+// TestUser_CanAdminAllTenants проверяет системный уровень доступа профиля:
+// суперпользователь и глобальный оператор управляют всеми тенантами.
+func TestUser_CanAdminAllTenants(t *testing.T) {
+	tests := []struct {
+		name string
+		user *User
+		want bool
+	}{
+		{name: "nil", user: nil},
+		{name: "обычный пользователь", user: &User{}},
+		{name: "суперпользователь", user: &User{IsSuperuser: true}, want: true},
+		{name: "глобальный оператор", user: &User{IsGlobalOperator: true}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.user.CanAdminAllTenants(); got != tt.want {
+				t.Errorf("CanAdminAllTenants() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestGenderValid проверяет разбор и валидацию пола. Роли проверяются в
 // role_test.go: Role больше не атрибут профиля.
 func TestGenderValid(t *testing.T) {
