@@ -18,14 +18,14 @@ RUN go mod download
 
 COPY . .
 
-ARG VERSION=dev
 ARG BUILD_DATE
+ARG VERSION=dev
 
 # Все три команды собираются одним вызовом: имена файлов совпадают с именами
-# пакетов (api, bootstrap, migrate).
+# пакетов (api, bootstrap, healthcheck, migrate).
 RUN CGO_ENABLED=0 go build -mod=readonly -tags netgo -trimpath \
         -ldflags="-s -w -extldflags \"-static\" -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE}" \
-        -o /out/ ./cmd/api ./cmd/bootstrap ./cmd/migrate
+        -o /out/ ./cmd/api ./cmd/bootstrap ./cmd/healthcheck ./cmd/migrate
 
 FROM scratch
 
@@ -35,9 +35,7 @@ WORKDIR /app
 # Корневые сертификаты для исходящего TLS и база часовых поясов.
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=build /out/api /app/api
-COPY --from=build /out/bootstrap /app/bootstrap
-COPY --from=build /out/migrate /app/migrate
+COPY --from=build /out/ /app/
 
 # SQL-миграции читаются с диска (embed отключён): путь по умолчанию —
 # ./migrations относительно /app, поэтому MIGRATIONS_DIR можно не задавать.
@@ -49,4 +47,7 @@ USER 65532:65532
 
 EXPOSE 8080 50051
 
-ENTRYPOINT ["/app/api"]
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD ["/app/healthcheck"]
+
+CMD ["/app/api"]

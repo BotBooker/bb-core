@@ -4,8 +4,9 @@ CURRENT_DATE := $(shell date +%FT%T)
 GO ?= go
 GO_IMPORT_PATH ?= $(shell go list ./...)
 GO_LD_FLAGS := -X "main.version=$(shell git describe --tags 2>/dev/null || echo dev) built at $(CURRENT_DATE) on $(shell hostname) with $(shell go version)"
-GO_TEST_FOLDERS  ?= $(shell go list -f '{{ .Dir }}' ./... | grep -vE 'pkg/proto|pkg/api')
+GO_PKG ?= ./cmd/api ./cmd/bootstrap ./cmd/healthcheck ./cmd/migrate
 GO_TEST_ARGS ?= "-v"
+GO_TEST_FOLDERS  ?= $(shell go list -f '{{ .Dir }}' ./... | grep -vE 'pkg/proto|pkg/api')
 GO_VERSION=$(shell $(GO) version | cut -c 14- | cut -d' ' -f1 | cut -d'.' -f2)
 GOBIN = $(shell go env GOPATH)/bin
 GOFILES := $(shell find . -name "*.go")
@@ -110,12 +111,12 @@ deps: ## Install dependencies
 .PHONY: build
 build: ## Build for DEV
 	@rm -f ./build/api
-	$(GO) build -ldflags='$(GO_LD_FLAGS)' -o ./build/api ./cmd/api
+	$(GO) build -ldflags='$(GO_LD_FLAGS)' -o ./build $(GO_PKG)
 
 .PHONY: build-release
 build-release: ## Build for release
 	@rm -f ./build/api
-	CGO_ENABLED=0 $(GO) build -mod=readonly -tags netgo -trimpath -ldflags='-s -w -extldflags "-static" $(GO_LD_FLAGS)' -o ./build/api ./cmd/api
+	CGO_ENABLED=0 $(GO) build -mod=readonly -tags netgo -trimpath -ldflags='-s -w -extldflags "-static" $(GO_LD_FLAGS)' -o ./build/ $(GO_PKG)
 
 .PHONY: clean
 clean: ## Clean all cache
@@ -137,7 +138,7 @@ endif
 
 DOCKER ?= docker
 DOCKER_IMAGE ?= bb-core
-DOCKER_TAG ?= dev
+DOCKER_TAG ?= $(shell git rev-parse --short HEAD || echo dev)-$(shell go version | cut -d ' ' -f3)
 DOCKERFILE ?= Dockerfile
 DOCKER_PORT_HTTP ?= 8080
 DOCKER_PORT_GRPC ?= 50051
@@ -145,9 +146,10 @@ DOCKER_RUN_ARGS ?=
 
 .PHONY: docker-build
 docker-build: ## Test build of the Docker image (tag: dev)
-	$(DOCKER) build \
-		--build-arg VERSION=$(DOCKER_TAG) \
+	$(DOCKER) image history -q $(DOCKER_IMAGE):$(DOCKER_TAG) >/dev/null 2>&1 \
+	|| $(DOCKER) build \
 		--build-arg BUILD_DATE=$(CURRENT_DATE) \
+		--build-arg VERSION=$(DOCKER_TAG) \
 		--tag $(DOCKER_IMAGE):$(DOCKER_TAG) \
 		--file $(DOCKERFILE) .
 
@@ -249,7 +251,8 @@ kind-deploy: kind-load kind-postgres ## Развернуть bb-core:dev в kind
 		--set image.tag=$(DOCKER_TAG) \
 		--set image.pullPolicy=IfNotPresent \
 		--set existingSecret=$(KIND_SECRET_NAME) \
-		--set config.publicBaseURL=http://localhost:$(KIND_HTTP_PORT)
+		--set config.publicBaseURL=http://localhost:$(KIND_HTTP_PORT) \
+		--set config.logLevel=DEBUG
 	$(KUBECTL) --context $(KIND_CONTEXT) -n $(KIND_NAMESPACE) rollout status deployment/$(KIND_DEPLOYMENT) --timeout=$(KIND_TIMEOUT)
 
 .PHONY: kind-status
