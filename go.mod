@@ -8,7 +8,7 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.3.3
 	github.com/exaring/otelpgx v0.13.0
 	github.com/google/uuid v1.6.0
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.31.0
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pressly/goose/v3 v3.29.0
 	go.opentelemetry.io/contrib/bridges/otelslog v0.21.0
