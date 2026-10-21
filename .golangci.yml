@@ -9,6 +9,7 @@ run:
 linters:
   enable:
     - asciicheck
+    - bidichk
     - bodyclose     # Checks whether HTTP response body is closed successfully
     - copyloopvar   # A linter detects places where loop variables are copied. [fast, auto-fix]
     - dogsled
@@ -21,6 +22,7 @@ linters:
     - govet         # Examines Go source code and reports suspicious constructs
     - ineffassign   # Detects when assignments to existing variables are not used
     - intrange      # Intrange is a linter to find places where for loops could make use of an integer range. [auto-fix]
+    - ineffassign
     - misspell      # Finds commonly misspelled English words in comments
     - nakedret
     - nilerr
@@ -33,6 +35,7 @@ linters:
     - testifylint
     - unused        # Checks Go code for unused constants, variables, functions and types
     - usestdlibvars
+    - unparam
     - wastedassign
     - whitespace    # Tool for detection of leading and trailing whitespace
   settings:

@@ -183,9 +183,10 @@ graph TD;
 
 **Б. Мониторинг и логирование**
 
-* мониторинг: Prometheus + Grafana (метрики CPU/RAM/запросов);
-* логи: ELK Stack (Elasticsearch, Logstash, Kibana);
-* алерты: Telegram‑бот для критических ошибок.
+OpenTelemetry Collector по OTLP/gRPC
+
+* мониторинг: метрики CPU/RAM/запросов;
+* логи: stdout, OpenTelemetry Collector по OTLP/gRPC.
 
 **В. Резервное копирование**
 

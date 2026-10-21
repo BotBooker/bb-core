@@ -30,9 +30,15 @@ vendor/
 go.work
 go.work.sum
 
+.clinerules/
+.python-version
+*.lock
+*.sarif
 bin/
 build/
-*.sarif
-*.lock
+graphify-out/
+temp/
 tmp/
 .clinerules/
+.python-version
+graphify-out/

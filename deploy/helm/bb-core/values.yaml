@@ -55,8 +55,8 @@ resources:
 
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: 65532
-  runAsGroup: 65532
+  runAsUser: 55555
+  runAsGroup: 55555
   # Штатный seccomp-профиль ядра; без него контейнер считается неограниченным.
   seccompProfile:
     type: RuntimeDefault

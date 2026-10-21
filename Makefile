@@ -105,13 +105,14 @@ tools: $(TOOLS_BIN) ## Install Go tools
 
 .PHONY: deps
 deps: ## Install dependencies
+deps: tools
 	$(GO) mod verify
 	$(GO) mod tidy
 
 .PHONY: build
 build: ## Build for DEV
 	@rm -f ./build/api
-	$(GO) build -ldflags='$(GO_LD_FLAGS)' -o ./build $(GO_PKG)
+	CGO_ENABLED=0 $(GO) build -ldflags='$(GO_LD_FLAGS)' -o ./build $(GO_PKG)
 
 .PHONY: build-release
 build-release: ## Build for release

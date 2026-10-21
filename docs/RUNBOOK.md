@@ -62,7 +62,7 @@ Bootstrap выполняется один раз (Job или `kubectl run`, см
 сбрасывается.
 
 Чарт по умолчанию запускает контейнер по модели `restricted`
-(`docs/specification/programming.md`, §7): non-root `65532:65532`, read-only
+(`docs/specification/programming.md`, §7): non-root `55555:55555`, read-only
 корневая ФС, seccomp `RuntimeDefault`, `capabilities.drop: [ALL]`. Меняя
 `podSecurityContext`/`securityContext` в `values.yaml`, сохраняйте эти
 инварианты — иначе CI-сканер `trivy config` вернёт HIGH.
@@ -130,7 +130,6 @@ export DSN='postgres://bbcore:password@postgres:5432/bbcore?sslmode=require'
 - Retention: минимум 30 дней ежедневных копий и 12 месячных, если иное не
   требует политика организации.
 
-
 ## 7. Восстановление
 
 ```sh
@@ -162,8 +161,6 @@ export DSN='postgres://bbcore:password@postgres:5432/bbcore_restore?sslmode=requ
   `Debug`.
 - Логи структурированные, `trace_id` добавляется автоматически. Не логируйте
   токены, пароли и тела запросов с PII.
-- Метрики Prometheus отдаются через OTLP-коллектор (см. конфигурацию
-  observability).
 
 ## 9. Диагностика
 
@@ -184,4 +181,3 @@ SELECT tenant_id, user_id, role_id, is_owner FROM tenant_members WHERE tenant_id
 SELECT id, user_id, tenant_id, revoked_at FROM user_tokens WHERE tenant_id = $1;
 SELECT count(*) FROM rental_objects WHERE tenant_id = $1 AND status_id <> 4;
 ```
-

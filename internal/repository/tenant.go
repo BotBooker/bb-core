@@ -109,7 +109,7 @@ func (r *tenantRepo) Create(ctx context.Context, tenant *model.Tenant) error {
 	const query = `INSERT INTO tenants (id, name, slug, status, metadata, created_at, updated_at)` +
 		` VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		tenant.ID,
 		tenant.Name,
 		tenant.Slug,
@@ -117,8 +117,7 @@ func (r *tenantRepo) Create(ctx context.Context, tenant *model.Tenant) error {
 		r.jsonArg(tenant.Metadata),
 		r.timeArg(tenant.CreatedAt),
 		r.timeArg(tenant.UpdatedAt),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("insert tenant: %w", database.MapError(err))
 	}
 
@@ -327,14 +326,13 @@ func (r *tenantRepo) AddMember(ctx context.Context, member *model.TenantMember) 
 		return fmt.Errorf("insert tenant member: %w", err)
 	}
 
-	_, err = r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err = r.db.ExecContext(traceCtx, r.rebind(query),
 		member.TenantID,
 		member.UserID,
 		roleID,
 		member.IsOwner,
 		r.timeArg(member.JoinedAt),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("insert tenant member: %w", database.MapError(err))
 	}
 
@@ -638,7 +636,7 @@ func scanTenant(row scanner) (*model.Tenant, error) {
 		createdAt, updatedAt nullTime
 	)
 
-	err := row.Scan(
+	if err := row.Scan(
 		&tenant.ID,
 		&tenant.Name,
 		&tenant.Slug,
@@ -646,8 +644,7 @@ func scanTenant(row scanner) (*model.Tenant, error) {
 		&metadata,
 		&createdAt,
 		&updatedAt,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, fmt.Errorf("select tenant: %w", database.MapError(err))
 	}
 

@@ -51,7 +51,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # Версия зафиксирована и совпадает с tools.mk: без неё экшен ставит latest.
-          version: v2.14.0
+          version: v2.15.0
 
       - name: govulncheck
         run: make go-check
@@ -81,7 +81,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu, macos]
-        go: ["1.26.9", "1.27.2"]
+        go: ["1.26.10", "1.27.3"]
         include:
           - os: ubuntu
             go-build: ~/.cache/go-build
@@ -120,7 +120,9 @@ jobs:
             ${{ runner.os }}-gobin-
 
       - name: Download dependencies
-        run: go mod download
+        run: |
+          go mod edit -go=${{ matrix.go }}
+          go mod download
 
       - name: Setup PostgreSQL
         uses: ikalnytskyi/action-setup-postgres@c4dda34aae1c821e3a771b68b73b13af3198a7ee # v8
@@ -137,11 +139,9 @@ jobs:
 
       - name: Run Tests
         env:
-          PG: postgres://postgres:postgres@localhost/postgres?sslmode=disable
+          DSN_TEST: postgres://postgres:postgres@localhost/postgres?sslmode=disable
           REDIS_HOST: redis://default:redis#password@localhost:6379/0
-        run: |
-          go mod edit -go=${{ matrix.go }}
-          GO_TEST_ARGS='-failfast -shuffle=off' make coverage
+        run: GO_TEST_ARGS='-failfast -shuffle=off' make coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

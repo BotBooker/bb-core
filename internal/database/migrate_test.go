@@ -649,9 +649,9 @@ func gooseVersion(name string) (string, error) {
 // Раньше тест дропал users и goose_db_version в current_schema — на DSN без
 // поиска это стирало схему приложения.
 func TestMigratePostgres(t *testing.T) {
-	dsn := os.Getenv("PG")
+	dsn := os.Getenv("DSN_TEST")
 	if dsn == "" {
-		t.Skip("PG не задан: интеграционный тест миграций PostgreSQL пропущен")
+		t.Skip("DSN_TEST не задан: интеграционный тест миграций PostgreSQL пропущен")
 	}
 
 	ctx := context.Background()
