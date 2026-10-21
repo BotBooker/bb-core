@@ -173,7 +173,7 @@ UID/GID в манифесте обязан совпадать с `USER` обра
 
 | Образ | UID:GID | Источник |
 | --- | --- | --- |
-| `bb-core` (scratch) | `65532:65532` | `Dockerfile` (`USER 65532:65532`) |
+| `bb-core` (scratch) | `55555:55555` | `Dockerfile` (`USER 55555:55555`) |
 | `postgres:16-alpine` | `70:70` | пользователь `postgres` в образе |
 
 ### 7.2 Запись при `readOnlyRootFilesystem`

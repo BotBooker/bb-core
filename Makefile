@@ -105,6 +105,7 @@ tools: $(TOOLS_BIN) ## Install Go tools
 
 .PHONY: deps
 deps: ## Install dependencies
+deps: tools
 	$(GO) mod verify
 	$(GO) mod tidy
 
