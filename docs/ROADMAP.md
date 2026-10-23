@@ -262,7 +262,6 @@ Telegram, MAX, Discord, VK, Viber, WhatsApp, Facebook Messenger и Slack
 - [x] OTLP-экспорт трасс, метрик и логов.
 - [x] `trace_id` в логах, access-логи, нормализованные маршруты.
 - [x] Трассы pgx через `otelpgx`.
-- [ ] Экспорт метрик в Prometheus (сейчас только OTLP; отмечено в `programming.md`).
 - [ ] Бизнес-метрики: созданные и отменённые брони, платежи, глубина очереди
   уведомлений.
 - [ ] Исходящие спаны для Redis и S3; входящие события от сервисов-провайдеров
@@ -316,7 +315,7 @@ Telegram, MAX, Discord, VK, Viber, WhatsApp, Facebook Messenger и Slack
 
 - [x] Unit- и smoke-тесты, покрытие не ниже 80 %.
 - [x] `golangci-lint`, `bearer`, `govulncheck`, CodeQL и Trivy.
-- [x] Интеграционные тесты PostgreSQL в CI: CI выставляет `PG`, тесты
+- [x] Интеграционные тесты PostgreSQL в CI: CI выставляет `DSN_TEST`, тесты
   `Test*Postgres` и `TestMigratePostgres` используют его.
 - [ ] E2E-сценарий: ссылка → публичный каталог → регистрация → бронь → оплата →
   уведомление.
@@ -391,8 +390,7 @@ graph LR
   и изоляция, switch и `logout-all`, visibility matrix, проверка БД в `/health`,
   rate limiting аутентификации, синхронизация API-документации.
 - **P1 — основной сценарий:** объекты → брони → уведомления, реальный Redis,
-  Prometheus, Docker/compose, on-premise packaging, интеграционные и нагрузочные
-  тесты.
+  Docker/compose, on-premise packaging, интеграционные и нагрузочные тесты.
 - **P2 — развитие:** платежи, интеграции с мессенджерами, аналитика и экспорт,
   Kubernetes/CD, 2FA.
 

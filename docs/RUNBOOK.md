@@ -161,8 +161,6 @@ export DSN='postgres://bbcore:password@postgres:5432/bbcore_restore?sslmode=requ
   `Debug`.
 - Логи структурированные, `trace_id` добавляется автоматически. Не логируйте
   токены, пароли и тела запросов с PII.
-- Метрики Prometheus отдаются через OTLP-коллектор (см. конфигурацию
-  observability).
 
 ## 9. Диагностика
 

@@ -74,7 +74,7 @@ func (r *credentialRepo) Create(ctx context.Context, credentials *model.Credenti
 	const query = "INSERT INTO user_credentials (" + credentialColumns +
 		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
-	_, err := r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		credentials.ID,
 		credentials.UserID,
 		credentials.Provider,
@@ -87,8 +87,7 @@ func (r *credentialRepo) Create(ctx context.Context, credentials *model.Credenti
 		r.nullTimeArg(credentials.RevokedAt),
 		credentials.IsActive,
 		credentials.IsDelete,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("insert credentials: %w", database.MapError(err))
 	}
 
@@ -210,7 +209,7 @@ func scanCredentials(ctx context.Context, row *sql.Row) (*model.Credentials, err
 		lastLogin, revokedAt nullTime
 	)
 
-	err := row.Scan(
+	if err := row.Scan(
 		&credentials.ID,
 		&credentials.UserID,
 		&credentials.Provider,
@@ -223,8 +222,7 @@ func scanCredentials(ctx context.Context, row *sql.Row) (*model.Credentials, err
 		&revokedAt,
 		&credentials.IsActive,
 		&credentials.IsDelete,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, err
 	}
 

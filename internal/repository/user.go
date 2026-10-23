@@ -105,7 +105,7 @@ func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 		` is_superuser, is_global_operator)` +
 		` VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err := r.db.ExecContext(traceCtx, r.rebind(query),
 		user.ID,
 		user.Email,
 		user.FirstName,
@@ -121,8 +121,7 @@ func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 		user.IsDelete,
 		user.IsSuperuser,
 		user.IsGlobalOperator,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("insert user: %w", database.MapError(err))
 	}
 
@@ -348,7 +347,7 @@ func scanUser(row scanner) (*model.User, error) {
 	// Флаги (is_active, is_delete, is_superuser, is_global_operator) читаются в
 	// bool: PostgreSQL отдаёт BOOLEAN, SQLite — INTEGER (0/1), и database/sql
 	// приводит оба вида через driver.Bool.
-	err := row.Scan(
+	if err := row.Scan(
 		&user.ID,
 		&user.Email,
 		&user.FirstName,
@@ -364,8 +363,7 @@ func scanUser(row scanner) (*model.User, error) {
 		&user.IsDelete,
 		&user.IsSuperuser,
 		&user.IsGlobalOperator,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, err
 	}
 

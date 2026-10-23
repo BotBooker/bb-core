@@ -33,9 +33,9 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 70
-        runAsGroup: 70
-        fsGroup: 70
+        runAsUser: 55555
+        runAsGroup: 55555
+        fsGroup: 55555
         seccompProfile:
           type: RuntimeDefault
       containers:

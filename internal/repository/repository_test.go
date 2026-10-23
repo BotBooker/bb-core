@@ -49,17 +49,17 @@ func newSQLiteTestDB(t *testing.T) database.DB {
 	return conn
 }
 
-// newPostgresTestDB подключается к базе PostgreSQL, заданной переменной PG,
+// newPostgresTestDB подключается к базе PostgreSQL, заданной переменной DSN_TEST,
 // в отдельной схеме: таблицы приложения в public не трогаются.
 //
-// Без PG тест пропускается: интеграционные проверки ходят только в базу,
+// Без DSN_TEST тест пропускается: интеграционные проверки ходят только в базу,
 // которую явно указали для тестов.
 func newPostgresTestDB(t *testing.T) database.DB {
 	t.Helper()
 
-	dsn := os.Getenv("PG")
+	dsn := os.Getenv("DSN_TEST")
 	if dsn == "" {
-		t.Skip("PG не задан: интеграционная проверка репозитория на PostgreSQL пропущена")
+		t.Skip("DSN_TEST не задан: интеграционная проверка репозитория на PostgreSQL пропущена")
 	}
 
 	ctx := context.Background()

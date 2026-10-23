@@ -364,7 +364,7 @@ func (s *tenantService) AddMember(
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "AddTenantMember")
 	defer spanEnd()
 
-	if _, err := s.requireAdminTenant(traceCtx, actor, tenantID); err != nil {
+	if err := s.requireAdminTenant(traceCtx, actor, tenantID); err != nil {
 		return nil, fmt.Errorf("add tenant member: %w", err)
 	}
 
@@ -406,7 +406,7 @@ func (s *tenantService) RemoveMember(
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "RemoveTenantMember")
 	defer spanEnd()
 
-	if _, err := s.requireAdminTenant(traceCtx, actor, tenantID); err != nil {
+	if err := s.requireAdminTenant(traceCtx, actor, tenantID); err != nil {
 		return fmt.Errorf("remove tenant member: %w", err)
 	}
 
@@ -442,7 +442,7 @@ func (s *tenantService) ChangeMemberRole(
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "ChangeTenantMemberRole")
 	defer spanEnd()
 
-	if _, err := s.requireAdminTenant(traceCtx, actor, tenantID); err != nil {
+	if err := s.requireAdminTenant(traceCtx, actor, tenantID); err != nil {
 		return nil, fmt.Errorf("change tenant member role: %w", err)
 	}
 
@@ -557,25 +557,25 @@ func (s *tenantService) requireAdminTenant(
 	ctx context.Context,
 	actor *Principal,
 	tenantID string,
-) (*model.Tenant, error) {
+) error {
 	if actor == nil || actor.User == nil {
-		return nil, ErrUnauthorized
+		return ErrUnauthorized
 	}
 
 	if !actor.CanAdminTenant(tenantID) {
-		return nil, ErrForbidden
+		return ErrForbidden
 	}
 
 	tenant, err := s.tenants.GetByID(ctx, tenantID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if tenant.Deleted() {
-		return nil, database.ErrNotFound
+		return database.ErrNotFound
 	}
 
-	return tenant, nil
+	return nil
 }
 
 // revokeTenantSessions отзывает все сессии тенанта; ошибка не отменяет

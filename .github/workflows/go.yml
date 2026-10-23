@@ -139,7 +139,7 @@ jobs:
 
       - name: Run Tests
         env:
-          PG: postgres://postgres:postgres@localhost/postgres?sslmode=disable
+          DSN_TEST: postgres://postgres:postgres@localhost/postgres?sslmode=disable
           REDIS_HOST: redis://default:redis#password@localhost:6379/0
         run: GO_TEST_ARGS='-failfast -shuffle=off' make coverage
 

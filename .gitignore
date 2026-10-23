@@ -39,3 +39,6 @@ build/
 graphify-out/
 temp/
 tmp/
+.clinerules/
+.python-version
+graphify-out/

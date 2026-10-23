@@ -83,7 +83,7 @@ func (r *tokenRepo) Create(ctx context.Context, token *model.Token) error {
 		return fmt.Errorf("insert token: %w", err)
 	}
 
-	_, err = r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err = r.db.ExecContext(traceCtx, r.rebind(query),
 		token.ID,
 		token.UserID,
 		token.TenantID,
@@ -92,8 +92,7 @@ func (r *tokenRepo) Create(ctx context.Context, token *model.Token) error {
 		r.timeArg(token.ExpiresAt),
 		r.nullTimeArg(token.RevokedAt),
 		r.nullTimeArg(token.LastUsedAt),
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("insert token: %w", database.MapError(err))
 	}
 

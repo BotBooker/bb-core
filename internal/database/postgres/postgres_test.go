@@ -400,11 +400,11 @@ func TestFacadeCloseClosesPool(t *testing.T) {
 }
 
 // TestIntegration проверяет работу с настоящим PostgreSQL.
-// Тест включается переменной окружения PG (её задаёт CI), локально пропускается.
+// Тест включается переменной окружения DSN_TEST (её задаёт CI), локально пропускается.
 func TestIntegration(t *testing.T) {
-	dsn := os.Getenv("PG")
+	dsn := os.Getenv("DSN_TEST")
 	if dsn == "" {
-		t.Skip("PG is not set: PostgreSQL integration test skipped")
+		t.Skip("DSN_TEST is not set: PostgreSQL integration test skipped")
 	}
 
 	ctx := context.Background()
