@@ -79,6 +79,7 @@ lint: ## Inspect source code for stylistic errors or potential bugs
 lint: tools
 	@golangci-lint run --fix
 	@bearer s .
+	@trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/
 
 .PHONY: go-check
 go-check: ## To check for dependency vulnerabilities in Go

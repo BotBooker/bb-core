@@ -62,7 +62,7 @@ Bootstrap выполняется один раз (Job или `kubectl run`, см
 сбрасывается.
 
 Чарт по умолчанию запускает контейнер по модели `restricted`
-(`docs/specification/programming.md`, §7): non-root `55555:55555`, read-only
+(`docs/specification/programming.md`, §14): non-root `55555:55555`, read-only
 корневая ФС, seccomp `RuntimeDefault`, `capabilities.drop: [ALL]`. Меняя
 `podSecurityContext`/`securityContext` в `values.yaml`, сохраняйте эти
 инварианты — иначе CI-сканер `trivy config` вернёт HIGH.
