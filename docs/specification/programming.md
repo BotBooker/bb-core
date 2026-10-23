@@ -69,24 +69,19 @@ Go с применением Domain-Driven Design для стека **PostgreSQL
       errors.go           // доменные ошибки
       events.go           // доменные события
   infrastructure/         // Core business logic
-    persistence/
-      tenant_repository.go
-      unit_of_work.go
-    external/
-      payment/
   servers/
 /proto/
   auth/
   user/
   tenant/
   public/
-migrations/ Database migrations (PostgreSQL & SQLite)
-/pkg/
-  logger/  // для инициализации и настройки логирования
-  tools/   // Shared utility tools
+migrations/ // Database migrations (PostgreSQL & SQLite)
+/pkg/       // публичные переиспользуемые пакеты
+  logger/   // для инициализации и настройки логирования
+  tools/    // Shared utility tools
 ```
 
-Пакеты MUST группироваться по бизнес-возможностям (order, customer), а не по техническим типам (controllers, models).
+Пакеты MUST группироваться по бизнес-возможности (order, customer), а не по техническим типам (controllers, models). Пример, domain/tenant/controllers.go, domain/tenant/models.go
 
 ## 2. Домен
 

@@ -6,7 +6,7 @@
 # Helm-чарт PostgreSQL или внешнюю БД.
 #
 # Контейнер запускается по модели Pod Security Standards «restricted»
-# (docs/specification/programming.md, §7): non-root, read-only корневая ФС,
+# (docs/specification/programming.md, §14): non-root, read-only корневая ФС,
 # seccomp RuntimeDefault, без capabilities. UID/GID 70 — пользователь postgres
 # в образе postgres:16-alpine; задаём их числом, чтобы не зависеть от
 # /etc/passwd и gosu в entrypoint. Всё, что PostgreSQL пишет в рантайме,
