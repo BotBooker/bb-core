@@ -139,9 +139,11 @@ func (p *Principal) CanUpdate(target *model.User) bool {
 	return p.IsAdmin() || p.ID() == target.ID
 }
 
-// CanDelete сообщает, что пользователь может удалять пользователей: удаление
-// доступно только администратору. Профиль удаляемого для этой проверки не нужен.
-func (p *Principal) CanDelete() bool { return p.IsAdmin() }
+// CanDelete сообщает, что пользователь может удалять аккаунты: таблица users
+// общая для всех тенантов, поэтому операция доступна только глобальным
+// администраторам (см. UserService.Delete). Исключение из тенанта —
+// TenantService.RemoveMember.
+func (p *Principal) CanDelete() bool { return p.CanAdminAllTenants() }
 
 // contextKey — собственный тип ключа контекста: с ним значение не сможет
 // перезаписать чужой пакет (ключи разных типов не совпадают).

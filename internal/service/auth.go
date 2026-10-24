@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 )
 
@@ -40,65 +40,6 @@ var (
 // нему всегда даёт ErrPasswordMismatch.
 // #nosec G101
 const _dummyPasswordHash = "argon2id$v=19$m=19456,t=2,p=1$vnTtR/4LeIqz3A2E/cJJPQ$PK+j63/BT4gsmwv+pe819IAXaPFuDho4W/TS0xbdYrg"
-
-// AuthUserRepository — интерфейс репозитория пользователей для AuthService.
-type AuthUserRepository interface {
-	Create(ctx context.Context, user *model.User) error
-	GetByID(ctx context.Context, id string) (*model.User, error)
-	GetByEmail(ctx context.Context, email string) (*model.User, error)
-	Update(ctx context.Context, user *model.User) error
-	Delete(ctx context.Context, id string) error
-}
-
-// AuthCredentialRepository — интерфейс учётных данных (user_credentials).
-type AuthCredentialRepository interface {
-	Create(ctx context.Context, credentials *model.Credentials) error
-	GetByUserID(ctx context.Context, userID string) (*model.Credentials, error)
-	// Update перезаписывает изменяемые поля учётных данных (хеш пароля и срок
-	// его действия — смена пароля и «прозрачное» обновление устаревшего хеша).
-	Update(ctx context.Context, credentials *model.Credentials) error
-	// TouchLastLogin отмечает вход по учётным данным (аудит).
-	TouchLastLogin(ctx context.Context, id string, at time.Time) error
-}
-
-// AuthTenantRepository — интерфейс репозитория тенантов и членства.
-//
-// Нужен сервису авторизации, потому что роль — атрибут членства в тенанте
-// (tenant_members.role_id), а сессия действует в рамках одного тенанта:
-// без членства выдать токен с ролью нельзя.
-type AuthTenantRepository interface {
-	// Create создаёт тенант.
-	Create(ctx context.Context, tenant *model.Tenant) error
-	// CreateWithOwner создаёт тенант и членство владельца одной транзакцией.
-	CreateWithOwner(ctx context.Context, tenant *model.Tenant, member *model.TenantMember) error
-	// GetByID возвращает тенант по идентификатору или database.ErrNotFound.
-	GetByID(ctx context.Context, id string) (*model.Tenant, error)
-	// GetBySlug возвращает тенант по slug или database.ErrNotFound.
-	GetBySlug(ctx context.Context, slug string) (*model.Tenant, error)
-	// AddMember добавляет пользователя в тенант.
-	AddMember(ctx context.Context, member *model.TenantMember) error
-	// GetMember возвращает членство в тенанте или database.ErrNotFound.
-	GetMember(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
-	// GetMemberBySlug возвращает членство в действующем тенанте по slug или
-	// database.ErrNotFound.
-	GetMemberBySlug(ctx context.Context, slug, userID string) (*model.TenantMembership, error)
-	// MemberOfUser возвращает членство в действующем тенанте или
-	// database.ErrNotFound — это тенант по умолчанию для новой сессии.
-	MemberOfUser(ctx context.Context, userID string) (*model.TenantMember, error)
-	// ListMemberships возвращает действующие членства пользователя.
-	ListMemberships(ctx context.Context, userID string) ([]*model.TenantMembership, error)
-}
-
-// AuthTokenRepository — интерфейс репозитория сессий.
-type AuthTokenRepository interface {
-	Create(ctx context.Context, token *model.Token) error
-	GetByID(ctx context.Context, id string) (*model.Token, error)
-	TouchLastUsed(ctx context.Context, id string, at time.Time) error
-	Revoke(ctx context.Context, id string, at time.Time) error
-	// RevokeByUser отзывает все сессии пользователя: logout-all.
-	RevokeByUser(ctx context.Context, userID string, at time.Time) (int64, error)
-	DeleteExpired(ctx context.Context, id string, before time.Time) (int64, error)
-}
 
 // AuthTokenCodec подписывает и проверяет токены. Реализация — internal/jwt:
 // сервису не важно, как устроен формат, ему нужны подпись и разбор.
@@ -175,12 +116,17 @@ type AuthService interface {
 
 // authService — конкретная реализация, скрыта от внешних пакетов.
 type authService struct {
-	userRepo       AuthUserRepository
-	credentialRepo AuthCredentialRepository
-	tokenRepo      AuthTokenRepository
-	tenantRepo     AuthTenantRepository
+	userRepo       domain.UserRepository
+	credentialRepo domain.CredentialRepository
+	tokenRepo      domain.TokenRepository
+	tenantRepo     domain.TenantRepository
 	codec          AuthTokenCodec
 	events         AuthEventPublisher
+	// hasher — порт хеширования паролей: открытый пароль в домен не попадает.
+	hasher domain.PasswordHasher
+	// uow — транзакционная граница регистрации и смены пароля: пользователь,
+	// учётные данные, членство и сессия создаются целиком или не создаются.
+	uow domain.UnitOfWork
 	// ttl — срок жизни выдаваемых токенов.
 	ttl time.Duration
 	// passwordTTL — срок жизни пароля: по его истечении вход превращается в
@@ -198,14 +144,20 @@ type authService struct {
 // passwordTTL — срок жизни пароля (config.Auth().PasswordTTL): он записывается
 // в expires_at учётных данных, поэтому после его истечения вход превращается в
 // принудительную смену пароля.
+//
+// hasher и uow — порты домена: реализация хеширования (pkg/password) и
+// транзакционная граница (адаптер над менеджером транзакций) подставляются в
+// DI, поэтому сервис не зависит от инфраструктуры.
 func NewAuthService(
 	ctx context.Context,
-	userRepo AuthUserRepository,
-	credentialRepo AuthCredentialRepository,
-	tokenRepo AuthTokenRepository,
-	tenantRepo AuthTenantRepository,
+	userRepo domain.UserRepository,
+	credentialRepo domain.CredentialRepository,
+	tokenRepo domain.TokenRepository,
+	tenantRepo domain.TenantRepository,
 	codec AuthTokenCodec,
 	events AuthEventPublisher,
+	hasher domain.PasswordHasher,
+	uow domain.UnitOfWork,
 	ttl time.Duration,
 	passwordTTL time.Duration,
 ) AuthService {
@@ -218,6 +170,8 @@ func NewAuthService(
 		tenantRepo:     tenantRepo,
 		codec:          codec,
 		events:         events,
+		hasher:         hasher,
+		uow:            uow,
 		ttl:            ttl,
 		passwordTTL:    passwordTTL,
 		now:            time.Now,
@@ -226,10 +180,10 @@ func NewAuthService(
 
 // Register создаёт пользователя с паролем и выдаёт ему токен.
 //
-// Порядок операций: пользователь → пароль → членство в тенанте → токен.
-// Между операциями нет общей транзакции (репозитории работают каждый со своим
-// подключением), поэтому неудачное сохранение пароля откатывается вручную:
-// иначе остался бы пользователь, занявший email, войти в которого невозможно.
+// Весь сценарий выполняется в одной транзакции (domain.UnitOfWork): профиль,
+// учётные данные, членство в тенанте и сессия создаются целиком или не
+// создаются вовсе. Раньше шаги компенсировались вручную, и сбой на последнем
+// оставлял занятый email, пароль без сессии и «висячий» личный тенант.
 //
 // Самостоятельная регистрация даёт личный тенант: сессия действует в рамках
 // одного тенанта (user_tokens.tenant_id), а роль — атрибут членства
@@ -240,7 +194,8 @@ func (s *authService) Register(ctx context.Context, in model.RegisterInput) (*mo
 	now := s.now()
 
 	// Вход проверяется целиком до первой записи: из-за невалидного пароля
-	// пользователь создаваться не должен — иначе его пришлось бы удалять.
+	// пользователь создаваться не должен — иначе транзакцию пришлось бы
+	// откатывать из-за ошибки валидации.
 	if err := in.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("register user: %w", err)
 	}
@@ -250,29 +205,43 @@ func (s *authService) Register(ctx context.Context, in model.RegisterInput) (*mo
 		return nil, nil, fmt.Errorf("register user: %w", err)
 	}
 
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return nil, nil, fmt.Errorf("register user: %w", err)
-	}
-
-	credentials, err := model.NewCredentials(user.ID, user.Email, in.Password, s.passwordTTL, now)
-	if err == nil {
-		err = s.credentialRepo.Create(ctx, credentials)
-	}
-
+	// Хеш считается до транзакции: Argon2id занимает ~20 мс и не должен
+	// удерживать соединение с БД и блокировки строк.
+	hash, err := s.hasher.Hash(in.Password)
 	if err != nil {
-		s.removeUser(ctx, user.ID)
-
 		return nil, nil, fmt.Errorf("register user: %w", err)
 	}
 
-	tenant, member, err := s.registrationTenant(ctx, user, in.TenantSlug, now)
+	credentials, err := model.NewCredentials(user.ID, user.Email, hash, s.passwordTTL, now)
 	if err != nil {
-		s.removeUser(ctx, user.ID)
-
 		return nil, nil, fmt.Errorf("register user: %w", err)
 	}
 
-	session, err := s.issue(ctx, user, tenant, member, now)
+	var (
+		tenant  *model.Tenant
+		session *Session
+	)
+
+	err = s.uow.Do(ctx, func(txCtx context.Context) error {
+		if createErr := s.userRepo.Create(txCtx, user); createErr != nil {
+			return createErr
+		}
+
+		if createErr := s.credentialRepo.Create(txCtx, credentials); createErr != nil {
+			return createErr
+		}
+
+		resolvedTenant, member, tenantErr := s.registrationTenant(txCtx, user, in.TenantSlug, now)
+		if tenantErr != nil {
+			return tenantErr
+		}
+
+		tenant = resolvedTenant
+
+		session, err = s.issue(txCtx, user, tenant, member, now)
+
+		return err
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("register user: %w", err)
 	}
@@ -292,8 +261,8 @@ func (s *authService) Login(ctx context.Context, email, password, tenantSlug str
 	now := s.now()
 
 	user, err := s.userRepo.GetByEmail(ctx, model.NormalizeEmail(email))
-	if errors.Is(err, database.ErrNotFound) {
-		_ = model.VerifyPassword(password, _dummyPasswordHash)
+	if errors.Is(err, domain.ErrNotFound) {
+		_ = s.hasher.Verify(password, _dummyPasswordHash)
 
 		return nil, ErrInvalidCredentials
 	}
@@ -303,10 +272,10 @@ func (s *authService) Login(ctx context.Context, email, password, tenantSlug str
 	}
 
 	credentials, err := s.credentialRepo.GetByUserID(ctx, user.ID)
-	if errors.Is(err, database.ErrNotFound) {
+	if errors.Is(err, domain.ErrNotFound) {
 		// Пользователь есть, пароля нет: например, профиль завёл сотрудник.
 		// Для клиента это тот же отказ, что и неверный пароль.
-		_ = model.VerifyPassword(password, _dummyPasswordHash)
+		_ = s.hasher.Verify(password, _dummyPasswordHash)
 
 		return nil, ErrInvalidCredentials
 	}
@@ -315,7 +284,7 @@ func (s *authService) Login(ctx context.Context, email, password, tenantSlug str
 		return nil, fmt.Errorf("login: %w", err)
 	}
 
-	if err := credentials.Verify(password); err != nil {
+	if err := s.hasher.Verify(password, credentials.Hash); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
 	}
 
@@ -357,8 +326,13 @@ func (s *authService) Login(ctx context.Context, email, password, tenantSlug str
 //
 // Личность подтверждается текущим паролем: у пользователя с просроченным
 // паролем токена нет, поэтому предъявить он может только сам пароль. После
-// успешной смены срок действия пароля начинается заново (UpdatedAt), а
-// пользователь сразу получает токен и может работать.
+// успешной смены срок действия пароля начинается заново, все ранее выданные
+// сессии отзываются (иначе украденный токен продолжал бы работать до 30 дней),
+// а пользователь сразу получает новую сессию.
+//
+// Обновление учётных данных, отзыв сессий и выдача новой выполняются в одной
+// транзакции: частичный результат оставил бы пользователя либо без пароля, либо
+// со старыми сессиями.
 func (s *authService) ChangePassword(
 	ctx context.Context,
 	email, currentPassword, newPassword, tenantSlug string,
@@ -366,8 +340,8 @@ func (s *authService) ChangePassword(
 	now := s.now()
 
 	user, err := s.userRepo.GetByEmail(ctx, model.NormalizeEmail(email))
-	if errors.Is(err, database.ErrNotFound) {
-		_ = model.VerifyPassword(currentPassword, _dummyPasswordHash)
+	if errors.Is(err, domain.ErrNotFound) {
+		_ = s.hasher.Verify(currentPassword, _dummyPasswordHash)
 
 		return nil, ErrInvalidCredentials
 	}
@@ -377,9 +351,9 @@ func (s *authService) ChangePassword(
 	}
 
 	credentials, err := s.credentialRepo.GetByUserID(ctx, user.ID)
-	if errors.Is(err, database.ErrNotFound) {
+	if errors.Is(err, domain.ErrNotFound) {
 		// Пользователь есть, пароля нет: подтвердить личность нечем.
-		_ = model.VerifyPassword(currentPassword, _dummyPasswordHash)
+		_ = s.hasher.Verify(currentPassword, _dummyPasswordHash)
 
 		return nil, ErrInvalidCredentials
 	}
@@ -388,32 +362,54 @@ func (s *authService) ChangePassword(
 		return nil, fmt.Errorf("change password: %w", err)
 	}
 
-	if err := credentials.Verify(currentPassword); err != nil {
+	if err := s.hasher.Verify(currentPassword, credentials.Hash); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
 	}
 
 	// Новый пароль проходит те же требования, что и при регистрации; проверка
 	// идёт до записи, чтобы неверный пароль не оставил пользователя без входа.
 	// Смена пароля перезаписывает срок его действия (expires_at).
-	if err := credentials.SetPassword(newPassword, s.passwordTTL, now); err != nil {
+	if err := model.ValidatePassword(newPassword); err != nil {
 		return nil, fmt.Errorf("change password: %w", err)
 	}
 
-	if err := s.credentialRepo.Update(ctx, credentials); err != nil {
-		return nil, fmt.Errorf("change password: %w", err)
-	}
-
-	// Вход после смены: срок действия пароля сброшен, а новая сессия выдаётся
-	// сразу — иначе пользователю пришлось бы входить повторно.
-	tenant, member, err := s.sessionTenant(ctx, user, tenantSlug, now)
+	hash, err := s.hasher.Hash(newPassword)
 	if err != nil {
 		return nil, fmt.Errorf("change password: %w", err)
 	}
 
-	s.touchLastLogin(ctx, user, now)
-	s.removeExpiredTokens(ctx, user.ID, now)
+	if err := credentials.SetPasswordHash(hash, s.passwordTTL, now); err != nil {
+		return nil, fmt.Errorf("change password: %w", err)
+	}
 
-	session, err := s.issue(ctx, user, tenant, member, now)
+	var session *Session
+
+	err = s.uow.Do(ctx, func(txCtx context.Context) error {
+		if updateErr := s.credentialRepo.Update(txCtx, credentials); updateErr != nil {
+			return updateErr
+		}
+
+		// Отзыв всех сессий — часть смены пароля, а не отдельное действие:
+		// иначе атакующий с украденным токеном сохранил бы доступ.
+		if _, revokeErr := s.tokenRepo.RevokeByUser(txCtx, user.ID, now); revokeErr != nil {
+			return fmt.Errorf("revoke sessions: %w", revokeErr)
+		}
+
+		// Вход после смены: срок действия пароля сброшен, а новая сессия
+		// выдаётся сразу — иначе пользователю пришлось бы входить повторно.
+		tenant, member, tenantErr := s.sessionTenant(txCtx, user, tenantSlug, now)
+		if tenantErr != nil {
+			return tenantErr
+		}
+
+		s.touchLastLogin(txCtx, user, now)
+		s.removeExpiredTokens(txCtx, user.ID, now)
+
+		issued, issueErr := s.issue(txCtx, user, tenant, member, now)
+		session = issued
+
+		return issueErr
+	})
 	if err != nil {
 		return nil, fmt.Errorf("change password: %w", err)
 	}
@@ -541,7 +537,7 @@ func (s *authService) Authenticate(ctx context.Context, accessToken string) (*Pr
 	}
 
 	session, err := s.tokenRepo.GetByID(ctx, parsed.ID)
-	if errors.Is(err, database.ErrNotFound) {
+	if errors.Is(err, domain.ErrNotFound) {
 		// Подпись верна, а записи нет: сессию удалили (например, чистка
 		// просроченных) или токен выдан другим секретом.
 		return nil, fmt.Errorf("%w: session %s is not found", ErrUnauthorized, parsed.ID)
@@ -567,7 +563,7 @@ func (s *authService) Authenticate(ctx context.Context, accessToken string) (*Pr
 	if err != nil || !tenant.Active() {
 		s.revokeSessionOnDenied(ctx, session, "tenant is not active")
 
-		if errors.Is(err, database.ErrNotFound) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil, fmt.Errorf("%w: tenant %s is not found", ErrUnauthorized, session.TenantID)
 		}
 
@@ -579,7 +575,7 @@ func (s *authService) Authenticate(ctx context.Context, accessToken string) (*Pr
 	}
 
 	user, err := s.userRepo.GetByID(ctx, session.UserID)
-	if errors.Is(err, database.ErrNotFound) {
+	if errors.Is(err, domain.ErrNotFound) {
 		return nil, fmt.Errorf("%w: user %s is not found", ErrUnauthorized, session.UserID)
 	}
 
@@ -623,7 +619,7 @@ func (s *authService) sessionRole(
 	switch {
 	case err == nil:
 		return member.Role, nil
-	case errors.Is(err, database.ErrNotFound):
+	case errors.Is(err, domain.ErrNotFound):
 		s.revokeSessionOnDenied(ctx, session, "tenant membership is not found")
 
 		return "", fmt.Errorf("%w: membership in tenant %s is not found", ErrUnauthorized, session.TenantID)
@@ -689,7 +685,7 @@ func (s *authService) sessionTenant(
 		}
 
 		return tenant, member, nil
-	case errors.Is(err, database.ErrNotFound):
+	case errors.Is(err, domain.ErrNotFound):
 		return s.createPersonalTenant(ctx, user, now)
 	default:
 		return nil, nil, fmt.Errorf("resolve tenant membership: %w", err)
@@ -705,7 +701,7 @@ func (s *authService) membershipBySlug(
 	slug, userID string,
 ) (*model.Tenant, *model.TenantMember, error) {
 	membership, err := s.tenantRepo.GetMemberBySlug(ctx, slug, userID)
-	if errors.Is(err, database.ErrNotFound) {
+	if errors.Is(err, domain.ErrNotFound) {
 		return nil, nil, fmt.Errorf("%w: tenant %q is not available for the user", ErrForbidden, model.NormalizeSlug(slug))
 	}
 
@@ -733,7 +729,7 @@ func (s *authService) registrationTenant(
 	}
 
 	tenant, err := s.tenantRepo.GetBySlug(ctx, tenantSlug)
-	if errors.Is(err, database.ErrNotFound) {
+	if errors.Is(err, domain.ErrNotFound) {
 		return nil, nil, fmt.Errorf("%w: tenant %q is not found", ErrForbidden, model.NormalizeSlug(tenantSlug))
 	}
 
@@ -802,27 +798,24 @@ func personalTenantSlug(userID string) string {
 	return "tenant-" + userID
 }
 
-// removeUser убирает пользователя после неудачной регистрации.
-//
-// Ошибку логируем: она означает, что аккаунт остался без пароля, и это нужно
-// увидеть, а не потерять.
-func (s *authService) removeUser(ctx context.Context, id string) {
-	if err := s.userRepo.Delete(ctx, id); err != nil {
-		slog.ErrorContext(ctx, "failed to roll back registration", "uuid", id, "err", err)
-	}
-}
-
 // upgradeHash пересчитывает устаревший хеш пароля и сохраняет его.
 //
 // Это не смена пароля: время последнего изменения (UpdatedAt) не трогается,
 // поэтому срок действия пароля не сбрасывается. Ошибку логируем — она не
 // должна мешать входу, ведь пароль уже проверен.
 func (s *authService) upgradeHash(ctx context.Context, credentials *model.Credentials, password string) {
-	if !credentials.NeedsRehash() {
+	if !s.hasher.NeedsRehash(credentials.Hash) {
 		return
 	}
 
-	if err := credentials.Rehash(password); err != nil {
+	hash, err := s.hasher.Hash(password)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to rehash password", "uuid", credentials.UserID, "err", err)
+
+		return
+	}
+
+	if err := credentials.SetHash(hash); err != nil {
 		slog.WarnContext(ctx, "failed to rehash password", "uuid", credentials.UserID, "err", err)
 
 		return

@@ -12,19 +12,31 @@ const testCredentialEmail = "ivan@example.com"
 // testCredentialUserID — владелец учётных данных в тестах.
 const testCredentialUserID = "3f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f"
 
-// TestCredentials_Expiry проверяет срок жизни пароля: он записывается в
-// учётные данные (expires_at) при создании и сбрасывается при смене пароля,
-// ноль отключает проверку, а пересчёт хеша (Rehash) срок не меняет.
-func TestCredentials_Expiry(t *testing.T) {
-	const password = "correct horse battery staple"
+// testPasswordHash — строка хеша в формате pkg/password. Модель хранит хеш как
+// есть: разбирает и проверяет его порт domain.PasswordHasher, поэтому для
+// тестов достаточно корректной на вид строки.
+const testPasswordHash = "argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA"
 
-	now := time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC)
-	ttl := 90 * 24 * time.Hour
+// newTestCredentials создаёт учётные данные для тестов.
+func newTestCredentials(t *testing.T, ttl time.Duration, now time.Time) *Credentials {
+	t.Helper()
 
-	credentials, err := NewCredentials(testCredentialUserID, testCredentialEmail, password, ttl, now)
+	credentials, err := NewCredentials(testCredentialUserID, testCredentialEmail, testPasswordHash, ttl, now)
 	if err != nil {
 		t.Fatalf("NewCredentials() unexpected error = %v", err)
 	}
+
+	return credentials
+}
+
+// TestCredentials_Expiry проверяет срок жизни пароля: он записывается в
+// учётные данные (expires_at) при создании и перезапускается при смене пароля,
+// ноль отключает проверку, а замена хеша (SetHash) срок не меняет.
+func TestCredentials_Expiry(t *testing.T) {
+	now := time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC)
+	ttl := 90 * 24 * time.Hour
+
+	credentials := newTestCredentials(t, ttl, now)
 
 	t.Run("ExpiresAt считается от времени создания", func(t *testing.T) {
 		if got, want := credentials.ExpiresAt, now.Add(ttl); !got.Equal(want) {
@@ -41,6 +53,9 @@ func TestCredentials_Expiry(t *testing.T) {
 		}
 		if err := ValidateUUID(credentials.ID); err != nil {
 			t.Errorf("ID = %q: %v", credentials.ID, err)
+		}
+		if credentials.Hash != testPasswordHash {
+			t.Errorf("Hash = %q, want %q", credentials.Hash, testPasswordHash)
 		}
 		if !credentials.IsActive || credentials.IsDelete {
 			t.Errorf("IsActive/IsDelete = %t/%t, want true/false", credentials.IsActive, credentials.IsDelete)
@@ -62,24 +77,15 @@ func TestCredentials_Expiry(t *testing.T) {
 	t.Run("нулевой и отрицательный срок отключают проверку", func(t *testing.T) {
 		far := now.Add(100 * 365 * 24 * time.Hour)
 
-		endless, err := NewCredentials(testCredentialUserID, testCredentialEmail, password, 0, now)
-		if err != nil {
-			t.Fatalf("NewCredentials() unexpected error = %v", err)
-		}
-
+		endless := newTestCredentials(t, 0, now)
 		if !endless.ExpiresAt.IsZero() {
 			t.Errorf("ExpiresAt = %v при ttl = 0, want нулевой момент", endless.ExpiresAt)
 		}
-
 		if endless.Expired(far) {
 			t.Error("Expired() = true при ttl = 0, want false")
 		}
 
-		negative, err := NewCredentials(testCredentialUserID, testCredentialEmail, password, -time.Hour, now)
-		if err != nil {
-			t.Fatalf("NewCredentials() unexpected error = %v", err)
-		}
-
+		negative := newTestCredentials(t, -time.Hour, now)
 		if negative.Expired(far) {
 			t.Error("Expired() = true при отрицательном ttl, want false")
 		}
@@ -88,113 +94,136 @@ func TestCredentials_Expiry(t *testing.T) {
 	t.Run("смена пароля сбрасывает срок", func(t *testing.T) {
 		later := now.Add(30 * 24 * time.Hour)
 
-		if err := credentials.SetPassword("new correct horse", ttl, later); err != nil {
-			t.Fatalf("SetPassword() unexpected error = %v", err)
+		if err := credentials.SetPasswordHash(testPasswordHash+"new", ttl, later); err != nil {
+			t.Fatalf("SetPasswordHash() unexpected error = %v", err)
 		}
 
 		if want := later.Add(ttl); !credentials.ExpiresAt.Equal(want) {
 			t.Errorf("ExpiresAt = %v, want %v", credentials.ExpiresAt, want)
 		}
-
 		if credentials.Expired(later.Add(ttl - time.Second)) {
-			t.Error("после смены пароля Expired() = true, want false")
+			t.Error("после смены пароля Expired() = true до истечения, want false")
+		}
+		if !credentials.Expired(later.Add(ttl)) {
+			t.Error("после смены пароля Expired() = false в момент истечения, want true")
+		}
+	})
+
+	t.Run("смена пароля снимает отзыв", func(t *testing.T) {
+		revoked := newTestCredentials(t, ttl, now)
+		revokedAt := now.Add(time.Hour)
+		revoked.RevokedAt = &revokedAt
+
+		if !revoked.Revoked() {
+			t.Fatal("Revoked() = false, want true")
+		}
+
+		if err := revoked.SetPasswordHash(testPasswordHash+"revoked", ttl, now); err != nil {
+			t.Fatalf("SetPasswordHash() unexpected error = %v", err)
+		}
+
+		if revoked.Revoked() {
+			t.Error("после смены пароля Revoked() = true, want false")
 		}
 	})
 }
 
-// TestCredentials_Password проверяет работу с хешем пароля: пересчёт устаревшего
-// хеша, проверку пароля и отказы конструктора.
-func TestCredentials_Password(t *testing.T) {
-	const password = "correct horse battery staple"
-
+// TestCredentials_SetHash проверяет замену хеша без смены пароля: срок действия
+// не сбрасывается, пустой хеш отвергается.
+func TestCredentials_SetHash(t *testing.T) {
 	now := time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC)
 	ttl := 90 * 24 * time.Hour
 
-	credentials, err := NewCredentials(testCredentialUserID, testCredentialEmail, password, ttl, now)
-	if err != nil {
-		t.Fatalf("NewCredentials() unexpected error = %v", err)
+	credentials := newTestCredentials(t, ttl, now)
+	expiresAt := credentials.ExpiresAt
+
+	t.Run("новый хеш сохраняется, срок не меняется", func(t *testing.T) {
+		updated := testPasswordHash + "upgraded"
+
+		if err := credentials.SetHash(updated); err != nil {
+			t.Fatalf("SetHash() unexpected error = %v", err)
+		}
+
+		if credentials.Hash != updated {
+			t.Errorf("Hash = %q, want %q", credentials.Hash, updated)
+		}
+		if !credentials.ExpiresAt.Equal(expiresAt) {
+			t.Errorf("SetHash() ExpiresAt = %v, want %v", credentials.ExpiresAt, expiresAt)
+		}
+	})
+
+	t.Run("пустой хеш отвергается", func(t *testing.T) {
+		if err := credentials.SetHash(" "); !errors.Is(err, ErrInvalidCredential) {
+			t.Errorf("SetHash() error = %v, want %v", err, ErrInvalidCredential)
+		}
+	})
+
+	t.Run("смена пароля отвергает пустой хеш", func(t *testing.T) {
+		if err := credentials.SetPasswordHash("", ttl, now); !errors.Is(err, ErrInvalidCredential) {
+			t.Errorf("SetPasswordHash() error = %v, want %v", err, ErrInvalidCredential)
+		}
+	})
+}
+
+// TestCredentials_TouchLastLogin проверяет отметку входа: время сохраняется в
+// UTC, чтобы аудит не зависел от часового пояса процесса.
+func TestCredentials_TouchLastLogin(t *testing.T) {
+	credentials := newTestCredentials(t, 0, time.Now())
+	loginAt := time.Date(2026, time.October, 12, 10, 0, 0, 0, time.FixedZone("MSK", 3*60*60))
+
+	credentials.TouchLastLogin(loginAt)
+
+	if credentials.LastLoginAt == nil {
+		t.Fatal("LastLoginAt = nil, want время входа")
+	}
+	if want := loginAt.UTC(); !credentials.LastLoginAt.Equal(want) {
+		t.Errorf("LastLoginAt = %v, want %v", credentials.LastLoginAt, want)
+	}
+}
+
+// TestNewCredentials_Rejects проверяет отказы конструктора: без валидного
+// владельца, email и хеша учётные данные не создаются.
+func TestNewCredentials_Rejects(t *testing.T) {
+	now := time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name   string
+		userID string
+		email  string
+		hash   string
+		want   error
+	}{
+		{
+			name:   "id не UUID",
+			userID: "not-a-uuid",
+			email:  testCredentialEmail,
+			hash:   testPasswordHash,
+			want:   ErrInvalidUUID,
+		},
+		{
+			name:   "email невалиден",
+			userID: testCredentialUserID,
+			email:  "not-an-email",
+			hash:   testPasswordHash,
+			want:   ErrInvalidEmail,
+		},
+		{
+			name:   "пустой хеш",
+			userID: testCredentialUserID,
+			email:  testCredentialEmail,
+			hash:   " ",
+			want:   ErrInvalidCredential,
+		},
 	}
 
-	t.Run("NeedsRehash на свежем Argon2id = false", func(t *testing.T) {
-		if credentials.NeedsRehash() {
-			t.Error("NeedsRehash() = true для свежего Argon2id-хеша, want false")
-		}
-	})
-
-	t.Run("NeedsRehash на прежнем формате = true", func(t *testing.T) {
-		legacy := Credentials{
-			ID:          "4f0c8f0e-9f60-4e0e-9d5f-1f6f1f6f1f6f",
-			UserID:      testCredentialUserID,
-			Provider:    CredentialProviderEmail,
-			ProviderKey: testCredentialEmail,
-			Hash:        "pbkdf2_sha256$210000$dQIjm0wTireOlDo8WomRug$+qvx5cWbyYARbq061iEy9aedaWfstobFn25SQIDvZbc",
-			CreatedAt:   now,
-			ExpiresAt:   now.Add(ttl),
-			IsActive:    true,
-		}
-
-		if !legacy.NeedsRehash() {
-			t.Error("NeedsRehash() = false для PBKDF2-хеша, want true")
-		}
-
-		if err := legacy.Validate(); err != nil {
-			t.Errorf("Validate() unexpected error = %v", err)
-		}
-	})
-
-	t.Run("Rehash меняет хеш и не сбрасывает срок", func(t *testing.T) {
-		before, expiresAt := credentials.Hash, credentials.ExpiresAt
-
-		if err := credentials.Rehash("new correct horse"); err != nil {
-			t.Fatalf("Rehash() unexpected error = %v", err)
-		}
-
-		if credentials.Hash == before {
-			t.Error("Rehash() не изменил хеш")
-		}
-
-		if !credentials.ExpiresAt.Equal(expiresAt) {
-			t.Errorf("Rehash() ExpiresAt = %v, want %v", credentials.ExpiresAt, expiresAt)
-		}
-
-		if err := credentials.Verify("new correct horse"); err != nil {
-			t.Errorf("Verify() после Rehash() unexpected error = %v", err)
-		}
-	})
-
-	t.Run("Verify отвергает неверный пароль", func(t *testing.T) {
-		if err := credentials.Verify("another correct horse"); !errors.Is(err, ErrPasswordMismatch) {
-			t.Errorf("Verify() error = %v, want %v", err, ErrPasswordMismatch)
-		}
-	})
-
-	t.Run("TouchLastLogin отмечает вход в UTC", func(t *testing.T) {
-		credentials.TouchLastLogin(now)
-
-		if credentials.LastLoginAt == nil || !credentials.LastLoginAt.Equal(now) {
-			t.Errorf("LastLoginAt = %v, want %v", credentials.LastLoginAt, now)
-		}
-	})
-
-	t.Run("Rehash отвергает слабый пароль", func(t *testing.T) {
-		if err := credentials.Rehash("short"); !errors.Is(err, ErrInvalidPassword) {
-			t.Errorf("Rehash() error = %v, want %v", err, ErrInvalidPassword)
-		}
-	})
-
-	t.Run("отказы создания", func(t *testing.T) {
-		if _, err := NewCredentials("not-a-uuid", testCredentialEmail, password, ttl, now); !errors.Is(err, ErrInvalidUUID) {
-			t.Errorf("NewCredentials() error = %v, want %v", err, ErrInvalidUUID)
-		}
-
-		if _, err := NewCredentials(testCredentialUserID, "not-an-email", password, ttl, now); !errors.Is(err, ErrInvalidEmail) {
-			t.Errorf("NewCredentials() error = %v, want %v", err, ErrInvalidEmail)
-		}
-
-		if _, err := NewCredentials(testCredentialUserID, testCredentialEmail, "short", ttl, now); !errors.Is(err, ErrInvalidPassword) {
-			t.Errorf("NewCredentials() error = %v, want %v", err, ErrInvalidPassword)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewCredentials(tt.userID, tt.email, tt.hash, 0, now)
+			if !errors.Is(err, tt.want) {
+				t.Errorf("NewCredentials() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
 }
 
 // TestCredentials_Validate проверяет инварианты хранимой записи учётных данных.
@@ -204,7 +233,7 @@ func TestCredentials_Validate(t *testing.T) {
 		UserID:      testCredentialUserID,
 		Provider:    CredentialProviderEmail,
 		ProviderKey: testCredentialEmail,
-		Hash:        "argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA",
+		Hash:        testPasswordHash,
 		CreatedAt:   time.Date(2026, time.October, 12, 10, 0, 0, 0, time.UTC),
 		IsActive:    true,
 	}

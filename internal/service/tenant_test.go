@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 )
 
@@ -79,6 +80,32 @@ func (m *mockTenantRepository) UpdateStatus(
 	}
 
 	return nil
+}
+
+// Create, GetBySlug, ListActive, GetMemberBySlug и MemberOfUser дорисовывают
+// порт domain.TenantRepository: управление тенантами их не вызывает (тенант
+// создаётся вместе с владельцем), но интерфейс один на всех потребителей.
+func (m *mockTenantRepository) Create(context.Context, *model.Tenant) error {
+	return nil
+}
+
+func (m *mockTenantRepository) GetBySlug(context.Context, string) (*model.Tenant, error) {
+	return nil, database.ErrNotFound
+}
+
+func (m *mockTenantRepository) ListActive(context.Context, int, int) ([]*model.Tenant, error) {
+	return nil, nil
+}
+
+func (m *mockTenantRepository) GetMemberBySlug(
+	context.Context,
+	string, string,
+) (*model.TenantMembership, error) {
+	return nil, database.ErrNotFound
+}
+
+func (m *mockTenantRepository) MemberOfUser(context.Context, string) (*model.TenantMember, error) {
+	return nil, database.ErrNotFound
 }
 
 func (m *mockTenantRepository) AddMember(ctx context.Context, member *model.TenantMember) error {
@@ -199,12 +226,38 @@ func (m *mockTenantSessionRepository) RevokeByUserTenant(
 	return 0, nil
 }
 
+// Остальные методы порта domain.TokenRepository сценариям управления тенантами
+// не нужны: сервис только отзывает сессии.
+func (m *mockTenantSessionRepository) Create(context.Context, *model.Token) error {
+	return nil
+}
+
+func (m *mockTenantSessionRepository) GetByID(context.Context, string) (*model.Token, error) {
+	return nil, database.ErrNotFound
+}
+
+func (m *mockTenantSessionRepository) TouchLastUsed(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (m *mockTenantSessionRepository) Revoke(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (m *mockTenantSessionRepository) RevokeByUser(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockTenantSessionRepository) DeleteExpired(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
 // newTestTenantService создаёт сервис с моками и фиксированным временем.
 func newTestTenantService(
 	t *testing.T,
-	tenants TenantRepository,
-	users TenantUserRepository,
-	tokens TenantSessionRepository,
+	tenants domain.TenantRepository,
+	users domain.UserRepository,
+	tokens domain.TokenRepository,
 ) (*tenantService, *mockUserEventPublisher) {
 	t.Helper()
 

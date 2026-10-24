@@ -45,13 +45,33 @@ func (a *ServerAPI) initGRPCServer(ctx context.Context) error {
 
 	a.grpcListener = listener
 	a.grpcServer = newGRPCServer(
+		traceCtx,
 		a.diContainer.UserServiceServer(traceCtx),
 		a.diContainer.TenantServiceServer(traceCtx),
 		a.diContainer.PublicCatalogServiceServer(traceCtx),
 		a.diContainer.AuthService(traceCtx),
+		a.diContainer.DB(),
 	)
 
 	return nil
+}
+
+// grpcHealthInterval — как часто health-сервис gRPC сверяет состояние с БД.
+// Пробы kubelet опрашивают HTTP /ready чаще; здесь важно, чтобы
+// долгоживущие gRPC-клиенты и балансировщики видели NOT_SERVING при падении
+// базы.
+const grpcHealthInterval = 10 * time.Second
+
+// grpcHealthServices — имена health-сервисов: пустое (весь сервер) и каждый
+// зарегистрированный proto-сервис.
+func grpcHealthServices() []string {
+	return []string{
+		"",
+		user_v1.UserService_ServiceDesc.ServiceName,
+		auth_v1.AuthService_ServiceDesc.ServiceName,
+		tenant_v1.TenantService_ServiceDesc.ServiceName,
+		public_v1.PublicCatalogService_ServiceDesc.ServiceName,
+	}
 }
 
 // newGRPCServer создаёт gRPC-сервер со всеми сервисами приложения.
@@ -63,15 +83,20 @@ func (a *ServerAPI) initGRPCServer(ctx context.Context) error {
 // authService нужен интерцептору: он проверяет токен вызова до обработчика,
 // поэтому ни одна ручка сервиса пользователей не остаётся открытой.
 //
+// readiness — проверка БД для health-сервиса: состояние SERVING/NOT_SERVING
+// обновляется в фоне (см. watchHealth), а не выставляется один раз на старте.
+//
 // Интерцепторы объединяются в цепочку, а не устанавливаются по одному: порядок
 // значим. Access-лог (см. NewLogInterceptor) стоит первым — снаружи проверки
 // токена, поэтому в лог попадают и вызовы, отклонённые без токена. Метрики
 // (см. NewMetricsInterceptor) идут следом и тоже охватывают аутентификацию.
 func newGRPCServer(
+	ctx context.Context,
 	userServiceServer user_v1.UserServiceServer,
 	tenantServiceServer tenant_v1.TenantServiceServer,
 	publicCatalogServiceServer public_v1.PublicCatalogServiceServer,
 	authService AuthService,
+	readiness readinessChecker,
 ) *grpc.Server {
 	server := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(NewLogInterceptor(), NewMetricsInterceptor(), NewAuthInterceptor(authService)),
@@ -81,36 +106,62 @@ func newGRPCServer(
 	tenant_v1.RegisterTenantServiceServer(server, tenantServiceServer)
 	public_v1.RegisterPublicCatalogServiceServer(server, publicCatalogServiceServer)
 	auth_v1.RegisterAuthServiceServer(server, NewAuthServiceServer(authService))
-	registerHealth(server)
+	go watchHealth(ctx, registerHealth(server), readiness)
 	reflection.Register(server)
 
 	return server
 }
 
-// registerHealth регистрирует стандартный health-сервис: и сам сервер,
-// и каждый зарегистрированный сервис отвечают SERVING.
-func registerHealth(server grpc.ServiceRegistrar) {
+// registerHealth регистрирует стандартный health-сервис и возвращает его:
+// состояние обновляет watchHealth по результату проверки БД.
+func registerHealth(server grpc.ServiceRegistrar) *health.Server {
 	healthServer := health.NewServer()
 
-	healthServer.SetServingStatus("", health_v1.HealthCheckResponse_SERVING)
-	healthServer.SetServingStatus(
-		user_v1.UserService_ServiceDesc.ServiceName,
-		health_v1.HealthCheckResponse_SERVING,
-	)
-	healthServer.SetServingStatus(
-		auth_v1.AuthService_ServiceDesc.ServiceName,
-		health_v1.HealthCheckResponse_SERVING,
-	)
-	healthServer.SetServingStatus(
-		tenant_v1.TenantService_ServiceDesc.ServiceName,
-		health_v1.HealthCheckResponse_SERVING,
-	)
-	healthServer.SetServingStatus(
-		public_v1.PublicCatalogService_ServiceDesc.ServiceName,
-		health_v1.HealthCheckResponse_SERVING,
-	)
+	for _, name := range grpcHealthServices() {
+		healthServer.SetServingStatus(name, health_v1.HealthCheckResponse_SERVING)
+	}
 
 	health_v1.RegisterHealthServer(server, healthServer)
+
+	return healthServer
+}
+
+// watchHealth держит состояние health-сервиса в соответствии с доступностью БД:
+// пока ping проходит — SERVING, иначе NOT_SERVING.
+//
+// Без этого health всегда отвечал SERVING, и балансировщик отправлял трафик в
+// под, все запросы которого к данным падали. Первая проверка выполняется сразу,
+// дальше — раз в grpcHealthInterval; при остановке сервера горутина выходит по
+// ctx.Done().
+func watchHealth(ctx context.Context, healthServer *health.Server, readiness readinessChecker) {
+	update := func() {
+		pingCtx, cancel := context.WithTimeout(ctx, readinessTimeout)
+		defer cancel()
+
+		status := health_v1.HealthCheckResponse_SERVING
+		if err := readiness.PingContext(pingCtx); err != nil {
+			status = health_v1.HealthCheckResponse_NOT_SERVING
+			slog.WarnContext(ctx, "grpc health check failed", "err", err)
+		}
+
+		for _, name := range grpcHealthServices() {
+			healthServer.SetServingStatus(name, status)
+		}
+	}
+
+	update()
+
+	ticker := time.NewTicker(grpcHealthInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			update()
+		}
+	}
 }
 
 // stopGRPC останавливает gRPC-сервер.

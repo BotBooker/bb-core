@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // testNow — фиксированное «сейчас»: тесты валидации даты рождения
@@ -83,12 +81,19 @@ func TestNewUser(t *testing.T) {
 			t.Fatalf("NewUser() unexpected error = %v", err)
 		}
 
-		parsed, err := uuid.Parse(user.ID)
-		if err != nil {
-			t.Fatalf("uuid.Parse(%q) unexpected error = %v", user.ID, err)
+		if err := ValidateUUID(user.ID); err != nil {
+			t.Fatalf("ValidateUUID(%q) unexpected error = %v", user.ID, err)
 		}
-		if parsed.Version() != 4 {
-			t.Errorf("версия uuid = %d, want 4", parsed.Version())
+
+		// Версия — первый символ третьей группы, вариант — первый символ
+		// четвёртой (RFC 4122). Разбор через стороннюю библиотеку в тестах
+		// домена не нужен: домену разрешён только stdlib (spec §1.1).
+		if user.ID[14] != '4' {
+			t.Errorf("версия UUID = %q, want 4", user.ID[14])
+		}
+
+		if !strings.ContainsRune("89ab", rune(user.ID[19])) {
+			t.Errorf("вариант UUID = %q, want 8/9/a/b", user.ID[19])
 		}
 	})
 

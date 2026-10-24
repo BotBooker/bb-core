@@ -8,39 +8,24 @@ import (
 	"time"
 
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // CredentialDB — интерфейс базы данных, который нужен CredentialRepo.
+//
+// Набор методов совпадает с dbConn: внутри UnitOfWork запрос уходит в
+// транзакцию из контекста.
 type CredentialDB interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// CredentialRepo — интерфейс репозитория учётных данных (user_credentials).
-//
-// Отдельная таблица, как в ERDB (раздел 2.4) и маппинге
-// (docs/specification/user_schema_mapping.md): профиль читается почти каждым
-// запросом, а хеш пароля нужен только при входе и смене пароля. У профиля
-// может быть несколько записей — по одной на провайдера авторизации.
-type CredentialRepo interface {
-	// Create сохраняет учётные данные; конфликт уникальности — database.ErrDuplicate.
-	Create(ctx context.Context, credentials *model.Credentials) error
-	// GetByUserID возвращает действующие учётные данные пользователя для
-	// локальной авторизации (провайдер email) или database.ErrNotFound.
-	GetByUserID(ctx context.Context, userID string) (*model.Credentials, error)
-	// GetByProvider находит учётные данные по паре «провайдер + ключ
-	// провайдера» — так ищется запись при входе (индекс idx_credentials_lookup);
-	// отсутствие записи — database.ErrNotFound.
-	GetByProvider(ctx context.Context, provider, providerKey string) (*model.Credentials, error)
-	// Update перезаписывает изменяемые поля учётных данных (хеш пароля, срок
-	// действия, отзыв, признаки); отсутствие записи — database.ErrNotFound.
-	Update(ctx context.Context, credentials *model.Credentials) error
-	// TouchLastLogin отмечает вход по учётным данным (аудит последней
-	// активности провайдера).
-	TouchLastLogin(ctx context.Context, id string, at time.Time) error
-}
+// CredentialRepo — алиас доменного порта CredentialRepository: репозиторий реализует
+// контракт учётных данных, объявленный в internal/domain.
+type CredentialRepo = domain.CredentialRepository
 
 // credentialColumns — колонки user_credentials в порядке чтения
 // scanCredentials. Порядок должен совпадать: рассинхрон ловят тесты.
@@ -74,7 +59,7 @@ func (r *credentialRepo) Create(ctx context.Context, credentials *model.Credenti
 	const query = "INSERT INTO user_credentials (" + credentialColumns +
 		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
-	if _, err := r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query),
 		credentials.ID,
 		credentials.UserID,
 		credentials.Provider,
@@ -107,7 +92,7 @@ func (r *credentialRepo) Update(ctx context.Context, credentials *model.Credenti
 		" expires_at = ?, last_login_at = ?, revoked_at = ?, is_active = ?, is_delete = ?" +
 		" WHERE id = ?"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query),
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query),
 		credentials.Hash,
 		r.jsonArg(credentials.Meta),
 		r.timeArg(credentials.ExpiresAt),
@@ -172,7 +157,7 @@ func (r *credentialRepo) TouchLastLogin(ctx context.Context, id string, at time.
 
 	const query = "UPDATE user_credentials SET last_login_at = ? WHERE id = ?"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
 	if err != nil {
 		return fmt.Errorf("touch credentials: %w", database.MapError(err))
 	}
@@ -180,12 +165,31 @@ func (r *credentialRepo) TouchLastLogin(ctx context.Context, id string, at time.
 	return requireAffected(result, "touch credentials")
 }
 
+// DeactivateByUser мягко удаляет все учётные данные пользователя.
+//
+// Вызывается при удалении аккаунта: пароль не должен оставаться действующим.
+// Операция идемпотентна — у профиля, созданного сотрудником, учётных данных
+// может не быть вовсе, и это не ошибка.
+func (r *credentialRepo) DeactivateByUser(ctx context.Context, userID string, at time.Time) error {
+	traceCtx, spanEnd := observability.TraceSpan(ctx, "DeactivateByUser")
+	defer spanEnd()
+
+	const query = "UPDATE user_credentials SET revoked_at = ?, is_active = false, is_delete = true" +
+		" WHERE user_id = ? AND is_active = true AND is_delete = false"
+
+	if _, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), r.timeArg(at), userID); err != nil {
+		return fmt.Errorf("deactivate credentials: %w", database.MapError(err))
+	}
+
+	return nil
+}
+
 // getBy выполняет SELECT одной строки и читает её в модель.
 func (r *credentialRepo) getBy(ctx context.Context, query string, args ...any) (*model.Credentials, error) {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "getBy")
 	defer spanEnd()
 
-	credentials, err := scanCredentials(traceCtx, r.db.QueryRowContext(traceCtx, r.rebind(query), args...))
+	credentials, err := scanCredentials(traceCtx, conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query), args...))
 	if err != nil {
 		return nil, fmt.Errorf("select credentials: %w", database.MapError(err))
 	}

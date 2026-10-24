@@ -48,7 +48,9 @@ func TestPrincipal_ID(t *testing.T) {
 
 // TestPrincipal_Roles проверяет разбор роли тенанта: администратор управляет
 // тенантом, сотрудник (оператор, менеджер, администратор) работает с профилями,
-// клиент видит только себя.
+// клиент видит только себя. Удаление аккаунта роли не даёт: таблица users общая
+// для всех тенантов, поэтому CanDelete() есть только у глобальных
+// администраторов (см. TestPrincipal_GlobalAdministrators).
 func TestPrincipal_Roles(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -56,9 +58,8 @@ func TestPrincipal_Roles(t *testing.T) {
 		admin     bool
 		staff     bool
 		canCreate bool
-		canDelete bool
 	}{
-		{name: "администратор", role: model.RoleAdmin, admin: true, staff: true, canCreate: true, canDelete: true},
+		{name: "администратор", role: model.RoleAdmin, admin: true, staff: true, canCreate: true},
 		{name: "оператор", role: model.RoleOperator, staff: true, canCreate: true},
 		{name: "менеджер", role: model.RoleManager, staff: true, canCreate: true},
 		{name: "клиент", role: model.RoleClient},
@@ -78,8 +79,8 @@ func TestPrincipal_Roles(t *testing.T) {
 			if got := principal.CanCreate(); got != tt.canCreate {
 				t.Errorf("CanCreate() = %v, want %v", got, tt.canCreate)
 			}
-			if got := principal.CanDelete(); got != tt.canDelete {
-				t.Errorf("CanDelete() = %v, want %v", got, tt.canDelete)
+			if principal.CanDelete() {
+				t.Error("CanDelete() = true для роли тенанта, want false")
 			}
 		})
 	}
@@ -150,6 +151,11 @@ func TestPrincipal_GlobalAdministrators(t *testing.T) {
 			}
 			if got := principal.IsStaff(); got != tt.wantStaff {
 				t.Errorf("IsStaff() = %v, want %v", got, tt.wantStaff)
+			}
+			// Удалять аккаунты может только глобальный администратор:
+			// таблица users общая для всех тенантов.
+			if got, want := principal.CanDelete(), tt.superuser || tt.globalOp; got != want {
+				t.Errorf("CanDelete() = %v, want %v", got, want)
 			}
 		})
 	}

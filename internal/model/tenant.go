@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/google/uuid"
 )
 
 // Ограничения полей тенанта: совпадают с proto-валидацией (tenant.v1).
@@ -84,7 +82,7 @@ func NewTenant(name, slug string, now time.Time) (*Tenant, error) {
 	ts := now.UTC()
 
 	tenant := &Tenant{
-		ID:        uuid.NewString(),
+		ID:        NewID(),
 		Name:      strings.TrimSpace(name),
 		Slug:      NormalizeSlug(slug),
 		Status:    TenantStatusActive,

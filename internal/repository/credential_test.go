@@ -10,15 +10,19 @@ import (
 	"github.com/botbooker/bb-core/internal/model"
 )
 
+// testCredentialHash — сохранённый хеш пароля в формате pkg/password.
+// Репозиторий хеш не считает и не разбирает: он лишь хранит строку, поэтому
+// тестам достаточно фиксированного значения (хеширование проверяет
+// pkg/password).
+const testCredentialHash = "argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA"
+
 // testCredentials собирает учётные данные пользователя.
 //
-// Пароль хешируется моделью (Argon2id, десятки миллисекунд на вызов), поэтому
-// тесты вызывают этот помощник экономно: один хеш на сценарий, а не на каждую
-// проверку. Срок действия задаётся явно: он попадает в expires_at.
+// Срок действия задаётся явно: он попадает в expires_at.
 func testCredentials(t *testing.T, userID, email string) *model.Credentials {
 	t.Helper()
 
-	credentials, err := model.NewCredentials(userID, email, "correct horse battery staple",
+	credentials, err := model.NewCredentials(userID, email, testCredentialHash,
 		90*24*time.Hour, time.Now().UTC().Truncate(time.Microsecond))
 	if err != nil {
 		t.Fatalf("model.NewCredentials() unexpected error = %v", err)
@@ -151,8 +155,8 @@ func runCredentialRepoScenario(t *testing.T, conn database.DB, dialect string) {
 		updated := *credentials
 
 		changedAt := credentials.CreatedAt.Add(time.Hour)
-		if err := updated.SetPassword("another correct horse", 30*24*time.Hour, changedAt); err != nil {
-			t.Fatalf("SetPassword() unexpected error = %v", err)
+		if err := updated.SetPasswordHash(testCredentialHash+"-updated", 30*24*time.Hour, changedAt); err != nil {
+			t.Fatalf("SetPasswordHash() unexpected error = %v", err)
 		}
 
 		if err := credentialRepo.Update(ctx, &updated); err != nil {

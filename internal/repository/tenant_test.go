@@ -266,14 +266,28 @@ func TestTenantRepo_MemberOfUser(t *testing.T) {
 	})
 }
 
-// TestTenantRepo_Management проверяет tenant-scoped операции управления:
-// владелец, участники, роли, передача владения и статус.
-func TestTenantRepo_Management(t *testing.T) {
-	ctx := context.Background()
-	conn := newSQLiteTestDB(t)
+// TestTenantRepoManagementSQLite проверяет tenant-scoped операции управления на
+// SQLite: владелец, участники, роли, передача владения и статус.
+func TestTenantRepoManagementSQLite(t *testing.T) {
+	runTenantManagementScenario(t, newSQLiteTestDB(t), database.DialectSQLite)
+}
 
-	userRepo := NewUserRepo(ctx, conn, database.DialectSQLite)
-	tenantRepo := NewTenantRepo(ctx, conn, database.DialectSQLite)
+// TestTenantRepoManagementPostgres — тот же сценарий на PostgreSQL: у диалекта
+// другие плейсхолдеры и типы времени, а фильтр «пользователь жив» проверяется
+// в JOIN, который на обоих диалектах должен вести себя одинаково.
+func TestTenantRepoManagementPostgres(t *testing.T) {
+	runTenantManagementScenario(t, newPostgresTestDB(t), database.DialectPostgres)
+}
+
+// runTenantManagementScenario — общий сценарий управления участниками для обоих
+// диалектов.
+func runTenantManagementScenario(t *testing.T, conn database.DB, dialect string) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	userRepo := NewUserRepo(ctx, conn, dialect)
+	tenantRepo := NewTenantRepo(ctx, conn, dialect)
 
 	owner := testUser(t, "tenant-mgmt-owner@example.com", "+79990000031")
 	memberUser := testUser(t, "tenant-mgmt-member@example.com", "+79990000032")
@@ -385,6 +399,49 @@ func TestTenantRepo_Management(t *testing.T) {
 		current, err := tenantRepo.GetMember(ctx, tenant.ID, memberUser.ID)
 		if err != nil || !current.IsOwner {
 			t.Fatalf("current owner = %+v, %v", current, err)
+		}
+	})
+
+	t.Run("удалённый пользователь не виден в участниках", func(t *testing.T) {
+		deleted := testUser(t, "tenant-deleted@example.com", "+79990000030")
+		if err := userRepo.Create(ctx, deleted); err != nil {
+			t.Fatalf("UserRepo.Create() unexpected error = %v", err)
+		}
+
+		if err := tenantRepo.AddMember(ctx, mustMember(t, tenant.ID, deleted.ID, model.RoleClient, now)); err != nil {
+			t.Fatalf("AddMember() unexpected error = %v", err)
+		}
+
+		before, err := tenantRepo.ListMembers(ctx, tenant.ID, 10, 0)
+		if err != nil {
+			t.Fatalf("ListMembers() unexpected error = %v", err)
+		}
+
+		if len(before) != 3 {
+			t.Fatalf("ListMembers() = %d, want 3 до удаления", len(before))
+		}
+
+		if err := userRepo.Delete(ctx, deleted.ID); err != nil {
+			t.Fatalf("UserRepo.Delete() unexpected error = %v", err)
+		}
+
+		after, err := tenantRepo.ListMembers(ctx, tenant.ID, 10, 0)
+		if err != nil {
+			t.Fatalf("ListMembers() unexpected error = %v", err)
+		}
+
+		if len(after) != 2 {
+			t.Errorf("ListMembers() = %d, want 2: удалённый пользователь не показывается", len(after))
+		}
+
+		for _, member := range after {
+			if member.UserID == deleted.ID {
+				t.Errorf("ListMembers() содержит удалённого пользователя %q", deleted.ID)
+			}
+		}
+
+		if _, err := tenantRepo.GetMemberView(ctx, tenant.ID, deleted.ID); !errors.Is(err, database.ErrNotFound) {
+			t.Errorf("GetMemberView() error = %v, want %v", err, database.ErrNotFound)
 		}
 	})
 

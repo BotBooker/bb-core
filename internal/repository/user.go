@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/pkg/observability"
 )
@@ -22,32 +23,9 @@ type UserDB interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// UserRepo — интерфейс репозитория пользователей.
-type UserRepo interface {
-	// Create вставляет пользователя; конфликт уникальности — database.ErrDuplicate.
-	Create(ctx context.Context, user *model.User) error
-	// GetByID возвращает активного пользователя по идентификатору
-	// или database.ErrNotFound.
-	GetByID(ctx context.Context, id string) (*model.User, error)
-	// GetByEmail возвращает активного пользователя по email
-	// или database.ErrNotFound.
-	GetByEmail(ctx context.Context, email string) (*model.User, error)
-	// Update перезаписывает изменяемые поля активного пользователя;
-	// отсутствие активной строки — database.ErrNotFound.
-	Update(ctx context.Context, user *model.User) error
-	// Delete помечает пользователя удалённым (soft delete: is_active = false);
-	// отсутствие активной строки — database.ErrNotFound.
-	Delete(ctx context.Context, id string) error
-	// ListAll возвращает активных пользователей с пагинацией: для глобальных
-	// администраторов.
-	ListAll(ctx context.Context, limit, offset int) ([]*model.User, error)
-	// ListVisible возвращает пользователей, видимых staff тенанта: сотрудников
-	// тенанта и клиентов, у которых есть хотя бы одна бронь в этом тенанте.
-	ListVisible(ctx context.Context, tenantID string, limit, offset int) ([]*model.User, error)
-	// GetVisible возвращает пользователя, видимого staff тенанта, или
-	// database.ErrNotFound.
-	GetVisible(ctx context.Context, tenantID, id string) (*model.User, error)
-}
+// UserRepo — алиас доменного порта UserRepository: репозиторий реализует
+// контракт пользователей, объявленный в internal/domain.
+type UserRepo = domain.UserRepository
 
 // userColumns — колонки users в том порядке, в котором их читает scanUser.
 // Порядок должен совпадать: рассинхрон ловят тесты репозитория.
@@ -105,7 +83,7 @@ func (r *userRepo) Create(ctx context.Context, user *model.User) error {
 		` is_superuser, is_global_operator)` +
 		` VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	if _, err := r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query),
 		user.ID,
 		user.Email,
 		user.FirstName,
@@ -168,7 +146,7 @@ func (r *userRepo) Update(ctx context.Context, user *model.User) error {
 		` is_superuser = ?, is_global_operator = ?` +
 		` WHERE id = ? AND is_active = true AND is_delete = false`
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query),
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query),
 		user.Email,
 		user.FirstName,
 		user.LastName,
@@ -214,7 +192,7 @@ func (r *userRepo) Delete(ctx context.Context, id string) error {
 	// форме ExecContext с одним аргументом принимает этот аргумент за тело
 	// запроса, поэтому срабатывание правила go_gosec_sql_concat_sqli ложное.
 	// bearer:disable go_gosec_sql_concat_sqli
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), id)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), id)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", database.MapError(err))
 	}
@@ -284,7 +262,7 @@ func (r *userRepo) GetVisible(ctx context.Context, tenantID, id string) (*model.
 		" AND (m.role_id <> ? OR EXISTS (" +
 		"SELECT 1 FROM bookings b WHERE b.tenant_id = ? AND b.client_id = u.id))"
 
-	user, err := scanUser(r.db.QueryRowContext(traceCtx, r.rebind(query),
+	user, err := scanUser(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query),
 		tenantID, id, model.RoleIDClient, tenantID))
 	if err != nil {
 		return nil, fmt.Errorf("select visible user: %w", database.MapError(err))
@@ -295,7 +273,7 @@ func (r *userRepo) GetVisible(ctx context.Context, tenantID, id string) (*model.
 
 // list выполняет списочный запрос и читает строки в модели.
 func (r *userRepo) list(ctx context.Context, query string, args ...any) ([]*model.User, error) {
-	rows, err := r.db.QueryContext(ctx, r.rebind(query), args...)
+	rows, err := conn(ctx, r.db).QueryContext(ctx, r.rebind(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("select users: %w", database.MapError(err))
 	}
@@ -323,7 +301,7 @@ func (r *userRepo) getBy(ctx context.Context, query string, args ...any) (*model
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "getBy")
 	defer spanEnd()
 
-	user, err := scanUser(r.db.QueryRowContext(traceCtx, r.rebind(query), args...))
+	user, err := scanUser(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query), args...))
 	if err != nil {
 		return nil, fmt.Errorf("select user: %w", database.MapError(err))
 	}

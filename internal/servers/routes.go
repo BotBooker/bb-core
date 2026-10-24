@@ -3,13 +3,12 @@ package servers
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
-	"github.com/botbooker/bb-core/internal/repository/swagger"
+	"github.com/botbooker/bb-core/internal/servers/swagger"
 	auth_v1 "github.com/botbooker/bb-core/pkg/proto/auth/v1"
 	public_v1 "github.com/botbooker/bb-core/pkg/proto/public/v1"
 	tenant_v1 "github.com/botbooker/bb-core/pkg/proto/tenant/v1"
@@ -18,11 +17,6 @@ import (
 
 // SwaggerPrefix — префикс ручек Swagger UI и спецификации.
 const SwaggerPrefix = "/api/swagger/"
-
-// healthPath — ручка готовности приложения. Вынесена константой: её использует
-// и роутинг, и список открытых путей (см. isPublicPath), и выбор уровня записи
-// access-лога для служебных ручек (см. isServicePath).
-const healthPath = "/health"
 
 // Handler — интерфейс обработчика HTTP-запросов.
 type Handler interface {
@@ -40,6 +34,9 @@ type handler struct {
 	catalog PublicCatalogService
 	// gateway — HTTP-транспорт proto-сервисов: те же ручки, что и в gRPC.
 	gateway *runtime.ServeMux
+	// readiness — проверка БД для GET /ready: presentation-слой знает только
+	// PingContext, а не весь контракт подключения.
+	readiness readinessChecker
 }
 
 // NewHandler создаёт обработчик HTTP-запросов.
@@ -55,6 +52,7 @@ func NewHandler(
 	userServiceServer user_v1.UserServiceServer,
 	tenantServiceServer tenant_v1.TenantServiceServer,
 	catalog PublicCatalogService,
+	readiness readinessChecker,
 ) (Handler, error) {
 	gateway := runtime.NewServeMux()
 
@@ -74,7 +72,7 @@ func NewHandler(
 		return nil, fmt.Errorf("register auth service gateway: %w", err)
 	}
 
-	return &handler{authService: authService, catalog: catalog, gateway: gateway}, nil
+	return &handler{authService: authService, catalog: catalog, gateway: gateway, readiness: readiness}, nil
 }
 
 // Routes возвращает маршрутизатор со всеми зарегистрированными хендлерами.
@@ -98,6 +96,7 @@ func NewHandler(
 func (h *handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+healthPath, h.healthHandler)
+	mux.HandleFunc("GET "+readyPath, h.readyHandler)
 	mux.HandleFunc("GET /users/me", h.getCurrentUser)
 	mux.HandleFunc("POST /auth/register", h.registerHandler)
 	mux.HandleFunc("POST /auth/login", h.loginHandler)
@@ -120,14 +119,6 @@ func (h *handler) Routes() http.Handler {
 	mux.Handle(SwaggerPrefix, http.StripPrefix("/api/swagger", swagger.Routes("/api/swagger")))
 
 	return traceMiddleware(logMiddleware(h.authenticate(metricsMiddleware(mux))))
-}
-
-func (h *handler) healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-
-	if _, err := fmt.Fprintln(w, "ok"); err != nil {
-		slog.ErrorContext(r.Context(), "failed to write response", "err", err)
-	}
 }
 
 // publicTenantHandler — GET /t/{slug}: публичная страница тенанта.

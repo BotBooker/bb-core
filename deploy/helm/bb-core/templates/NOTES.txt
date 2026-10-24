@@ -21,4 +21,5 @@
      --command -- /app/bootstrap
 
 Проверка: `kubectl port-forward svc/{{ include "bb-core.fullname" . }} 8080:{{ .Values.service.httpPort }}`
-и `curl http://localhost:8080/health`.
+и `curl http://localhost:8080/health` (liveness) / `curl http://localhost:8080/ready`
+(readiness: проверяет БД).

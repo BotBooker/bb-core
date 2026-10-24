@@ -26,6 +26,13 @@ func (m *mockNotificationDB) ExecContext(ctx context.Context, query string, args
 	return nil, nil
 }
 
+// QueryRowContext добавлен вместе с расширением NotificationDB: репозиторий
+// читает уведомления построчно. Заглушка возвращает nil *sql.Row — сценарии,
+// которым нужна строка, работают с реальной базой (см. repository_test.go).
+func (m *mockNotificationDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return nil
+}
+
 func TestNewNotificationRepo(t *testing.T) {
 	tests := []struct {
 		name string

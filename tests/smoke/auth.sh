@@ -90,6 +90,7 @@ echo "--------------------------------------------------"
 
 # --- Открытые и защищённые ручки без токена ---
 check "GET /health"                       200 GET  "/health"
+check "GET /ready"                        200 GET  "/ready"
 check "GET /api/v1/auth/me без токена"    401 GET  "/api/v1/auth/me"
 check "POST /api/v1/auth/logout без токена" 401 POST "/api/v1/auth/logout" "{}"
 

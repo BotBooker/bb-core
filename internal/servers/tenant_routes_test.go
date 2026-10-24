@@ -33,6 +33,7 @@ func newTenantRoutesHandler(t *testing.T, auth *mockAuthService, catalog *mockPu
 		NewUserServiceServer(&mockUserServiceAPI{}),
 		NewTenantServiceServer(&mockTenantManagementService{}),
 		catalog,
+		mockReadiness{},
 	)
 	if err != nil {
 		t.Fatalf("NewHandler() unexpected error = %v", err)

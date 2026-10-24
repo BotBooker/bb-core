@@ -6,6 +6,8 @@ import (
 	"log/slog"
 
 	"github.com/botbooker/bb-core/pkg/observability"
+
+	"github.com/botbooker/bb-core/internal/domain"
 )
 
 // NotificationDB — интерфейс базы данных, который нужен NotificationRepo.
@@ -15,11 +17,12 @@ import (
 // одним многострочным INSERT (или через транзакцию — TrManager).
 type NotificationDB interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// NotificationRepo — интерфейс репозитория уведомлений.
-type NotificationRepo any
+// NotificationRepo — алиас доменного порта уведомлений.
+type NotificationRepo = domain.NotificationRepository
 
 // notificationRepo — конкретная реализация, скрыта от внешних пакетов.
 type notificationRepo struct {
