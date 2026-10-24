@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/internal/service"
 	"github.com/botbooker/bb-core/pkg/observability"
@@ -417,8 +417,10 @@ func parseBearer(value string) (string, bool) {
 // publicPaths — ручки, доступные без токена. Список явный: новая ручка по
 // умолчанию защищена, открыть её можно только добавив сюда.
 var publicPaths = map[string]struct{}{
-	// health нужен балансировщикам и readiness-пробам.
+	// health — liveness, ready — readiness с проверкой БД: обе нужны
+	// балансировщикам и kubelet, токена у них нет.
 	healthPath: {},
+	readyPath:  {},
 	// Вход и регистрация, разумеется, без токена: его ещё нет.
 	"/auth/login":    {},
 	"/auth/register": {},
@@ -627,9 +629,9 @@ func writeServiceError(ctx context.Context, w http.ResponseWriter, err error, ac
 		writeError(ctx, w, http.StatusUnauthorized, unauthorizedMessage)
 	case errors.Is(err, service.ErrForbidden):
 		writeError(ctx, w, http.StatusForbidden, forbiddenMessage)
-	case errors.Is(err, database.ErrNotFound):
+	case errors.Is(err, domain.ErrNotFound):
 		writeError(ctx, w, http.StatusNotFound, notFoundMessage)
-	case errors.Is(err, database.ErrDuplicate):
+	case errors.Is(err, domain.ErrDuplicate):
 		writeError(ctx, w, http.StatusConflict, conflictMessage)
 	case isInvalidArgument(err):
 		writeError(ctx, w, http.StatusBadRequest, err.Error())

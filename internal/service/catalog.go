@@ -7,24 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/pkg/observability"
 )
-
-// PublicTenantRepository — интерфейс чтения тенантов для публичного каталога.
-type PublicTenantRepository interface {
-	// GetBySlug возвращает тенант по slug или database.ErrNotFound.
-	GetBySlug(ctx context.Context, slug string) (*model.Tenant, error)
-	// ListActive возвращает действующие тенанты с пагинацией.
-	ListActive(ctx context.Context, limit, offset int) ([]*model.Tenant, error)
-}
-
-// PublicCatalogRepository — интерфейс чтения публичных объектов.
-type PublicCatalogRepository interface {
-	// ListPublicObjects возвращает опубликованные объекты тенанта.
-	ListPublicObjects(ctx context.Context, tenantID string, limit, offset int) ([]*model.PublicObject, error)
-}
 
 // PublicCatalogService — публичный каталог тенантов и объектов.
 //
@@ -42,15 +28,15 @@ type PublicCatalogService interface {
 
 // publicCatalogService — конкретная реализация, скрыта от внешних пакетов.
 type publicCatalogService struct {
-	tenants PublicTenantRepository
-	objects PublicCatalogRepository
+	tenants domain.PublicTenantReader
+	objects domain.CatalogRepository
 }
 
 // NewPublicCatalogService создаёт сервис публичного каталога.
 func NewPublicCatalogService(
 	ctx context.Context,
-	tenants PublicTenantRepository,
-	objects PublicCatalogRepository,
+	tenants domain.PublicTenantReader,
+	objects domain.CatalogRepository,
 ) PublicCatalogService {
 	slog.DebugContext(ctx, "public catalog service created")
 
@@ -136,15 +122,15 @@ func (s *publicCatalogService) activeTenant(ctx context.Context, slug string) (*
 
 	tenant, err := s.tenants.GetBySlug(ctx, normalized)
 	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
-			return nil, database.ErrNotFound
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, domain.ErrNotFound
 		}
 
 		return nil, err
 	}
 
 	if !tenant.Active() {
-		return nil, database.ErrNotFound
+		return nil, domain.ErrNotFound
 	}
 
 	return tenant, nil

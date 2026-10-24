@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 )
 
@@ -37,9 +37,12 @@ type BootstrapService interface {
 
 // bootstrapService — конкретная реализация, скрыта от внешних пакетов.
 type bootstrapService struct {
-	userRepo       AuthUserRepository
-	credentialRepo AuthCredentialRepository
-	tenantRepo     AuthTenantRepository
+	userRepo       domain.UserRepository
+	credentialRepo domain.CredentialRepository
+	tenantRepo     domain.TenantRepository
+	// hasher — порт хеширования: открытый пароль суперпользователя в домен и
+	// БД не попадает.
+	hasher domain.PasswordHasher
 	// passwordTTL — срок жизни пароля (config.Auth().PasswordTTL): попадает в
 	// expires_at учётных данных суперпользователя.
 	passwordTTL time.Duration
@@ -51,9 +54,10 @@ type bootstrapService struct {
 // NewBootstrapService создаёт сервис первичной инициализации.
 func NewBootstrapService(
 	ctx context.Context,
-	userRepo AuthUserRepository,
-	credentialRepo AuthCredentialRepository,
-	tenantRepo AuthTenantRepository,
+	userRepo domain.UserRepository,
+	credentialRepo domain.CredentialRepository,
+	tenantRepo domain.TenantRepository,
+	hasher domain.PasswordHasher,
 	passwordTTL time.Duration,
 ) BootstrapService {
 	slog.DebugContext(ctx, "bootstrap service created")
@@ -62,6 +66,7 @@ func NewBootstrapService(
 		userRepo:       userRepo,
 		credentialRepo: credentialRepo,
 		tenantRepo:     tenantRepo,
+		hasher:         hasher,
 		passwordTTL:    passwordTTL,
 		now:            time.Now,
 	}
@@ -90,7 +95,7 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 		// гарантирует системный флаг суперпользователя (он мог быть создан до
 		// появления is_superuser).
 		return s.markSuperuser(ctx, existing)
-	case errors.Is(err, database.ErrNotFound):
+	case errors.Is(err, domain.ErrNotFound):
 		// Пользователя нет — создаём его ниже.
 	default:
 		return nil, false, fmt.Errorf("bootstrap superuser: %w", err)
@@ -113,7 +118,7 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 	user.IsSuperuser = true
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
-		if errors.Is(err, database.ErrDuplicate) {
+		if errors.Is(err, domain.ErrDuplicate) {
 			// Параллельный bootstrap успел создать того же пользователя:
 			// считаем задачу выполненной и возвращаем существующего.
 			return s.ensureSuperuserAfterRace(ctx, email)
@@ -122,7 +127,7 @@ func (s *bootstrapService) EnsureSuperuser(ctx context.Context, in BootstrapInpu
 		return nil, false, fmt.Errorf("bootstrap superuser: %w", err)
 	}
 
-	credentials, err := model.NewCredentials(user.ID, user.Email, in.Password, s.passwordTTL, now)
+	credentials, err := s.newCredentials(user, in.Password, now)
 	if err == nil {
 		err = s.credentialRepo.Create(ctx, credentials)
 	}
@@ -219,6 +224,27 @@ func (s *bootstrapService) rollback(ctx context.Context, id string) {
 	if err := s.userRepo.Delete(ctx, id); err != nil {
 		slog.ErrorContext(ctx, "failed to roll back superuser creation", "uuid", id, "err", err)
 	}
+}
+
+// newCredentials считает хеш пароля суперпользователя и создаёт учётные данные.
+//
+// Требования к длине пароля проверяются до хеширования: пароль из окружения —
+// такая же политика домена, как и пароль из запроса.
+func (s *bootstrapService) newCredentials(
+	user *model.User,
+	passwd string,
+	now time.Time,
+) (*model.Credentials, error) {
+	if err := model.ValidatePassword(passwd); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidBootstrap, err)
+	}
+
+	hash, err := s.hasher.Hash(passwd)
+	if err != nil {
+		return nil, fmt.Errorf("hash superuser password: %w", err)
+	}
+
+	return model.NewCredentials(user.ID, user.Email, hash, s.passwordTTL, now)
 }
 
 // validateBootstrapInput проверяет обязательные данные суперпользователя.

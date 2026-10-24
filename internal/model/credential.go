@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ErrPasswordExpired — срок действия пароля истёк. Пользователь обязан сменить
@@ -63,11 +61,12 @@ type Credentials struct {
 
 // NewCredentials создаёт учётные данные для локальной авторизации по email.
 //
-// Пароль сразу превращается в хеш: открытый пароль не сохраняется нигде — ни в
-// модели, ни в БД, ни в событиях. ttl — срок жизни пароля
+// Пароль сюда приходит уже в виде хеша: его считает порт
+// domain.PasswordHasher (pkg/password) до вызова конструктора, поэтому
+// открытый пароль в модели не появляется вовсе. ttl — срок жизни пароля
 // (config.Auth().PasswordTTL); 0 или отрицательное значение означает «пароль
 // не истекает».
-func NewCredentials(userID, email, password string, ttl time.Duration, now time.Time) (*Credentials, error) {
+func NewCredentials(userID, email, hash string, ttl time.Duration, now time.Time) (*Credentials, error) {
 	if err := validateUUID(userID); err != nil {
 		return nil, fmt.Errorf("create credentials: %w", err)
 	}
@@ -77,15 +76,14 @@ func NewCredentials(userID, email, password string, ttl time.Duration, now time.
 		return nil, fmt.Errorf("create credentials: %w", err)
 	}
 
-	hash, err := HashPassword(password)
-	if err != nil {
-		return nil, fmt.Errorf("create credentials: %w", err)
+	if strings.TrimSpace(hash) == "" {
+		return nil, fmt.Errorf("create credentials: %w: password hash is empty", ErrInvalidCredential)
 	}
 
 	ts := now.UTC()
 
 	return &Credentials{
-		ID:          uuid.NewString(),
+		ID:          NewID(),
 		UserID:      userID,
 		Provider:    CredentialProviderEmail,
 		ProviderKey: providerKey,
@@ -131,30 +129,28 @@ func (c *Credentials) Validate() error {
 	return errors.Join(errs...)
 }
 
-// SetPassword меняет пароль: считается новый хеш, срок действия начинается
-// заново (время смены пароля плюс ttl).
-func (c *Credentials) SetPassword(password string, ttl time.Duration, now time.Time) error {
-	hash, err := HashPassword(password)
-	if err != nil {
-		return fmt.Errorf("set password: %w", err)
+// SetPasswordHash сохраняет новый хеш пароля и перезапускает срок его
+// действия: время смены пароля плюс ttl. Открытый пароль в модель не попадает —
+// хеш считает pkg/password.
+func (c *Credentials) SetPasswordHash(hash string, ttl time.Duration, now time.Time) error {
+	if err := c.SetHash(hash); err != nil {
+		return err
 	}
 
-	c.Hash = hash
 	c.ExpiresAt = passwordExpiresAt(now.UTC(), ttl)
 	c.RevokedAt = nil
 
 	return nil
 }
 
-// Verify проверяет пароль пользователя.
-//
-// Возвращает ErrPasswordMismatch, если пароль не подходит, и
-// ErrInvalidPasswordHash, если сохранённый хеш повреждён. Причина отказа не
-// должна уходить клиенту: иначе по ответам можно перебирать пароли по одному.
-func (c Credentials) Verify(password string) error {
-	if err := VerifyPassword(password, c.Hash); err != nil {
-		return fmt.Errorf("verify password: %w", err)
+// SetHash заменяет хеш, не меняя срок действия: обновление алгоритма — не
+// смена пароля и не должно сбрасывать срок его действия.
+func (c *Credentials) SetHash(hash string) error {
+	if strings.TrimSpace(hash) == "" {
+		return fmt.Errorf("set password hash: %w: password hash is empty", ErrInvalidCredential)
 	}
+
+	c.Hash = hash
 
 	return nil
 }
@@ -179,26 +175,6 @@ func (c Credentials) Revoked() bool { return c.RevokedAt != nil }
 func (c *Credentials) TouchLastLogin(now time.Time) {
 	ts := now.UTC()
 	c.LastLoginAt = &ts
-}
-
-// NeedsRehash сообщает, что сохранённый хеш посчитан устаревшим алгоритмом
-// или с устаревшими параметрами: при следующем успешном входе его стоит
-// пересчитать.
-func (c Credentials) NeedsRehash() bool {
-	return NeedsRehash(c.Hash)
-}
-
-// Rehash пересчитывает хеш пароля, не меняя срок действия: обновление
-// алгоритма — не смена пароля и не должно сбрасывать срок его действия.
-func (c *Credentials) Rehash(password string) error {
-	hash, err := HashPassword(password)
-	if err != nil {
-		return fmt.Errorf("rehash password: %w", err)
-	}
-
-	c.Hash = hash
-
-	return nil
 }
 
 // passwordExpiresAt считает момент истечения пароля: время now плюс ttl.

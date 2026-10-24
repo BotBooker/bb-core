@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 )
 
@@ -35,6 +36,12 @@ func (m *mockUserRepository) GetByID(ctx context.Context, id string) (*model.Use
 		return m.getByIDFunc(ctx, id)
 	}
 
+	return nil, database.ErrNotFound
+}
+
+// GetByEmail дорисовывает порт domain.UserRepository: сервису пользователей
+// поиск по email не нужен, но интерфейс один на всех потребителей.
+func (m *mockUserRepository) GetByEmail(context.Context, string) (*model.User, error) {
 	return nil, database.ErrNotFound
 }
 
@@ -87,7 +94,12 @@ func (m *mockUserRepository) GetVisible(ctx context.Context, tenantID, id string
 }
 
 // mockUserMembershipRepository — мок членства для UserService.
+//
+// Порт domain.TenantRepository шире: встроенный mockTenantRepository даёт
+// остальные методы, а сценарии пользователей работают только с членством.
 type mockUserMembershipRepository struct {
+	mockTenantRepository
+
 	addMemberFunc func(ctx context.Context, member *model.TenantMember) error
 	getMemberFunc func(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
 }
@@ -172,17 +184,39 @@ func testCreateInput() model.CreateUserInput {
 	}
 }
 
+// newUserService собирает сервис пользователей с полным набором портов:
+// репозитории учётных данных и сессий нужны удалению аккаунта.
+func newUserService(
+	users domain.UserRepository,
+	tenants domain.TenantRepository,
+	events UserEventPublisher,
+) UserService {
+	return newUserServiceWith(users, tenants, &mockAuthCredentialRepository{}, &mockAuthTokenRepository{}, events)
+}
+
+// newUserServiceWith собирает сервис с заданными учётными данными и сессиями:
+// так проверяется, что удаление аккаунта закрывает доступ.
+func newUserServiceWith(
+	users domain.UserRepository,
+	tenants domain.TenantRepository,
+	credentials domain.CredentialRepository,
+	tokens domain.TokenRepository,
+	events UserEventPublisher,
+) UserService {
+	return NewUserService(context.Background(), users, tenants, credentials, tokens, events, testUnitOfWork{})
+}
+
 // newTestUserService создаёт сервис с моками и возвращает их для проверок.
-func newTestUserService(repo UserRepository) (UserService, *mockUserEventPublisher) {
+func newTestUserService(repo domain.UserRepository) (UserService, *mockUserEventPublisher) {
 	events := &mockUserEventPublisher{}
 
-	return NewUserService(context.Background(), repo, &mockUserMembershipRepository{}, events), events
+	return newUserService(repo, &mockUserMembershipRepository{}, events), events
 }
 
 func TestNewUserService(t *testing.T) {
 	tests := []struct {
 		name     string
-		userRepo UserRepository
+		userRepo domain.UserRepository
 		events   UserEventPublisher
 	}{
 		{
@@ -209,7 +243,7 @@ func TestNewUserService(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewUserService(context.Background(), tt.userRepo, &mockUserMembershipRepository{}, tt.events)
+			got := newUserService(tt.userRepo, &mockUserMembershipRepository{}, tt.events)
 			if got == nil {
 				t.Error("NewUserService() returned nil")
 			}
@@ -455,7 +489,7 @@ func TestUserService_Delete(t *testing.T) {
 		}}
 		svc, events := newTestUserService(repo)
 
-		if err := svc.Delete(context.Background(), testPrincipal(t, model.RoleAdmin), id); err != nil {
+		if err := svc.Delete(context.Background(), testSuperuserPrincipal(t), id); err != nil {
 			t.Fatalf("Delete() unexpected error = %v", err)
 		}
 		if deletedID != id {
@@ -472,7 +506,7 @@ func TestUserService_Delete(t *testing.T) {
 		}}
 		svc, _ := newTestUserService(repo)
 
-		if err := svc.Delete(context.Background(), testPrincipal(t, model.RoleAdmin), id); !errors.Is(err, database.ErrNotFound) {
+		if err := svc.Delete(context.Background(), testSuperuserPrincipal(t), id); !errors.Is(err, database.ErrNotFound) {
 			t.Errorf("Delete() error = %v, want %v", err, database.ErrNotFound)
 		}
 	})
@@ -487,7 +521,7 @@ func TestUserService_Delete(t *testing.T) {
 		}}
 		svc, _ := newTestUserService(repo)
 
-		if err := svc.Delete(context.Background(), testPrincipal(t, model.RoleAdmin), "не-uuid"); !errors.Is(err, model.ErrInvalidUUID) {
+		if err := svc.Delete(context.Background(), testSuperuserPrincipal(t), "не-uuid"); !errors.Is(err, model.ErrInvalidUUID) {
 			t.Errorf("Delete() error = %v, want %v", err, model.ErrInvalidUUID)
 		}
 		if called {
@@ -780,7 +814,7 @@ func TestUserService_Permissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("Get: "+tt.name, func(t *testing.T) {
-			svc := NewUserService(context.Background(), newRepo(), &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+			svc := newUserService(newRepo(), &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 			_, err := svc.Get(context.Background(), testPrincipal(t, tt.role), id)
 			if !errors.Is(err, tt.wantErr) {
@@ -801,7 +835,7 @@ func TestUserService_Permissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("Create: "+tt.name, func(t *testing.T) {
-			svc := NewUserService(context.Background(), newRepo(), &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+			svc := newUserService(newRepo(), &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 			_, err := svc.Create(context.Background(), testPrincipal(t, tt.role), testCreateInput())
 			if !errors.Is(err, tt.wantErr) {
@@ -822,7 +856,7 @@ func TestUserService_Permissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("Update: "+tt.name, func(t *testing.T) {
-			svc := NewUserService(context.Background(), newRepo(), &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+			svc := newUserService(newRepo(), &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 			_, err := svc.Update(context.Background(), testPrincipal(t, tt.role), id, model.UpdateUserInput{})
 			if !errors.Is(err, tt.wantErr) {
@@ -831,21 +865,23 @@ func TestUserService_Permissions(t *testing.T) {
 		})
 	}
 
-	tests = []struct {
+	deleteTests := []struct {
 		name    string
-		role    model.Role
+		actor   *Principal
 		wantErr error
 	}{
-		{name: "клиент не удаляет", role: model.RoleClient, wantErr: ErrForbidden},
-		{name: "оператор не удаляет", role: model.RoleOperator, wantErr: ErrForbidden},
-		{name: "администратор удаляет", role: model.RoleAdmin},
+		{name: "клиент не удаляет", actor: testPrincipal(t, model.RoleClient), wantErr: ErrForbidden},
+		{name: "оператор не удаляет", actor: testPrincipal(t, model.RoleOperator), wantErr: ErrForbidden},
+		{name: "администратор тенанта не удаляет", actor: testPrincipal(t, model.RoleAdmin), wantErr: ErrForbidden},
+		{name: "глобальный оператор удаляет", actor: testGlobalOperatorPrincipal(t)},
+		{name: "суперпользователь удаляет", actor: testSuperuserPrincipal(t)},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range deleteTests {
 		t.Run("Delete: "+tt.name, func(t *testing.T) {
-			svc := NewUserService(context.Background(), newRepo(), &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+			svc := newUserService(newRepo(), &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
-			err := svc.Delete(context.Background(), testPrincipal(t, tt.role), id)
+			err := svc.Delete(context.Background(), tt.actor, id)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Delete() error = %v, want %v", err, tt.wantErr)
 			}
@@ -864,7 +900,7 @@ func TestUserService_OwnProfile(t *testing.T) {
 				getByIDFunc: func(context.Context, string) (*model.User, error) { return actor.User, nil },
 				updateFunc:  func(context.Context, *model.User) error { return nil },
 			}
-			svc := NewUserService(context.Background(), repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+			svc := newUserService(repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 			if _, err := svc.Get(context.Background(), actor, actor.ID()); err != nil {
 				t.Errorf("Get() своего профиля unexpected error = %v", err)
@@ -880,7 +916,7 @@ func TestUserService_OwnProfile(t *testing.T) {
 // TestUserService_NoPrincipal проверяет запрос без действующего пользователя:
 // сервис отвечает ErrUnauthorized, а не падает с разыменованием nil.
 func TestUserService_NoPrincipal(t *testing.T) {
-	svc := NewUserService(context.Background(), &mockUserRepository{}, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+	svc := newUserService(&mockUserRepository{}, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 	if _, err := svc.Create(context.Background(), nil, testCreateInput()); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("Create() error = %v, want %v", err, ErrUnauthorized)

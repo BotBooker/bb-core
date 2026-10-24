@@ -137,7 +137,10 @@ go test ./internal/model/ ./internal/service/ ./internal/repository/ \
 
 Ручки:
 
-* `GET /health` — готовность приложения (`ok`), отдельно от gRPC-health;
+* `GET /health` — liveness: процесс жив и принимает соединения (`ok`), БД не
+  проверяется — перезапуск контейнера не лечит упавшую базу;
+* `GET /ready` — readiness: ping БД с таймаутом 2 с; при недоступности базы —
+  503 и тело `not ready` (детали подключения наружу не отдаются);
 * `GET /users/me` — профиль действующего пользователя (JSON-ручка приложения);
 * `POST /api/v1/users`, `GET|PATCH|DELETE /api/v1/users/{uuid}` — grpc-gateway
   поверх `user.v1.UserService` (в proto пути заданы от корня: `/users`,
@@ -147,8 +150,14 @@ go test ./internal/model/ ./internal/service/ ./internal/repository/ \
   `/auth/register` и т.д., префикс `/api/v1` добавляет монтирование gateway);
 * `GET /api/swagger/` — Swagger UI (спека в `pkg/api`).
 
+В Docker контейнер проверяется тем же бинарником: `HEALTHCHECK` запускает
+`/app/api --readycheck`, который опрашивает `GET /ready` (код 0 — готов,
+1 — не готов или сервер недоступен). Kubernetes использует `httpGet`-пробы и
+Docker-инструкцию игнорирует.
+
 В gRPC дополнительно включены `grpc.health.v1.Health` (нужен балансировщикам и
-readiness-пробам) и reflection (нужен grpcurl при отладке).
+readiness-пробам) и reflection (нужен grpcurl при отладке). Статус health
+пересчитывается раз в 10 с: при недоступной БД сервис отвечает `NOT_SERVING`.
 
 Коды ошибок согласованы у обоих транспортов: `NotFound` → 404, `AlreadyExists`
 (конфликт уникальности email или телефона) → 409, `InvalidArgument` → 400,
@@ -157,6 +166,7 @@ readiness-пробам) и reflection (нужен grpcurl при отладке)
 ```sh
 # HTTP
 curl -s localhost:8080/health
+curl -s localhost:8080/ready
 curl -s -X POST localhost:8080/api/v1/users -H 'Content-Type: application/json' \
   -d '{"email":"willi@example.com","first_name":"Вася","last_name":"Петров","phone_number":"+79990000001"}'
 curl -s localhost:8080/api/v1/users/<uuid>
@@ -296,7 +306,7 @@ HTTP-middleware (см. раздел «Трассировка»).
 | `user_agent` | User-Agent | — |
 | `duration` | время обработки | время обработки |
 
-Уровень записи: бизнес-запросы — `INFO`, служебные (`/health`, Swagger UI,
+Уровень записи: бизнес-запросы — `INFO`, служебные (`/health`, `/ready`, Swagger UI,
 `grpc.health.v1.Health`, `grpc.reflection`) — `DEBUG`, чтобы пробы и браузер не
 зашумили лог (виден только при `LOG_LEVEL=DEBUG`). Тела запроса и ответа не
 логируются: в них бывают пароли и персональные данные.

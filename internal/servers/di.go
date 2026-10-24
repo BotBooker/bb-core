@@ -11,11 +11,13 @@ import (
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/database/postgres"
 	"github.com/botbooker/bb-core/internal/database/sqlite"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/events"
 	"github.com/botbooker/bb-core/internal/jwt"
 	"github.com/botbooker/bb-core/internal/repository"
 	"github.com/botbooker/bb-core/internal/service"
 	"github.com/botbooker/bb-core/pkg/observability"
+	"github.com/botbooker/bb-core/pkg/password"
 	public_v1 "github.com/botbooker/bb-core/pkg/proto/public/v1"
 	tenant_v1 "github.com/botbooker/bb-core/pkg/proto/tenant/v1"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
@@ -108,6 +110,10 @@ type diContainer struct {
 	// контейнером: секрет подписи берётся из конфигурации, и ошибку его
 	// подготовки (crypto/rand) лучше увидеть на старте, а не при первом входе.
 	tokenCodec service.AuthTokenCodec
+	// hasher — реализация порта domain.PasswordHasher (Argon2id).
+	hasher domain.PasswordHasher
+	// uow — транзакционная граница use case: адаптер над менеджером транзакций.
+	uow domain.UnitOfWork
 	// dialect — диалект подключённой базы: репозитории подставляют по нему
 	// плейсхолдеры и кодируют время.
 	dialect string
@@ -186,7 +192,13 @@ func newDIContainer(ctx context.Context) (*diContainer, error) {
 		return nil, fmt.Errorf("init token signer: %w", err)
 	}
 
-	return &diContainer{db: db, dialect: dialect, tokenCodec: tokenCodec}, nil
+	return &diContainer{
+		db:         db,
+		dialect:    dialect,
+		tokenCodec: tokenCodec,
+		hasher:     password.NewHasher(),
+		uow:        database.NewUnitOfWork(db.TrManager()),
+	}, nil
 }
 
 // DB возвращает подключение к базе данных, созданное вместе с контейнером.
@@ -271,7 +283,7 @@ func (d *diContainer) CatalogRepo(ctx context.Context) repository.CatalogRepo {
 	defer spanEnd()
 
 	if d.catalogRepo == nil {
-		d.catalogRepo = repository.NewCatalogRepo(traceCtx, d.DB())
+		d.catalogRepo = repository.NewCatalogRepo(traceCtx, d.DB(), d.dialect)
 	}
 
 	return d.catalogRepo
@@ -315,6 +327,8 @@ func (d *diContainer) AuthService(ctx context.Context) service.AuthService {
 			d.TenantRepo(traceCtx),
 			d.tokenCodec,
 			d.EventBus(traceCtx),
+			d.hasher,
+			d.uow,
 			config.Auth().TokenTTL,
 			config.Auth().PasswordTTL,
 		)
@@ -333,7 +347,10 @@ func (d *diContainer) UserService(ctx context.Context) service.UserService {
 			traceCtx,
 			d.UserRepo(traceCtx),
 			d.TenantRepo(traceCtx),
+			d.CredentialRepo(traceCtx),
+			d.TokenRepo(traceCtx),
 			d.EventBus(traceCtx),
+			d.uow,
 		)
 	}
 
@@ -394,6 +411,7 @@ func (d *diContainer) Handler(ctx context.Context) (Handler, error) {
 			d.UserServiceServer(ctx),
 			d.TenantServiceServer(ctx),
 			d.PublicCatalogService(ctx),
+			d.DB(),
 		)
 		if err != nil {
 			return nil, err

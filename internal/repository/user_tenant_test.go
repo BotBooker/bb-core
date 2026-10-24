@@ -73,7 +73,7 @@ func TestUserRepo_Visibility(t *testing.T) {
 		}
 	})
 
-	if err := insertBookingForClient(ctx, conn, tenant.ID, client.ID); err != nil {
+	if err := insertBookingForClient(ctx, conn, database.DialectSQLite, tenant.ID, client.ID); err != nil {
 		t.Fatalf("insertBookingForClient() unexpected error = %v", err)
 	}
 
@@ -105,18 +105,24 @@ func TestUserRepo_Visibility(t *testing.T) {
 }
 
 // insertBookingForClient создаёт объект и бронь: основание видимости клиента.
+//
+// Запросы пишутся с «?» и перебинживаются кодеком диалекта: на PostgreSQL «?»
+// не плейсхолдер, и вставка raw-строкой падала бы синтаксической ошибкой.
 func insertBookingForClient(
 	ctx context.Context,
 	conn database.DB,
-	tenantID, clientID string,
+	dialect, tenantID, clientID string,
 ) error {
-	if _, err := conn.ExecContext(ctx, "INSERT INTO type_objects (title) VALUES (?)", "visibility-flat"); err != nil {
+	c := codec{dialect: dialect}
+
+	if _, err := conn.ExecContext(ctx,
+		c.rebind("INSERT INTO type_objects (title) VALUES (?)"), "visibility-flat"); err != nil {
 		return fmt.Errorf("insert type object: %w", err)
 	}
 
 	var typeID int
 	if err := conn.QueryRowContext(ctx,
-		"SELECT id FROM type_objects WHERE title = ?", "visibility-flat").Scan(&typeID); err != nil {
+		c.rebind("SELECT id FROM type_objects WHERE title = ?"), "visibility-flat").Scan(&typeID); err != nil {
 		return fmt.Errorf("select type object: %w", err)
 	}
 
@@ -125,19 +131,20 @@ func insertBookingForClient(
 	now := time.Now().UTC()
 
 	if _, err := conn.ExecContext(ctx,
-		"INSERT INTO rental_objects (id, type, title, price_minor, currency, min_duration_minutes,"+
-			" status_id, created_at, updated_at, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		objectID, typeID, "Объект видимости", 100000, "RUB", 60, 1, now, now, tenantID,
+		c.rebind("INSERT INTO rental_objects (id, type, title, price_minor, currency, min_duration_minutes,"+
+			" status_id, created_at, updated_at, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+		objectID, typeID, "Объект видимости", 100000, "RUB", 60, 1,
+		c.timeArg(now), c.timeArg(now), tenantID,
 	); err != nil {
 		return fmt.Errorf("insert object: %w", err)
 	}
 
 	if _, err := conn.ExecContext(ctx,
-		"INSERT INTO bookings (id, object_id, client_id, slot_start, slot_end, created_at, updated_at, tenant_id)"+
-			" VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		c.rebind("INSERT INTO bookings (id, object_id, client_id, slot_start, slot_end, created_at, updated_at, tenant_id)"+
+			" VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
 		"bbbbbbbb-cccc-4ddd-8eee-ffffffffffff", objectID, clientID,
-		now.Add(time.Hour).Format(time.RFC3339), now.Add(2*time.Hour).Format(time.RFC3339),
-		now, now, tenantID,
+		c.timeArg(now.Add(time.Hour)), c.timeArg(now.Add(2*time.Hour)),
+		c.timeArg(now), c.timeArg(now), tenantID,
 	); err != nil {
 		return fmt.Errorf("insert booking: %w", err)
 	}

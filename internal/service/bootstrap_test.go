@@ -20,7 +20,7 @@ func newTestBootstrapService(
 ) *bootstrapService {
 	t.Helper()
 
-	created := NewBootstrapService(context.Background(), users, credentials, tenants, testPasswordTTL)
+	created := NewBootstrapService(context.Background(), users, credentials, tenants, testHasher, testPasswordTTL)
 
 	svc, ok := created.(*bootstrapService)
 	if !ok {
@@ -106,7 +106,7 @@ func TestBootstrapService_EnsureSuperuser(t *testing.T) {
 		if storedCredentials == nil || storedCredentials.UserID != user.ID {
 			t.Fatalf("учётные данные = %+v, want для пользователя %q", storedCredentials, user.ID)
 		}
-		if err := storedCredentials.Verify("super-secret-password"); err != nil {
+		if err := testHasher.Verify("super-secret-password", storedCredentials.Hash); err != nil {
 			t.Errorf("сохранённый пароль не проверяется: %v", err)
 		}
 		if !storedCredentials.CreatedAt.Equal(testNow) {

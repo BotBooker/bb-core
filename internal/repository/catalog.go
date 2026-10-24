@@ -7,25 +7,25 @@ import (
 	"log/slog"
 
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // CatalogDB — интерфейс базы данных, который нужен CatalogRepo.
+//
+// Набор методов совпадает с dbConn: внутри UnitOfWork запрос уходит в
+// транзакцию из контекста, поэтому репозиторий должен уметь работать и с
+// транзакцией, и с пулом.
 type CatalogDB interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// CatalogRepo — репозиторий публичного каталога объектов.
-//
-// Это read-only слой для публичных ручек: он возвращает только поля, которые
-// разрешены к публикации (ADR 0001 §8), и не отдаёт внутренние идентификаторы,
-// владельца и служебные признаки.
-type CatalogRepo interface {
-	// ListPublicObjects возвращает опубликованные объекты тенанта с пагинацией.
-	// Удалённые объекты (status_id = 4) не попадают в каталог.
-	ListPublicObjects(ctx context.Context, tenantID string, limit, offset int) ([]*model.PublicObject, error)
-}
+// CatalogRepo — алиас доменного порта CatalogRepository: репозиторий реализует
+// контракт публичного каталога, объявленный в internal/domain.
+type CatalogRepo = domain.CatalogRepository
 
 // deletedObjectStatusID — статус объекта «удалён» (ERDB 2.9, seed миграции
 // 00001_foundation). Мягко удалённые объекты публично не показываются.
@@ -34,16 +34,21 @@ const deletedObjectStatusID = 4
 // catalogRepo — конкретная реализация, скрыта от внешних пакетов.
 type catalogRepo struct {
 	db CatalogDB
+	codec
 }
 
 // NewCatalogRepo создаёт репозиторий публичного каталога.
-func NewCatalogRepo(ctx context.Context, db CatalogDB) CatalogRepo {
+//
+// Диалект обязателен, как и у остальных репозиториев: запросы пишутся с
+// плейсхолдерами «?», а PostgreSQL ждёт «$1». Без codec запрос отправлялся бы
+// как есть, и на PostgreSQL каталог отвечал бы синтаксической ошибкой.
+func NewCatalogRepo(ctx context.Context, db CatalogDB, dialect string) CatalogRepo {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewCatalogRepo")
 	defer spanEnd()
 
-	slog.DebugContext(traceCtx, "catalog repository created")
+	slog.DebugContext(traceCtx, "catalog repository created", "dialect", dialect)
 
-	return &catalogRepo{db: db}
+	return &catalogRepo{db: db, codec: codec{dialect: dialect}}
 }
 
 // ListPublicObjects возвращает опубликованные объекты тенанта.
@@ -63,7 +68,7 @@ func (r *catalogRepo) ListPublicObjects(
 		" FROM rental_objects WHERE tenant_id = ? AND status_id <> ?" +
 		" ORDER BY created_at DESC LIMIT ? OFFSET ?"
 
-	rows, err := r.db.QueryContext(traceCtx, query, tenantID, deletedObjectStatusID, limit, offset)
+	rows, err := conn(traceCtx, r.db).QueryContext(traceCtx, r.rebind(query), tenantID, deletedObjectStatusID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("select public objects: %w", database.MapError(err))
 	}

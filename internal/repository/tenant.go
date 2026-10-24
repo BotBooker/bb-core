@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/pkg/observability"
 )
@@ -25,52 +26,9 @@ type TenantDB interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
-// TenantRepo — интерфейс репозитория тенантов и членства в них.
-//
-// Роль пользователя — атрибут членства (tenant_members.role_id), поэтому
-// именно здесь находится источник действующей роли: профиль (users) её не
-// хранит, а сессия (user_tokens.role_id) держит только снимок на момент выдачи.
-type TenantRepo interface {
-	// Create вставляет тенант; конфликт уникальности slug — database.ErrDuplicate.
-	Create(ctx context.Context, tenant *model.Tenant) error
-	// CreateWithOwner вставляет тенант и членство владельца в одной транзакции.
-	CreateWithOwner(ctx context.Context, tenant *model.Tenant, member *model.TenantMember) error
-	// GetByID возвращает тенант по идентификатору или database.ErrNotFound.
-	GetByID(ctx context.Context, id string) (*model.Tenant, error)
-	// GetBySlug возвращает тенант по slug или database.ErrNotFound.
-	GetBySlug(ctx context.Context, slug string) (*model.Tenant, error)
-	// List возвращает тенанты (кроме удалённых) с пагинацией.
-	List(ctx context.Context, limit, offset int) ([]*model.Tenant, error)
-	// ListActive возвращает действующие тенанты с пагинацией.
-	ListActive(ctx context.Context, limit, offset int) ([]*model.Tenant, error)
-	// UpdateStatus меняет статус тенанта; отсутствие строки — database.ErrNotFound.
-	UpdateStatus(ctx context.Context, id string, status model.TenantStatus, now time.Time) error
-	// AddMember добавляет пользователя в тенант; повторное членство —
-	// database.ErrDuplicate, несуществующий тенант — нарушение внешнего ключа.
-	AddMember(ctx context.Context, member *model.TenantMember) error
-	// GetMember возвращает членство пользователя в тенанте или database.ErrNotFound.
-	GetMember(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
-	// GetMemberBySlug возвращает членство в действующем тенанте по slug или
-	// database.ErrNotFound.
-	GetMemberBySlug(ctx context.Context, slug, userID string) (*model.TenantMembership, error)
-	// MemberOfUser возвращает членство пользователя в действующем тенанте,
-	// которое используется для сессии, или database.ErrNotFound.
-	MemberOfUser(ctx context.Context, userID string) (*model.TenantMember, error)
-	// ListMemberships возвращает действующие членства пользователя вместе с
-	// тенантами: это список «мои тенанты» для входа и переключения.
-	ListMemberships(ctx context.Context, userID string) ([]*model.TenantMembership, error)
-	// ListMembers возвращает участников тенанта с профилями пользователей.
-	ListMembers(ctx context.Context, tenantID string, limit, offset int) ([]*model.TenantMemberView, error)
-	// GetMemberView возвращает участника тенанта вместе с профилем.
-	GetMemberView(ctx context.Context, tenantID, userID string) (*model.TenantMemberView, error)
-	// UpdateMemberRole меняет роль участника; отсутствие строки — database.ErrNotFound.
-	UpdateMemberRole(ctx context.Context, tenantID, userID string, role model.Role) error
-	// RemoveMember удаляет членство; отсутствие строки — database.ErrNotFound.
-	RemoveMember(ctx context.Context, tenantID, userID string) error
-	// TransferOwnership передаёт владение тенантом участнику в одной транзакции.
-	// Целевой участник должен существовать; отсутствие — database.ErrNotFound.
-	TransferOwnership(ctx context.Context, tenantID, userID string) error
-}
+// TenantRepo — алиас доменного порта TenantRepository: репозиторий реализует
+// контракт тенантов и членства, объявленный в internal/domain.
+type TenantRepo = domain.TenantRepository
 
 // tenantColumns — колонки tenants в порядке чтения scanTenant.
 const tenantColumns = "id, name, slug, status, metadata, created_at, updated_at"
@@ -83,7 +41,11 @@ const memberViewColumns = "m.tenant_id, m.user_id, m.role_id, m.is_owner, m.join
 	" u.email, u.first_name, u.last_name"
 
 // memberViewFrom — источник строк участника: членство и профиль.
-const memberViewFrom = " FROM tenant_members m JOIN users u ON u.id = m.user_id"
+//
+// JOIN отбирает только «живые» профили: после soft delete пользователя его
+// членство остаётся строкой истории, но в интерфейсе управления участниками он
+// больше не виден (иначе утекали бы email и имя удалённого).
+const memberViewFrom = " FROM tenant_members m JOIN users u ON u.id = m.user_id AND " + activeAliasedUserFilter
 
 // tenantRepo — конкретная реализация, скрыта от внешних пакетов.
 type tenantRepo struct {
@@ -109,7 +71,7 @@ func (r *tenantRepo) Create(ctx context.Context, tenant *model.Tenant) error {
 	const query = `INSERT INTO tenants (id, name, slug, status, metadata, created_at, updated_at)` +
 		` VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-	if _, err := r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query),
 		tenant.ID,
 		tenant.Name,
 		tenant.Slug,
@@ -142,52 +104,40 @@ func (r *tenantRepo) CreateWithOwner(
 		return fmt.Errorf("insert tenant with owner: %w", err)
 	}
 
-	tx, err := r.db.BeginTx(traceCtx, nil)
-	if err != nil {
-		return fmt.Errorf("insert tenant with owner: begin transaction: %w", err)
-	}
-
-	committed := false
-
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-
 	const tenantQuery = `INSERT INTO tenants (id, name, slug, status, metadata, created_at, updated_at)` +
 		` VALUES (?, ?, ?, ?, ?, ?, ?)`
-
-	if _, err := tx.ExecContext(traceCtx, r.rebind(tenantQuery),
-		tenant.ID,
-		tenant.Name,
-		tenant.Slug,
-		string(tenant.Status),
-		r.jsonArg(tenant.Metadata),
-		r.timeArg(tenant.CreatedAt),
-		r.timeArg(tenant.UpdatedAt),
-	); err != nil {
-		return fmt.Errorf("insert tenant with owner: %w", database.MapError(err))
-	}
 
 	const memberQuery = `INSERT INTO tenant_members (tenant_id, user_id, role_id, is_owner, joined_at)` +
 		` VALUES (?, ?, ?, ?, ?)`
 
-	if _, err := tx.ExecContext(traceCtx, r.rebind(memberQuery),
-		member.TenantID,
-		member.UserID,
-		roleID,
-		member.IsOwner,
-		r.timeArg(member.JoinedAt),
-	); err != nil {
-		return fmt.Errorf("insert tenant with owner: %w", database.MapError(err))
-	}
+	err = r.withTransaction(traceCtx, func(ctx context.Context, tx dbConn) error {
+		if _, execErr := tx.ExecContext(ctx, r.rebind(tenantQuery),
+			tenant.ID,
+			tenant.Name,
+			tenant.Slug,
+			string(tenant.Status),
+			r.jsonArg(tenant.Metadata),
+			r.timeArg(tenant.CreatedAt),
+			r.timeArg(tenant.UpdatedAt),
+		); execErr != nil {
+			return fmt.Errorf("insert tenant: %w", database.MapError(execErr))
+		}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("insert tenant with owner: commit: %w", err)
-	}
+		if _, execErr := tx.ExecContext(ctx, r.rebind(memberQuery),
+			member.TenantID,
+			member.UserID,
+			roleID,
+			member.IsOwner,
+			r.timeArg(member.JoinedAt),
+		); execErr != nil {
+			return fmt.Errorf("insert owner membership: %w", database.MapError(execErr))
+		}
 
-	committed = true
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("insert tenant with owner: %w", err)
+	}
 
 	return nil
 }
@@ -205,7 +155,7 @@ func (r *tenantRepo) GetByID(ctx context.Context, id string) (*model.Tenant, err
 		return nil, fmt.Errorf("select tenant: %w", err)
 	}
 
-	return scanTenant(r.db.QueryRowContext(traceCtx, r.rebind(query), id))
+	return scanTenant(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query), id))
 }
 
 // GetBySlug возвращает тенант по slug: он уникален (tenants_slug_idx).
@@ -215,7 +165,7 @@ func (r *tenantRepo) GetBySlug(ctx context.Context, slug string) (*model.Tenant,
 
 	const query = "SELECT " + tenantColumns + " FROM tenants WHERE slug = ?"
 
-	return scanTenant(r.db.QueryRowContext(traceCtx, r.rebind(query), model.NormalizeSlug(slug)))
+	return scanTenant(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query), model.NormalizeSlug(slug)))
 }
 
 // List возвращает тенанты (кроме удалённых) с пагинацией.
@@ -258,7 +208,7 @@ func (r *tenantRepo) listTenants(
 	// query собирается из констант, значения передаются параметрами: срабатывание
 	// правила go_gosec_sql_concat_sqli ложное.
 	// bearer:disable go_gosec_sql_concat_sqli
-	rows, err := r.db.QueryContext(ctx, r.rebind(query), args...)
+	rows, err := conn(ctx, r.db).QueryContext(ctx, r.rebind(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("select tenants: %w", database.MapError(err))
 	}
@@ -302,7 +252,7 @@ func (r *tenantRepo) UpdateStatus(
 
 	const query = "UPDATE tenants SET status = ?, updated_at = ? WHERE id = ?"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), string(status), r.timeArg(now), id)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), string(status), r.timeArg(now), id)
 	if err != nil {
 		return fmt.Errorf("update tenant status: %w", database.MapError(err))
 	}
@@ -326,7 +276,7 @@ func (r *tenantRepo) AddMember(ctx context.Context, member *model.TenantMember) 
 		return fmt.Errorf("insert tenant member: %w", err)
 	}
 
-	if _, err = r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err = conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query),
 		member.TenantID,
 		member.UserID,
 		roleID,
@@ -355,7 +305,7 @@ func (r *tenantRepo) GetMember(ctx context.Context, tenantID, userID string) (*m
 		return nil, fmt.Errorf("select tenant member: %w", err)
 	}
 
-	return scanTenantMember(r.db.QueryRowContext(traceCtx, r.rebind(query), tenantID, userID))
+	return scanTenantMember(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query), tenantID, userID))
 }
 
 // GetMemberBySlug возвращает членство в действующем тенанте по slug.
@@ -383,7 +333,7 @@ func (r *tenantRepo) GetMemberBySlug(
 		return nil, fmt.Errorf("select tenant membership: %w: empty slug", database.ErrNotFound)
 	}
 
-	return scanMembership(r.db.QueryRowContext(traceCtx, r.rebind(query),
+	return scanMembership(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query),
 		normalized, userID, string(model.TenantStatusActive)))
 }
 
@@ -404,7 +354,7 @@ func (r *tenantRepo) ListMemberships(
 		return nil, fmt.Errorf("select tenant memberships: %w", err)
 	}
 
-	rows, err := r.db.QueryContext(traceCtx, r.rebind(query), userID, string(model.TenantStatusActive))
+	rows, err := conn(traceCtx, r.db).QueryContext(traceCtx, r.rebind(query), userID, string(model.TenantStatusActive))
 	if err != nil {
 		return nil, fmt.Errorf("select tenant memberships: %w", database.MapError(err))
 	}
@@ -447,7 +397,7 @@ func (r *tenantRepo) MemberOfUser(ctx context.Context, userID string) (*model.Te
 		return nil, fmt.Errorf("select tenant member: %w", err)
 	}
 
-	return scanTenantMember(r.db.QueryRowContext(traceCtx, r.rebind(query),
+	return scanTenantMember(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query),
 		userID, string(model.TenantStatusActive)))
 }
 
@@ -467,7 +417,7 @@ func (r *tenantRepo) ListMembers(
 	query := "SELECT " + memberViewColumns + memberViewFrom +
 		" WHERE m.tenant_id = ? ORDER BY m.is_owner DESC, m.joined_at ASC LIMIT ? OFFSET ?"
 
-	rows, err := r.db.QueryContext(traceCtx, r.rebind(query), tenantID, limit, offset)
+	rows, err := conn(traceCtx, r.db).QueryContext(traceCtx, r.rebind(query), tenantID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("select tenant members: %w", database.MapError(err))
 	}
@@ -510,7 +460,7 @@ func (r *tenantRepo) GetMemberView(
 	query := "SELECT " + memberViewColumns + memberViewFrom +
 		" WHERE m.tenant_id = ? AND m.user_id = ?"
 
-	return scanTenantMemberView(r.db.QueryRowContext(traceCtx, r.rebind(query), tenantID, userID))
+	return scanTenantMemberView(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query), tenantID, userID))
 }
 
 // UpdateMemberRole меняет роль участника.
@@ -529,7 +479,7 @@ func (r *tenantRepo) UpdateMemberRole(
 
 	const query = "UPDATE tenant_members SET role_id = ? WHERE tenant_id = ? AND user_id = ?"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), roleID, tenantID, userID)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), roleID, tenantID, userID)
 	if err != nil {
 		return fmt.Errorf("update tenant member role: %w", database.MapError(err))
 	}
@@ -544,7 +494,7 @@ func (r *tenantRepo) RemoveMember(ctx context.Context, tenantID, userID string) 
 
 	const query = "DELETE FROM tenant_members WHERE tenant_id = ? AND user_id = ?"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), tenantID, userID)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), tenantID, userID)
 	if err != nil {
 		return fmt.Errorf("delete tenant member: %w", database.MapError(err))
 	}
@@ -570,9 +520,63 @@ func (r *tenantRepo) TransferOwnership(ctx context.Context, tenantID, userID str
 		return fmt.Errorf("transfer ownership: %w", err)
 	}
 
-	tx, err := r.db.BeginTx(traceCtx, nil)
+	const memberQuery = "SELECT role_id FROM tenant_members WHERE tenant_id = ? AND user_id = ?"
+
+	const clearQuery = "UPDATE tenant_members SET is_owner = false WHERE tenant_id = ? AND is_owner = true"
+
+	const promoteQuery = "UPDATE tenant_members SET is_owner = true, role_id = ?" +
+		" WHERE tenant_id = ? AND user_id = ?"
+
+	adminID, err := model.RoleAdmin.ID()
 	if err != nil {
-		return fmt.Errorf("transfer ownership: begin transaction: %w", err)
+		return fmt.Errorf("transfer ownership: %w", err)
+	}
+
+	err = r.withTransaction(traceCtx, func(ctx context.Context, tx dbConn) error {
+		var roleID int16
+
+		if scanErr := tx.QueryRowContext(ctx, r.rebind(memberQuery), tenantID, userID).Scan(&roleID); scanErr != nil {
+			if errors.Is(scanErr, sql.ErrNoRows) {
+				return fmt.Errorf("select member: %w", domain.ErrNotFound)
+			}
+
+			return fmt.Errorf("select member: %w", database.MapError(scanErr))
+		}
+
+		if _, execErr := tx.ExecContext(ctx, r.rebind(clearQuery), tenantID); execErr != nil {
+			return fmt.Errorf("clear owner flag: %w", database.MapError(execErr))
+		}
+
+		if _, execErr := tx.ExecContext(ctx, r.rebind(promoteQuery), adminID, tenantID, userID); execErr != nil {
+			return fmt.Errorf("promote new owner: %w", database.MapError(execErr))
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("transfer ownership: %w", err)
+	}
+
+	return nil
+}
+
+// withTransaction выполняет fn в транзакции.
+//
+// Если репозиторий вызван внутри UnitOfWork, транзакция уже открыта и лежит в
+// контексте: fn получает её. Своя транзакция открывается только при вызове вне
+// use case — иначе на SQLite вложенная запись заблокировала бы сама себя, а на
+// PostgreSQL часть изменений зафиксировалась бы вне общей границы.
+func (r *tenantRepo) withTransaction(
+	ctx context.Context,
+	fn func(ctx context.Context, tx dbConn) error,
+) error {
+	if _, ok := database.GetTx(ctx); ok {
+		return fn(ctx, conn(ctx, r.db))
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
 	}
 
 	committed := false
@@ -583,38 +587,12 @@ func (r *tenantRepo) TransferOwnership(ctx context.Context, tenantID, userID str
 		}
 	}()
 
-	const memberQuery = "SELECT role_id FROM tenant_members WHERE tenant_id = ? AND user_id = ?"
-
-	var roleID int16
-
-	if err := tx.QueryRowContext(traceCtx, r.rebind(memberQuery), tenantID, userID).Scan(&roleID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("transfer ownership: %w", database.ErrNotFound)
-		}
-
-		return fmt.Errorf("transfer ownership: %w", database.MapError(err))
-	}
-
-	const clearQuery = "UPDATE tenant_members SET is_owner = false WHERE tenant_id = ? AND is_owner = true"
-
-	if _, err := tx.ExecContext(traceCtx, r.rebind(clearQuery), tenantID); err != nil {
-		return fmt.Errorf("transfer ownership: %w", database.MapError(err))
-	}
-
-	adminID, err := model.RoleAdmin.ID()
-	if err != nil {
-		return fmt.Errorf("transfer ownership: %w", err)
-	}
-
-	const promoteQuery = "UPDATE tenant_members SET is_owner = true, role_id = ?" +
-		" WHERE tenant_id = ? AND user_id = ?"
-
-	if _, err := tx.ExecContext(traceCtx, r.rebind(promoteQuery), adminID, tenantID, userID); err != nil {
-		return fmt.Errorf("transfer ownership: %w", database.MapError(err))
+	if err := fn(ctx, tx); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("transfer ownership: commit: %w", err)
+		return fmt.Errorf("commit: %w", err)
 	}
 
 	committed = true

@@ -7,37 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/pkg/observability"
 )
-
-// TenantRepository — интерфейс репозитория тенантов для TenantService.
-type TenantRepository interface {
-	CreateWithOwner(ctx context.Context, tenant *model.Tenant, member *model.TenantMember) error
-	GetByID(ctx context.Context, id string) (*model.Tenant, error)
-	List(ctx context.Context, limit, offset int) ([]*model.Tenant, error)
-	UpdateStatus(ctx context.Context, id string, status model.TenantStatus, now time.Time) error
-	AddMember(ctx context.Context, member *model.TenantMember) error
-	GetMember(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
-	ListMemberships(ctx context.Context, userID string) ([]*model.TenantMembership, error)
-	ListMembers(ctx context.Context, tenantID string, limit, offset int) ([]*model.TenantMemberView, error)
-	GetMemberView(ctx context.Context, tenantID, userID string) (*model.TenantMemberView, error)
-	UpdateMemberRole(ctx context.Context, tenantID, userID string, role model.Role) error
-	RemoveMember(ctx context.Context, tenantID, userID string) error
-	TransferOwnership(ctx context.Context, tenantID, userID string) error
-}
-
-// TenantUserRepository — интерфейс репозитория пользователей для TenantService.
-type TenantUserRepository interface {
-	GetByID(ctx context.Context, id string) (*model.User, error)
-}
-
-// TenantSessionRepository — интерфейс отзыва сессий для TenantService.
-type TenantSessionRepository interface {
-	RevokeByTenant(ctx context.Context, tenantID string, at time.Time) (int64, error)
-	RevokeByUserTenant(ctx context.Context, userID, tenantID string, at time.Time) (int64, error)
-}
 
 // События управления тенантами.
 const (
@@ -114,9 +87,9 @@ type TenantService interface {
 
 // tenantService — конкретная реализация, скрыта от внешних пакетов.
 type tenantService struct {
-	tenants TenantRepository
-	users   TenantUserRepository
-	tokens  TenantSessionRepository
+	tenants domain.TenantRepository
+	users   domain.UserRepository
+	tokens  domain.TokenRepository
 	events  AuthEventPublisher
 	now     func() time.Time
 }
@@ -124,9 +97,9 @@ type tenantService struct {
 // NewTenantService создаёт сервис управления тенантами.
 func NewTenantService(
 	ctx context.Context,
-	tenants TenantRepository,
-	users TenantUserRepository,
-	tokens TenantSessionRepository,
+	tenants domain.TenantRepository,
+	users domain.UserRepository,
+	tokens domain.TokenRepository,
 	events AuthEventPublisher,
 ) TenantService {
 	slog.DebugContext(ctx, "tenant service created")
@@ -193,7 +166,7 @@ func (s *tenantService) Get(ctx context.Context, actor *Principal, tenantID stri
 	}
 
 	if tenant.Deleted() && !actor.CanAdminAllTenants() {
-		return nil, fmt.Errorf("get tenant: %w", database.ErrNotFound)
+		return nil, fmt.Errorf("get tenant: %w", domain.ErrNotFound)
 	}
 
 	return tenant, nil
@@ -542,7 +515,7 @@ func (s *tenantService) requireMemberOrGlobal(ctx context.Context, actor *Princi
 	}
 
 	if _, err := s.tenants.GetMember(ctx, tenantID, actor.User.ID); err != nil {
-		if errors.Is(err, database.ErrNotFound) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return ErrForbidden
 		}
 
@@ -572,7 +545,7 @@ func (s *tenantService) requireAdminTenant(
 	}
 
 	if tenant.Deleted() {
-		return database.ErrNotFound
+		return domain.ErrNotFound
 	}
 
 	return nil

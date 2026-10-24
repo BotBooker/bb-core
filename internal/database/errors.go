@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	sqlite "modernc.org/sqlite"
+
+	"github.com/botbooker/bb-core/internal/domain"
 )
 
 // Коды ошибок драйверов, которые означают конфликт уникальности.
@@ -22,13 +24,18 @@ const (
 	sqliteConstraintPrimaryKey = 1555
 )
 
-// Доменные ошибки доступа к данным.
-// Проверять их нужно через errors.Is: MapError добавляет к ним контекст драйвера.
+// Доменные ошибки доступа к данным — алиасы domain: проверять их нужно через
+// errors.Is, MapError добавляет к ним контекст драйвера.
+//
+// Сами ошибки объявлены в internal/domain: сервисы и транспорт не должны
+// импортировать инфраструктуру ради sentinel-значений (spec §1.1). Алиасы
+// оставлены для совместимости с существующими вызовами внутри инфраструктуры и
+// тестами репозиториев.
 var (
 	// ErrNotFound — запись не найдена.
-	ErrNotFound = errors.New("record not found")
+	ErrNotFound = domain.ErrNotFound
 	// ErrDuplicate — нарушено ограничение уникальности (например, email уже занят).
-	ErrDuplicate = errors.New("duplicate record")
+	ErrDuplicate = domain.ErrDuplicate
 )
 
 // MapError переводит ошибки драйверов в доменные:

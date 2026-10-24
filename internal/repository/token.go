@@ -8,43 +8,24 @@ import (
 	"time"
 
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/pkg/observability"
 )
 
 // TokenDB — интерфейс базы данных, который нужен TokenRepo.
 //
-// Методы совпадают с методами database.DB, но объявлены узко: репозиторию
-// нужны только запросы.
+// Набор методов совпадает с dbConn: внутри UnitOfWork запрос уходит в
+// транзакцию из контекста.
 type TokenDB interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// TokenRepo — интерфейс репозитория токенов доступа (сессий).
-type TokenRepo interface {
-	// Create вставляет выданный токен; конфликт уникальности — database.ErrDuplicate.
-	Create(ctx context.Context, token *model.Token) error
-	// GetByID возвращает токен по идентификатору (jti) или database.ErrNotFound.
-	GetByID(ctx context.Context, id string) (*model.Token, error)
-	// TouchLastUsed отмечает, что токен использовали: аудит последней активности.
-	TouchLastUsed(ctx context.Context, id string, at time.Time) error
-	// Revoke помечает токен отозванным — это и есть выход из системы.
-	// Повторный отзыв не ошибка: клиент мог потерять ответ после первого выхода.
-	Revoke(ctx context.Context, id string, at time.Time) error
-	// RevokeByUser отзывает все действующие сессии пользователя во всех
-	// тенантах: это logout-all и отзыв при удалении пользователя.
-	RevokeByUser(ctx context.Context, userID string, at time.Time) (int64, error)
-	// RevokeByTenant отзывает все действующие сессии тенанта: приостановка и
-	// удаление тенанта должны немедленно закрывать доступ.
-	RevokeByTenant(ctx context.Context, tenantID string, at time.Time) (int64, error)
-	// RevokeByUserTenant отзывает сессии пользователя в одном тенанте: удаление
-	// членства и смена роли не должны оставлять старые права.
-	RevokeByUserTenant(ctx context.Context, userID, tenantID string, at time.Time) (int64, error)
-	// DeleteExpired удаляет записи, истёкшие до указанного момента, и возвращает
-	// число удалённых: таблица сессий не должна расти бесконечно.
-	DeleteExpired(ctx context.Context, user_id string, before time.Time) (int64, error)
-}
+// TokenRepo — алиас доменного порта TokenRepository: репозиторий реализует
+// контракт сессий, объявленный в internal/domain.
+type TokenRepo = domain.TokenRepository
 
 // authColumns — колонки user_tokens в том порядке, в котором их читает scanToken.
 // Порядок должен совпадать: рассинхрон ловят тесты репозитория.
@@ -83,7 +64,7 @@ func (r *tokenRepo) Create(ctx context.Context, token *model.Token) error {
 		return fmt.Errorf("insert token: %w", err)
 	}
 
-	if _, err = r.db.ExecContext(traceCtx, r.rebind(query),
+	if _, err = conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query),
 		token.ID,
 		token.UserID,
 		token.TenantID,
@@ -109,7 +90,7 @@ func (r *tokenRepo) GetByID(ctx context.Context, id string) (*model.Token, error
 
 	const query = "SELECT " + authColumns + " FROM user_tokens WHERE id = ?"
 
-	token, err := scanToken(r.db.QueryRowContext(traceCtx, r.rebind(query), id))
+	token, err := scanToken(conn(traceCtx, r.db).QueryRowContext(traceCtx, r.rebind(query), id))
 	if err != nil {
 		return nil, fmt.Errorf("select token: %w", database.MapError(err))
 	}
@@ -124,7 +105,7 @@ func (r *tokenRepo) TouchLastUsed(ctx context.Context, id string, at time.Time) 
 
 	const query = "UPDATE user_tokens SET last_used_at = ? WHERE id = ?"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
 	if err != nil {
 		return fmt.Errorf("touch token: %w", database.MapError(err))
 	}
@@ -144,7 +125,7 @@ func (r *tokenRepo) Revoke(ctx context.Context, id string, at time.Time) error {
 
 	const query = "UPDATE user_tokens SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), r.timeArg(at), id)
 	if err != nil {
 		return fmt.Errorf("revoke token: %w", database.MapError(err))
 	}
@@ -178,7 +159,7 @@ func (r *tokenRepo) RevokeByUserTenant(
 
 	action := "revoke user tenant tokens"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), userID, tenantID)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), r.timeArg(at), userID, tenantID)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", action, database.MapError(err))
 	}
@@ -198,7 +179,7 @@ func (r *tokenRepo) revokeWhere(
 	query := "UPDATE user_tokens SET revoked_at = COALESCE(revoked_at, ?)" +
 		" WHERE " + condition + " AND revoked_at IS NULL"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), r.timeArg(at), value)
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), r.timeArg(at), value)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", action, database.MapError(err))
 	}
@@ -223,7 +204,7 @@ func (r *tokenRepo) DeleteExpired(ctx context.Context, user_id string, before ti
 
 	const query = "DELETE FROM user_tokens WHERE user_id = ? AND expires_at < ?"
 
-	result, err := r.db.ExecContext(traceCtx, r.rebind(query), user_id, r.timeArg(before))
+	result, err := conn(traceCtx, r.db).ExecContext(traceCtx, r.rebind(query), user_id, r.timeArg(before))
 	if err != nil {
 		return 0, fmt.Errorf("delete expired tokens: %w", database.MapError(err))
 	}

@@ -142,7 +142,7 @@ func requestLogLevel(service bool) slog.Level {
 // isServicePath сообщает, что HTTP-ручку опрашивают проба или инструмент, а не
 // пользователь: health — readiness-пробами, Swagger UI — браузером.
 func isServicePath(path string) bool {
-	return path == healthPath || strings.HasPrefix(path, SwaggerPrefix)
+	return path == healthPath || path == readyPath || strings.HasPrefix(path, SwaggerPrefix)
 }
 
 // isServiceGRPCMethod сообщает, что gRPC-метод опрашивают проба или инструмент,

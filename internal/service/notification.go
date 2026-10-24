@@ -3,17 +3,14 @@ package service
 import (
 	"context"
 	"log/slog"
+
+	"github.com/botbooker/bb-core/internal/domain"
 )
 
-// NotificationRepository — интерфейс репозитория уведомлений для NotificationService.
-type NotificationRepository any
-
-// методы, которые NotificationService использует из репозитория уведомлений
-
-// NotificationUserService — интерфейс сервиса пользователей для NotificationService.
+// NotificationUserService — действие над пользователями, которое в будущем
+// понадобится уведомлениям. Пока заглушка: порт объявлен в домене, чтобы
+// сервис не зависел от инфраструктуры.
 type NotificationUserService any
-
-// методы, которые NotificationService использует из сервиса пользователей
 
 // NotificationEventSubscriber — интерфейс для подписки на события.
 // Метод принимает контекст: через него в запись лога добавляется trace_id
@@ -27,7 +24,7 @@ type NotificationService any
 
 // notificationService — конкретная реализация, скрыта от внешних пакетов.
 type notificationService struct {
-	notificationRepo NotificationRepository
+	notificationRepo domain.NotificationRepository
 	userService      NotificationUserService
 	events           NotificationEventSubscriber
 }
@@ -35,7 +32,7 @@ type notificationService struct {
 // NewNotificationService создаёт сервис уведомлений.
 func NewNotificationService(
 	ctx context.Context,
-	notificationRepo NotificationRepository,
+	notificationRepo domain.NotificationRepository,
 	userService NotificationUserService,
 	events NotificationEventSubscriber,
 ) NotificationService {

@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Ошибки токенов доступа.
@@ -71,7 +69,7 @@ func NewToken(user *User, tenantID string, role Role, ttl time.Duration, now tim
 	issuedAt := now.UTC()
 
 	token := &Token{
-		ID:        uuid.NewString(),
+		ID:        NewID(),
 		UserID:    user.ID,
 		TenantID:  tenantID,
 		Role:      role,
