@@ -70,9 +70,15 @@ securityContext:
     type: RuntimeDefault
 
 probes:
-  httpPath: /health
+  # liveness — «процесс жив»: базы не касается, иначе её падение перезапускало
+  # бы под, который сам восстановится, когда база вернётся.
+  livenessPath: /health
+  # readiness — «готов обслуживать»: проверяет доступность БД (GET /ready).
+  readinessPath: /ready
   initialDelaySeconds: 5
   periodSeconds: 10
+  # Бюджет ответа: /ready проверяет БД и отвечает 503, если она не ответила.
+  timeoutSeconds: 2
 
 nodeSelector: {}
 tolerations: []

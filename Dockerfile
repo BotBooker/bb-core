@@ -22,10 +22,10 @@ ARG BUILD_DATE
 ARG VERSION=dev
 
 # Все три команды собираются одним вызовом: имена файлов совпадают с именами
-# пакетов (api, bootstrap, healthcheck, migrate).
+# пакетов (api, bootstrap, migrate).
 RUN CGO_ENABLED=0 go build -mod=readonly -tags netgo -trimpath \
         -ldflags="-s -w -extldflags \"-static\" -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE}" \
-        -o /out/ ./cmd/api ./cmd/bootstrap ./cmd/healthcheck ./cmd/migrate
+        -o /out/ ./cmd/api ./cmd/bootstrap ./cmd/migrate
 
 FROM scratch
 
@@ -47,7 +47,11 @@ USER 55555:55555
 
 EXPOSE 8080 50051
 
+# HEALTHCHECK запускает тот же бинарник с флагом --readycheck: проба не
+# поднимает серверы и не подключается к БД, а опрашивает GET /ready работающего
+# экземпляра. Контейнер не считается здоровым, пока БД недоступна
+# (liveness-проба /health остаётся за Kubernetes).
 HEALTHCHECK --interval=30s --timeout=3s \
-  CMD ["/app/healthcheck"]
+  CMD ["/app/api --readycheck"]
 
 CMD ["/app/api"]

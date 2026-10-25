@@ -2,14 +2,37 @@ package repository
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 )
+
+// dbConn — минимум, который нужен репозиторию: пул соединений или транзакция
+// Unit of Work. Ему удовлетворяют и database.DB, и *sql.Tx.
+type dbConn interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// conn выбирает соединение для запроса: транзакцию из контекста, если репозиторий
+// вызван внутри UnitOfWork, иначе — пул.
+//
+// Без этого правила запросы уходили бы мимо транзакции: use case откатил бы
+// изменения, а часть из них уже была бы зафиксирована отдельными соединениями.
+func conn(ctx context.Context, db dbConn) dbConn {
+	if tx, ok := database.GetTx(ctx); ok {
+		return tx
+	}
+
+	return db
+}
 
 // codec переводит значения модели в вид, который понимает конкретный диалект,
 // и подставляет плейсхолдеры: PostgreSQL ждёт $1, $2, ... и нативные типы,
@@ -93,7 +116,7 @@ func requireAffected(result sql.Result, action string) error {
 	}
 
 	if affected == 0 {
-		return fmt.Errorf("%w: %s affected 0 rows", database.ErrNotFound, action)
+		return fmt.Errorf("%w: %s affected 0 rows", domain.ErrNotFound, action)
 	}
 
 	return nil

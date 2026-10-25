@@ -85,12 +85,29 @@ func (m *mockAuthUserRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListAll, ListVisible и GetVisible дорисовывают порт domain.UserRepository:
+// авторизации они не нужны, но интерфейс один на всех потребителей.
+func (m *mockAuthUserRepository) ListAll(context.Context, int, int) ([]*model.User, error) {
+	return nil, nil
+}
+
+func (m *mockAuthUserRepository) ListVisible(context.Context, string, int, int) ([]*model.User, error) {
+	return nil, nil
+}
+
+func (m *mockAuthUserRepository) GetVisible(context.Context, string, string) (*model.User, error) {
+	return nil, database.ErrNotFound
+}
+
 // mockAuthCredentialRepository — мок учётных данных.
 type mockAuthCredentialRepository struct {
 	createFunc      func(ctx context.Context, credentials *model.Credentials) error
 	getByUserIDFunc func(ctx context.Context, userID string) (*model.Credentials, error)
 	updateFunc      func(ctx context.Context, credentials *model.Credentials) error
 	touchFunc       func(ctx context.Context, id string, at time.Time) error
+	// deactivateFunc позволяет проверить деактивацию учётных данных при
+	// удалении аккаунта: без него мок считает операцию успешной.
+	deactivateFunc func(ctx context.Context, userID string, at time.Time) error
 }
 
 func (m *mockAuthCredentialRepository) Create(ctx context.Context, credentials *model.Credentials) error {
@@ -120,6 +137,24 @@ func (m *mockAuthCredentialRepository) Update(ctx context.Context, credentials *
 func (m *mockAuthCredentialRepository) TouchLastLogin(ctx context.Context, id string, at time.Time) error {
 	if m.touchFunc != nil {
 		return m.touchFunc(ctx, id, at)
+	}
+
+	return nil
+}
+
+// GetByProvider и DeactivateByUser дорисовывают порт
+// domain.CredentialRepository: вход ищет учётные данные по пользователю, а
+// удаление аккаунта выполняется в UserService.
+func (m *mockAuthCredentialRepository) GetByProvider(
+	context.Context,
+	string, string,
+) (*model.Credentials, error) {
+	return nil, database.ErrNotFound
+}
+
+func (m *mockAuthCredentialRepository) DeactivateByUser(ctx context.Context, userID string, at time.Time) error {
+	if m.deactivateFunc != nil {
+		return m.deactivateFunc(ctx, userID, at)
 	}
 
 	return nil
@@ -225,6 +260,52 @@ func (m *mockAuthTenantRepository) MemberOfUser(ctx context.Context, userID stri
 	return nil, database.ErrNotFound
 }
 
+// Остальные методы порта domain.TenantRepository сценариям авторизации не
+// нужны; интерфейс один на всех потребителей, поэтому мок их объявляет.
+func (m *mockAuthTenantRepository) List(context.Context, int, int) ([]*model.Tenant, error) {
+	return nil, nil
+}
+
+func (m *mockAuthTenantRepository) ListActive(context.Context, int, int) ([]*model.Tenant, error) {
+	return nil, nil
+}
+
+func (m *mockAuthTenantRepository) UpdateStatus(
+	context.Context,
+	string,
+	model.TenantStatus,
+	time.Time,
+) error {
+	return nil
+}
+
+func (m *mockAuthTenantRepository) ListMembers(
+	context.Context,
+	string,
+	int, int,
+) ([]*model.TenantMemberView, error) {
+	return nil, nil
+}
+
+func (m *mockAuthTenantRepository) GetMemberView(
+	context.Context,
+	string, string,
+) (*model.TenantMemberView, error) {
+	return nil, database.ErrNotFound
+}
+
+func (m *mockAuthTenantRepository) UpdateMemberRole(context.Context, string, string, model.Role) error {
+	return nil
+}
+
+func (m *mockAuthTenantRepository) RemoveMember(context.Context, string, string) error {
+	return nil
+}
+
+func (m *mockAuthTenantRepository) TransferOwnership(context.Context, string, string) error {
+	return nil
+}
+
 // mockAuthTokenRepository — мок репозитория сессий.
 type mockAuthTokenRepository struct {
 	createFunc        func(ctx context.Context, token *model.Token) error
@@ -284,6 +365,16 @@ func (m *mockAuthTokenRepository) DeleteExpired(ctx context.Context, id string, 
 		return m.deleteExpiredFunc(ctx, id, before)
 	}
 
+	return 0, nil
+}
+
+// Отзыв сессий тенанта и пары «пользователь + тенант» дорисовывает порт
+// domain.TokenRepository: авторизация отзывает сессии по пользователю.
+func (m *mockAuthTokenRepository) RevokeByTenant(context.Context, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAuthTokenRepository) RevokeByUserTenant(context.Context, string, string, time.Time) (int64, error) {
 	return 0, nil
 }
 
@@ -347,7 +438,7 @@ func newTestAuthService(t *testing.T, m *authMocks) *authService {
 	t.Helper()
 
 	created := NewAuthService(context.Background(), m.users, m.credentials, m.tokens, m.tenants, m.codec, m.events,
-		testTokenTTL, testPasswordTTL)
+		testHasher, testUnitOfWork{}, testTokenTTL, testPasswordTTL)
 
 	svc, ok := created.(*authService)
 	if !ok {
@@ -472,7 +563,7 @@ func TestAuthService_Register(t *testing.T) {
 		if storedCredentials.Hash == testPassword {
 			t.Error("в базу попал открытый пароль")
 		}
-		if err := storedCredentials.Verify(testPassword); err != nil {
+		if err := testHasher.Verify(testPassword, storedCredentials.Hash); err != nil {
 			t.Errorf("сохранённый пароль не проходит проверку: %v", err)
 		}
 		if storedToken == nil || storedToken.UserID != user.ID {
@@ -534,15 +625,15 @@ func TestAuthService_Register(t *testing.T) {
 		}
 	})
 
-	t.Run("сбой сохранения пароля откатывает пользователя", func(t *testing.T) {
-		var deletedID string
+	t.Run("сбой сохранения пароля откатывает транзакцию", func(t *testing.T) {
+		deleteCalled := false
 
 		m := newAuthMocks()
 		m.credentials.createFunc = func(context.Context, *model.Credentials) error {
 			return errors.New("insert credentials failed")
 		}
-		m.users.deleteFunc = func(_ context.Context, id string) error {
-			deletedID = id
+		m.users.deleteFunc = func(context.Context, string) error {
+			deleteCalled = true
 
 			return nil
 		}
@@ -558,8 +649,11 @@ func TestAuthService_Register(t *testing.T) {
 		if user != nil || session != nil {
 			t.Error("Register() вернул результат при ошибке")
 		}
-		if deletedID == "" {
-			t.Error("Register() не удалил пользователя без пароля")
+		// Откат делает UnitOfWork (одна транзакция на сценарий): компенсирующего
+		// удаления в сервисе нет, иначе оно выполнялось бы на уже откатанной
+		// транзакции.
+		if deleteCalled {
+			t.Error("Register() удаляет пользователя сам: откат должен делать UnitOfWork")
 		}
 	})
 }
@@ -1103,9 +1197,9 @@ func TestAuthService_Login_UpgradesLegacyHash(t *testing.T) {
 	t.Run("актуальный хеш не пересчитывается", func(t *testing.T) {
 		user := testAuthUser(t)
 
-		hash, err := model.HashPassword(testPassword)
+		hash, err := testHasher.Hash(testPassword)
 		if err != nil {
-			t.Fatalf("model.HashPassword() unexpected error = %v", err)
+			t.Fatalf("testHasher.Hash() unexpected error = %v", err)
 		}
 
 		updateCalled := false
@@ -1191,7 +1285,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 		if updated == nil {
 			t.Fatal("ChangePassword() не сохранил новый пароль")
 		}
-		if err := updated.Verify(newPassword); err != nil {
+		if err := testHasher.Verify(newPassword, updated.Hash); err != nil {
 			t.Errorf("новый пароль не проходит проверку: %v", err)
 		}
 		if !updated.ExpiresAt.Equal(testNow.Add(testPasswordTTL)) {
@@ -1206,6 +1300,42 @@ func TestAuthService_ChangePassword(t *testing.T) {
 		}
 		if len(m.events.events) != 1 || m.events.events[0] != EventUserPasswordChanged {
 			t.Errorf("события = %v, want [%s]", m.events.events, EventUserPasswordChanged)
+		}
+	})
+
+	t.Run("отзывает прежние сессии", func(t *testing.T) {
+		user := testAuthUser(t)
+
+		var revokedUser string
+
+		m := newAuthMocks()
+		m.users.getByEmailFunc = func(context.Context, string) (*model.User, error) {
+			return user, nil
+		}
+		m.credentials.getByUserIDFunc = func(_ context.Context, userID string) (*model.Credentials, error) {
+			return testCredentials(userID), nil
+		}
+		m.tokens.revokeByUserFunc = func(_ context.Context, userID string, at time.Time) (int64, error) {
+			revokedUser = userID
+
+			if !at.Equal(testNow) {
+				t.Errorf("RevokeByUser() at = %v, want %v", at, testNow)
+			}
+
+			return 2, nil
+		}
+
+		svc := newTestAuthService(t, m)
+
+		if _, err := svc.ChangePassword(
+			context.Background(), "ivan@example.com", testPassword, newPassword, "",
+		); err != nil {
+			t.Fatalf("ChangePassword() unexpected error = %v", err)
+		}
+
+		if revokedUser != user.ID {
+			t.Errorf("RevokeByUser() user = %q, want %q: старые сессии должны отзываться",
+				revokedUser, user.ID)
 		}
 	})
 

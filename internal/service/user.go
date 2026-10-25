@@ -6,35 +6,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/pkg/observability"
 )
-
-// UserRepository — интерфейс репозитория пользователей для UserService.
-//
-// Объявлен узко: сервису нужны только эти операции, хотя репозиторий умеет
-// больше (например, поиск по email для аутентификации).
-type UserRepository interface {
-	Create(ctx context.Context, user *model.User) error
-	GetByID(ctx context.Context, id string) (*model.User, error)
-	Update(ctx context.Context, user *model.User) error
-	Delete(ctx context.Context, id string) error
-	// ListAll возвращает активных пользователей: для глобальных администраторов.
-	ListAll(ctx context.Context, limit, offset int) ([]*model.User, error)
-	// ListVisible возвращает пользователей, видимых staff тенанта.
-	ListVisible(ctx context.Context, tenantID string, limit, offset int) ([]*model.User, error)
-	// GetVisible возвращает пользователя, видимого staff тенанта.
-	GetVisible(ctx context.Context, tenantID, id string) (*model.User, error)
-}
-
-// UserMembershipRepository — интерфейс членства в тенанте для UserService.
-//
-// Нужен, чтобы созданный сотрудником пользователь сразу стал клиентом тенанта
-// сотрудника, а не получал личный тенант при первом входе.
-type UserMembershipRepository interface {
-	AddMember(ctx context.Context, member *model.TenantMember) error
-	GetMember(ctx context.Context, tenantID, userID string) (*model.TenantMember, error)
-}
 
 // UserEventPublisher — интерфейс для публикации событий пользователей.
 // Метод принимает контекст: через него в запись лога добавляется trace_id
@@ -89,24 +64,43 @@ type UserService interface {
 
 // userService — конкретная реализация, скрыта от внешних пакетов.
 type userService struct {
-	userRepo    UserRepository
-	memberships UserMembershipRepository
-	events      UserEventPublisher
+	userRepo       domain.UserRepository
+	tenantRepo     domain.TenantRepository
+	credentialRepo domain.CredentialRepository
+	tokenRepo      domain.TokenRepository
+	events         UserEventPublisher
+	// uow — транзакционная граница создания и удаления пользователя:
+	// профиль, членство, учётные данные и сессии меняются целиком.
+	uow domain.UnitOfWork
 }
 
 // NewUserService создаёт сервис пользователей.
+//
+// Помимо профилей сервису нужны членство (созданный сотрудником пользователь
+// сразу становится клиентом его тенанта), учётные данные и сессии (удаление
+// аккаунта закрывает доступ) и UnitOfWork (общая транзакция сценария).
 func NewUserService(
 	ctx context.Context,
-	userRepo UserRepository,
-	memberships UserMembershipRepository,
+	userRepo domain.UserRepository,
+	tenantRepo domain.TenantRepository,
+	credentialRepo domain.CredentialRepository,
+	tokenRepo domain.TokenRepository,
 	events UserEventPublisher,
+	uow domain.UnitOfWork,
 ) UserService {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "NewUserService")
 	defer spanEnd()
 
 	slog.DebugContext(traceCtx, "user service created")
 
-	return &userService{userRepo: userRepo, memberships: memberships, events: events}
+	return &userService{
+		userRepo:       userRepo,
+		tenantRepo:     tenantRepo,
+		credentialRepo: credentialRepo,
+		tokenRepo:      tokenRepo,
+		events:         events,
+		uow:            uow,
+	}
 }
 
 // principalUser возвращает профиль действующего пользователя.
@@ -126,10 +120,14 @@ func principalUser(actor *Principal) (*model.User, error) {
 //
 // Валидацию входа делает модель (те же правила, что в proto): при ошибке
 // пользователь не создаётся и репозиторий не вызывается. Конфликт уникальности
-// email или телефона приходит из репозитория как database.ErrDuplicate.
+// email или телефона приходит из репозитория как domain.ErrDuplicate.
 //
 // Создавать пользователей может сотрудник: клиент регистрируется сам
 // (POST /auth/register), поэтому роль и пароль через этот метод не задаются.
+//
+// Профиль и членство в тенанте актора создаются одной транзакцией
+// (domain.UnitOfWork): иначе при сбое второй вставки остался бы пользователь,
+// занявший email, но не попавший в тенант.
 func (s *userService) Create(
 	ctx context.Context,
 	actor *Principal,
@@ -146,32 +144,32 @@ func (s *userService) Create(
 	if !actor.CanCreate() {
 		return nil, fmt.Errorf("create user: %w: role %q", ErrForbidden, actor.Role)
 	}
-	user, err := model.NewUser(in, time.Now())
-	if err != nil {
-		return nil, fmt.Errorf("create user: %w", err)
-	}
 
-	if err := s.userRepo.Create(traceCtx, user); err != nil {
+	now := time.Now()
+
+	user, err := model.NewUser(in, now)
+	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
 	tenantID := actor.TenantID()
 	if tenantID == "" {
-		s.rollbackUser(traceCtx, user.ID)
-
 		return nil, fmt.Errorf("create user: %w: actor has no tenant", ErrUnauthorized)
 	}
 
-	member, err := model.NewTenantMember(tenantID, user.ID, model.RoleClient, false, time.Now())
+	member, err := model.NewTenantMember(tenantID, user.ID, model.RoleClient, false, now)
 	if err != nil {
-		s.rollbackUser(traceCtx, user.ID)
-
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
-	if err := s.memberships.AddMember(traceCtx, member); err != nil {
-		s.rollbackUser(traceCtx, user.ID)
+	err = s.uow.Do(traceCtx, func(txCtx context.Context) error {
+		if createErr := s.userRepo.Create(txCtx, user); createErr != nil {
+			return createErr
+		}
 
+		return s.tenantRepo.AddMember(txCtx, member)
+	})
+	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
@@ -180,14 +178,6 @@ func (s *userService) Create(
 	s.publish(traceCtx, EventUserCreated)
 
 	return user, nil
-}
-
-// rollbackUser удаляет профиль, если членство создать не удалось: иначе
-// пользователь занял бы email, но не смог бы войти в тенант.
-func (s *userService) rollbackUser(ctx context.Context, id string) {
-	if err := s.userRepo.Delete(ctx, id); err != nil {
-		slog.ErrorContext(ctx, "failed to roll back user creation", "uuid", id, "err", err)
-	}
 }
 
 // Get возвращает пользователя по идентификатору.
@@ -331,11 +321,17 @@ func (s *userService) Update(
 	return user, nil
 }
 
-// Delete удаляет пользователя. Повторное удаление даёт database.ErrNotFound:
-// клиент узнаёт, что удалять было нечего.
+// Delete удаляет аккаунт пользователя.
 //
-// Удалять может только администратор, поэтому запись заранее не читается:
-// отдельный SELECT не дал бы ничего, а лишний запрос в базу — дал.
+// Удаление аккаунта — операция системного уровня: таблица users общая для всех
+// тенантов, поэтому администратор тенанта не может закрыть чужой аккаунт —
+// иначе он отнял бы доступ и в остальных тенантах. Исключение участника из
+// тенанта — отдельная операция TenantService.RemoveMember.
+//
+// В одной транзакции: мягкое удаление профиля, деактивация учётных данных и
+// отзыв всех сессий. Иначе пароль остался бы действующим, а токены — рабочими
+// до истечения срока. Повторное удаление даёт domain.ErrNotFound: клиент
+// узнаёт, что удалять было нечего.
 func (s *userService) Delete(ctx context.Context, actor *Principal, id string) error {
 	traceCtx, spanEnd := observability.TraceSpan(ctx, "Delete")
 	defer spanEnd()
@@ -354,17 +350,28 @@ func (s *userService) Delete(ctx context.Context, actor *Principal, id string) e
 	}
 
 	if !actor.CanAdminAllTenants() {
-		member, memberErr := s.memberships.GetMember(traceCtx, actor.TenantID(), id)
-		if memberErr != nil {
-			return fmt.Errorf("delete user: %w: target is not a member of the tenant", ErrForbidden)
-		}
-
-		if member.IsOwner {
-			return fmt.Errorf("delete user: %w: tenant owner cannot be deleted, transfer ownership first", ErrForbidden)
-		}
+		return fmt.Errorf("delete user: %w: only global administrators can delete accounts;"+
+			" use tenant member removal instead", ErrForbidden)
 	}
 
-	if err := s.userRepo.Delete(traceCtx, id); err != nil {
+	now := time.Now()
+
+	err = s.uow.Do(traceCtx, func(txCtx context.Context) error {
+		if deleteErr := s.userRepo.Delete(txCtx, id); deleteErr != nil {
+			return deleteErr
+		}
+
+		if credErr := s.credentialRepo.DeactivateByUser(txCtx, id, now); credErr != nil {
+			return credErr
+		}
+
+		if _, revokeErr := s.tokenRepo.RevokeByUser(txCtx, id, now); revokeErr != nil {
+			return revokeErr
+		}
+
+		return nil
+	})
+	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
 

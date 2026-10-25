@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/botbooker/bb-core/internal/database"
 	"github.com/botbooker/bb-core/internal/model"
@@ -21,7 +22,7 @@ func TestUserService_CreateAddsTenantMembership(t *testing.T) {
 	}
 	events := &mockUserEventPublisher{}
 
-	svc := NewUserService(context.Background(), &mockUserRepository{}, memberships, events)
+	svc := newUserService(&mockUserRepository{}, memberships, events)
 
 	user, err := svc.Create(context.Background(), tenantActorIn(t, model.RoleOperator, testTenantID), testCreateInput())
 	if err != nil {
@@ -37,12 +38,19 @@ func TestUserService_CreateAddsTenantMembership(t *testing.T) {
 	}
 }
 
-func TestUserService_CreateRollsBackWithoutMembership(t *testing.T) {
-	deleted := false
+// TestUserService_CreateFailsWithoutMembership проверяет, что ошибка членства
+// отменяет создание пользователя.
+//
+// Откат делает UnitOfWork: обе вставки идут в одной транзакции, поэтому
+// компенсирующего удаления в сервисе нет — иначе на ошибке транзакции оно
+// выполнялось бы повторно. Здесь проверяется, что ошибка пробрасывается и
+// событие не публикуется.
+func TestUserService_CreateFailsWithoutMembership(t *testing.T) {
+	created := false
 
 	repo := &mockUserRepository{
-		deleteFunc: func(context.Context, string) error {
-			deleted = true
+		createFunc: func(context.Context, *model.User) error {
+			created = true
 
 			return nil
 		},
@@ -52,15 +60,21 @@ func TestUserService_CreateRollsBackWithoutMembership(t *testing.T) {
 			return database.ErrDuplicate
 		},
 	}
+	events := &mockUserEventPublisher{}
 
-	svc := NewUserService(context.Background(), repo, memberships, &mockUserEventPublisher{})
+	svc := newUserService(repo, memberships, events)
 
-	if _, err := svc.Create(context.Background(), testPrincipal(t, model.RoleAdmin), testCreateInput()); err == nil {
-		t.Fatal("Create() error = nil, want ошибку членства")
+	_, err := svc.Create(context.Background(), testPrincipal(t, model.RoleAdmin), testCreateInput())
+	if !errors.Is(err, database.ErrDuplicate) {
+		t.Fatalf("Create() error = %v, want %v", err, database.ErrDuplicate)
 	}
 
-	if !deleted {
-		t.Error("Create() не удалил пользователя после ошибки членства")
+	if !created {
+		t.Error("Create() не дошёл до вставки пользователя")
+	}
+
+	if len(events.events) != 0 {
+		t.Errorf("события = %v, want пусто: транзакция не завершилась", events.events)
 	}
 }
 
@@ -76,7 +90,7 @@ func TestUserService_ListVisibility(t *testing.T) {
 			},
 		}
 
-		svc := NewUserService(context.Background(), repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+		svc := newUserService(repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 		users, next, err := svc.List(context.Background(), testSuperuserPrincipal(t), model.Page{Limit: 1})
 		if err != nil || len(users) != 1 || next == "" {
@@ -95,7 +109,7 @@ func TestUserService_ListVisibility(t *testing.T) {
 			},
 		}
 
-		svc := NewUserService(context.Background(), repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+		svc := newUserService(repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 		users, next, err := svc.List(
 			context.Background(), tenantActorIn(t, model.RoleOperator, testTenantID), model.Page{Limit: 10},
@@ -106,9 +120,7 @@ func TestUserService_ListVisibility(t *testing.T) {
 	})
 
 	t.Run("клиент видит только себя", func(t *testing.T) {
-		svc := NewUserService(
-			context.Background(), &mockUserRepository{}, &mockUserMembershipRepository{}, &mockUserEventPublisher{},
-		)
+		svc := newUserService(&mockUserRepository{}, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 		actor := tenantActorIn(t, model.RoleClient, testTenantID)
 
 		users, next, err := svc.List(context.Background(), actor, model.Page{Limit: 10})
@@ -135,7 +147,7 @@ func TestUserService_GetVisibility(t *testing.T) {
 			},
 		}
 
-		svc := NewUserService(context.Background(), repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+		svc := newUserService(repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 		user, err := svc.Get(
 			context.Background(), tenantActorIn(t, model.RoleOperator, testTenantID), otherUserID,
@@ -146,9 +158,7 @@ func TestUserService_GetVisibility(t *testing.T) {
 	})
 
 	t.Run("клиент не читает чужой профиль", func(t *testing.T) {
-		svc := NewUserService(
-			context.Background(), &mockUserRepository{}, &mockUserMembershipRepository{}, &mockUserEventPublisher{},
-		)
+		svc := newUserService(&mockUserRepository{}, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
 
 		_, err := svc.Get(
 			context.Background(), tenantActorIn(t, model.RoleClient, testTenantID), otherUserID,
@@ -159,17 +169,76 @@ func TestUserService_GetVisibility(t *testing.T) {
 	})
 }
 
-func TestUserService_DeleteProtectsOwner(t *testing.T) {
-	memberships := &mockUserMembershipRepository{
-		getMemberFunc: func(_ context.Context, tenantID, userID string) (*model.TenantMember, error) {
-			return &model.TenantMember{TenantID: tenantID, UserID: userID, Role: model.RoleAdmin, IsOwner: true}, nil
-		},
-	}
+// TestUserService_DeleteRequiresGlobalAdmin проверяет границу удаления аккаунта:
+// профиль общий для всех тенантов, поэтому администратор тенанта его не удаляет
+// (исключение участника — TenantService.RemoveMember), а глобальный оператор —
+// удаляет, закрывая доступ: учётные данные деактивируются, сессии отзываются.
+func TestUserService_DeleteRequiresGlobalAdmin(t *testing.T) {
+	t.Run("администратор тенанта не удаляет аккаунт", func(t *testing.T) {
+		deleteCalled := false
 
-	svc := NewUserService(context.Background(), &mockUserRepository{}, memberships, &mockUserEventPublisher{})
+		repo := &mockUserRepository{deleteFunc: func(context.Context, string) error {
+			deleteCalled = true
 
-	err := svc.Delete(context.Background(), tenantActorIn(t, model.RoleAdmin, testTenantID), otherUserID)
-	if !errors.Is(err, ErrForbidden) {
-		t.Errorf("Delete() error = %v, want %v", err, ErrForbidden)
-	}
+			return nil
+		}}
+
+		svc := newUserService(repo, &mockUserMembershipRepository{}, &mockUserEventPublisher{})
+
+		err := svc.Delete(context.Background(), tenantActorIn(t, model.RoleAdmin, testTenantID), otherUserID)
+		if !errors.Is(err, ErrForbidden) {
+			t.Errorf("Delete() error = %v, want %v", err, ErrForbidden)
+		}
+
+		if deleteCalled {
+			t.Error("Delete() удалил аккаунт без прав глобального администратора")
+		}
+	})
+
+	t.Run("глобальный оператор удаляет и закрывает доступ", func(t *testing.T) {
+		var (
+			deletedID     string
+			deactivatedID string
+			revokedID     string
+		)
+
+		users := &mockUserRepository{deleteFunc: func(_ context.Context, id string) error {
+			deletedID = id
+
+			return nil
+		}}
+		credentials := &mockAuthCredentialRepository{deactivateFunc: func(_ context.Context, userID string, _ time.Time) error {
+			deactivatedID = userID
+
+			return nil
+		}}
+		tokens := &mockAuthTokenRepository{revokeByUserFunc: func(_ context.Context, userID string, _ time.Time) (int64, error) {
+			revokedID = userID
+
+			return 1, nil
+		}}
+		events := &mockUserEventPublisher{}
+
+		svc := newUserServiceWith(users, &mockUserMembershipRepository{}, credentials, tokens, events)
+
+		if err := svc.Delete(context.Background(), testGlobalOperatorPrincipal(t), otherUserID); err != nil {
+			t.Fatalf("Delete() unexpected error = %v", err)
+		}
+
+		if deletedID != otherUserID {
+			t.Errorf("Delete() id = %q, want %q", deletedID, otherUserID)
+		}
+
+		if deactivatedID != otherUserID {
+			t.Errorf("DeactivateByUser() id = %q, want %q", deactivatedID, otherUserID)
+		}
+
+		if revokedID != otherUserID {
+			t.Errorf("RevokeByUser() id = %q, want %q", revokedID, otherUserID)
+		}
+
+		if len(events.events) != 1 || events.events[0] != EventUserDeleted {
+			t.Errorf("события = %v, want [%s]", events.events, EventUserDeleted)
+		}
+	})
 }

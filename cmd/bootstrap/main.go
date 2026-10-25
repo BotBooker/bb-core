@@ -27,6 +27,7 @@ import (
 	"github.com/botbooker/bb-core/internal/database/sqlite"
 	"github.com/botbooker/bb-core/internal/repository"
 	"github.com/botbooker/bb-core/internal/service"
+	"github.com/botbooker/bb-core/pkg/password"
 )
 
 // osExit — обёртка над os.Exit: переменная, а не прямой вызов, чтобы main
@@ -77,6 +78,7 @@ func run(ctx context.Context, dbCfg config.DatabaseConfig, superuser config.Boot
 		repository.NewUserRepo(ctx, db, dialect),
 		repository.NewCredentialRepo(ctx, db, dialect),
 		tenantRepo,
+		password.NewHasher(),
 		config.Auth().PasswordTTL,
 	)
 

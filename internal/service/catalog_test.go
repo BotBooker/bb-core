@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 )
 
@@ -20,7 +20,7 @@ func (m *mockPublicTenantRepository) GetBySlug(ctx context.Context, slug string)
 		return m.getBySlugFunc(ctx, slug)
 	}
 
-	return nil, database.ErrNotFound
+	return nil, domain.ErrNotFound
 }
 
 func (m *mockPublicTenantRepository) ListActive(
@@ -90,8 +90,8 @@ func TestPublicCatalogService_GetTenant(t *testing.T) {
 
 		svc := NewPublicCatalogService(context.Background(), repo, &mockPublicCatalogRepository{})
 
-		if _, err := svc.GetTenant(context.Background(), "acme"); !errors.Is(err, database.ErrNotFound) {
-			t.Errorf("GetTenant() error = %v, want %v", err, database.ErrNotFound)
+		if _, err := svc.GetTenant(context.Background(), "acme"); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("GetTenant() error = %v, want %v", err, domain.ErrNotFound)
 		}
 	})
 
@@ -154,8 +154,8 @@ func TestPublicCatalogService_ListObjects(t *testing.T) {
 	t.Run("неизвестный тенант", func(t *testing.T) {
 		svc := NewPublicCatalogService(context.Background(), &mockPublicTenantRepository{}, &mockPublicCatalogRepository{})
 
-		if _, _, err := svc.ListObjects(context.Background(), "nope", model.Page{Limit: 10}); !errors.Is(err, database.ErrNotFound) {
-			t.Errorf("ListObjects() error = %v, want %v", err, database.ErrNotFound)
+		if _, _, err := svc.ListObjects(context.Background(), "nope", model.Page{Limit: 10}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("ListObjects() error = %v, want %v", err, domain.ErrNotFound)
 		}
 	})
 }

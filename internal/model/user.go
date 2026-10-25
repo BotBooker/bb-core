@@ -14,10 +14,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/google/uuid"
-
-	"github.com/botbooker/bb-core/pkg/tools"
 )
 
 // Ограничения длины полей: совпадают с правилами proto-валидации.
@@ -78,7 +74,7 @@ func ParseGender(value string) (Gender, error) {
 	}
 
 	if !gender.Valid() {
-		return "", fmt.Errorf("%w: %q", ErrInvalidGender, tools.SanitizeInputString(value))
+		return "", fmt.Errorf("%w: %q", ErrInvalidGender, sanitizeForError(value))
 	}
 
 	return gender, nil
@@ -185,7 +181,7 @@ func (in RegisterInput) Validate() error {
 // это отдельная операция soft delete).
 //
 // Роль не проставляется: роль принадлежит членству в тенанте
-// (model.NewTenantMember), и запись в users её не хранит.
+// (NewTenantMember), и запись в users её не хранит.
 //
 // Вход валидируется теми же правилами, что и proto-запрос на создание:
 // email обязателен, имена — 1..100 рун, телефон необязателен, но если задан —
@@ -207,7 +203,7 @@ func NewUser(in CreateUserInput, now time.Time) (*User, error) {
 	ts := now.UTC()
 
 	return &User{
-		ID:          uuid.NewString(),
+		ID:          NewID(),
 		Email:       NormalizeEmail(in.Email),
 		FirstName:   in.FirstName,
 		LastName:    in.LastName,
@@ -397,24 +393,6 @@ func (u *User) FullName() string {
 func (u *User) SetLastLogin(at time.Time) {
 	ts := at.UTC()
 	u.LastLoginAt = &ts
-}
-
-// ValidateUUID проверяет, что строка — валидный UUID (любой версии).
-//
-// Экспортируется для слоёв, которые принимают идентификатор от пользователя:
-// так невалидный id отклоняется до запроса в базу, где PostgreSQL ответил бы
-// ошибкой приведения типа вместо понятного 400.
-func ValidateUUID(value string) error { return validateUUID(value) }
-
-// validateUUID проверяет, что идентификатор — валидный UUID (любой версии:
-// proto-правило uuid не ограничивает версию, а создаём мы всегда UUIDv4).
-// В PostgreSQL тот же формат проверяет тип колонки id (uuid).
-func validateUUID(value string) error {
-	if _, err := uuid.Parse(value); err != nil {
-		return fmt.Errorf("%w: %q", ErrInvalidUUID, value)
-	}
-
-	return nil
 }
 
 // NormalizeEmail приводит адрес к виду, в котором он хранится: без пробелов по

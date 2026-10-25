@@ -133,8 +133,10 @@ func newSmokeApp(t *testing.T) *smokeApp {
 	userRepo := repository.NewUserRepo(ctx, conn, database.DialectSQLite)
 	tenantRepo := repository.NewTenantRepo(ctx, conn, database.DialectSQLite)
 	tokenRepo := repository.NewTokenRepo(ctx, conn, database.DialectSQLite)
-	catalogRepo := repository.NewCatalogRepo(ctx, conn)
+	credentialRepo := repository.NewCredentialRepo(ctx, conn, database.DialectSQLite)
+	catalogRepo := repository.NewCatalogRepo(ctx, conn, database.DialectSQLite)
 	eventBus := events.NewEventBus(ctx)
+	uow := database.NewUnitOfWork(conn.TrManager())
 
 	// Тенант сессии: UserService.Create добавляет нового пользователя в тенант
 	// действующего сотрудника, поэтому строка тенанта должна существовать.
@@ -151,7 +153,7 @@ func newSmokeApp(t *testing.T) *smokeApp {
 	// Авторизация мокается (см. newSmokeAuthService), но транспорт, сервисы
 	// пользователей и тенантов и репозитории — настоящие.
 	authService := newSmokeAuthService(t)
-	userService := service.NewUserService(ctx, userRepo, tenantRepo, eventBus)
+	userService := service.NewUserService(ctx, userRepo, tenantRepo, credentialRepo, tokenRepo, eventBus, uow)
 	tenantService := service.NewTenantService(ctx, tenantRepo, userRepo, tokenRepo, eventBus)
 	catalogService := service.NewPublicCatalogService(ctx, tenantRepo, catalogRepo)
 	userServiceServer := NewUserServiceServer(userService)
@@ -163,7 +165,12 @@ func newSmokeApp(t *testing.T) *smokeApp {
 		t.Fatalf("net.Listen() unexpected error = %v", err)
 	}
 
-	grpcServer := newGRPCServer(userServiceServer, tenantServiceServer, NewPublicCatalogServer(catalogService), authService)
+	// Контекст останавливает фоновую проверку health-сервиса: без отмены
+	// горутина watchHealth жила бы до конца тестового процесса.
+	grpcCtx, cancelGRPC := context.WithCancel(context.Background())
+	t.Cleanup(cancelGRPC)
+
+	grpcServer := newGRPCServer(grpcCtx, userServiceServer, tenantServiceServer, NewPublicCatalogServer(catalogService), authService, conn)
 
 	go func() {
 		if serveErr := grpcServer.Serve(listener); serveErr != nil && serveErr != grpc.ErrServerStopped {
@@ -174,7 +181,7 @@ func newSmokeApp(t *testing.T) *smokeApp {
 	t.Cleanup(grpcServer.Stop)
 
 	// HTTP: те же ручки, что отдаёт initHTTPServer.
-	handler, err := NewHandler(authService, userServiceServer, tenantServiceServer, catalogService)
+	handler, err := NewHandler(authService, userServiceServer, tenantServiceServer, catalogService, conn)
 	if err != nil {
 		t.Fatalf("NewHandler() unexpected error = %v", err)
 	}

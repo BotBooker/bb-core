@@ -33,8 +33,13 @@ docker compose run --rm bootstrap
 
 ```sh
 curl -fsS http://localhost:8080/health
+curl -fsS http://localhost:8080/ready
 docker compose logs -f api
 ```
+
+`docker compose ps` показывает `healthy`, когда `/app/api --readycheck` получает
+200 от `/ready`: HEALTHCHECK запускает тот же бинарник, что и сервер, — второго
+приложения в образе нет и БД пробой не переоткрывается.
 
 `MIGRATE_ON_START=true` применяет миграции при старте. Если миграции
 раскатываются отдельным шагом, поставьте `MIGRATE_ON_START=false` и запустите
@@ -145,7 +150,7 @@ export DSN='postgres://bbcore:password@postgres:5432/bbcore_restore?sslmode=requ
    `SELECT count(*) FROM tenants;`, `SELECT count(*) FROM bookings;`,
    `SELECT version_id FROM goose_db_version ORDER BY id DESC LIMIT 1;`.
 3. Переключите `DSN` на восстановленную базу и запустите `/app/migrate`.
-4. Запустите API, проверьте `/health`, вход и `GET /api/v1/tenants`.
+4. Запустите API, проверьте `/health` и `/ready`, вход и `GET /api/v1/tenants`.
 5. Если версия схемы старше кода — сначала накатите миграции, затем API.
 
 При откате релиза: остановите новые реплики, верните предыдущий образ и, если
@@ -154,7 +159,8 @@ export DSN='postgres://bbcore:password@postgres:5432/bbcore_restore?sslmode=requ
 
 ## 8. Наблюдаемость
 
-- `/health` — readiness/liveness.
+- `/health` — liveness (процесс жив), `/ready` — readiness (БД отвечает; 503 при
+  отказе).
 - OTLP: задайте `OTEL_EXPORTER_OTLP_ENDPOINT`,
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (при необходимости),
   `OTEL_METRICS_EXPORTER=otlp`; при выключенном экспортёре состояние пишется в

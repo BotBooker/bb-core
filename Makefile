@@ -4,7 +4,7 @@ CURRENT_DATE := $(shell date +%FT%T)
 GO ?= go
 GO_IMPORT_PATH ?= $(shell go list ./...)
 GO_LD_FLAGS := -X "main.version=$(shell git describe --tags 2>/dev/null || echo dev) built at $(CURRENT_DATE) on $(shell hostname) with $(shell go version)"
-GO_PKG ?= ./cmd/api ./cmd/bootstrap ./cmd/healthcheck ./cmd/migrate
+GO_PKG ?= ./cmd/api ./cmd/bootstrap ./cmd/migrate
 GO_TEST_ARGS ?= "-v"
 GO_TEST_FOLDERS  ?= $(shell go list -f '{{ .Dir }}' ./... | grep -vE 'pkg/proto|pkg/api')
 GO_VERSION=$(shell $(GO) version | cut -c 14- | cut -d' ' -f1 | cut -d'.' -f2)
@@ -273,15 +273,15 @@ kind-port-forward: ## Пробросить HTTP :8080 и gRPC :50051 из kind �
 		service/$(KIND_SERVICE) $(KIND_HTTP_PORT):8080 $(KIND_GRPC_PORT):50051
 
 .PHONY: kind-smoke
-kind-smoke: ## Smoke-проверка API в kind: GET /health через port-forward
-	@echo "Проверка /health через port-forward на 127.0.0.1:$(KIND_SMOKE_PORT)..."
+kind-smoke: ## Smoke-проверка API в kind: GET /ready через port-forward
+	@echo "Проверка /ready через port-forward на 127.0.0.1:$(KIND_SMOKE_PORT)..."
 	@$(KUBECTL) --context $(KIND_CONTEXT) -n $(KIND_NAMESPACE) port-forward \
 		service/$(KIND_SERVICE) $(KIND_SMOKE_PORT):8080 >/dev/null 2>&1 & \
 		PF_PID=$$!; \
 		trap 'kill $$PF_PID 2>/dev/null' EXIT INT TERM; \
 		for attempt in $$(seq 1 20); do \
-			if curl -fsS "http://127.0.0.1:$(KIND_SMOKE_PORT)/health" >/dev/null 2>&1; then \
-				echo "health check OK: http://127.0.0.1:$(KIND_SMOKE_PORT)/health"; \
+			if curl -fsS "http://127.0.0.1:$(KIND_SMOKE_PORT)/ready" >/dev/null 2>&1; then \
+				echo "health check OK: http://127.0.0.1:$(KIND_SMOKE_PORT)/ready"; \
 				exit 0; \
 			fi; \
 			sleep 1; \

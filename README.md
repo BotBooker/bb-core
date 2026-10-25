@@ -19,7 +19,7 @@ DSN=sqlite:/tmp/database.db go run ./cmd/api   # миграции применя
 
 | Переменная | По умолчанию | Назначение |
 | --- | --- | --- |
-| `SERVER_HOST`, `SERVER_PORT` | `localhost`, `8080` | HTTP: `/health`, `/api/v1`, `/api/swagger/` |
+| `SERVER_HOST`, `SERVER_PORT` | `localhost`, `8080` | HTTP: `/health` (liveness), `/ready` (readiness), `/api/v1`, `/api/swagger/` |
 | `SERVER_GRPC_HOST`, `SERVER_GRPC_PORT` | `localhost`, `50051` | gRPC: `user.v1.UserService`, `auth.v1.AuthService`, health, reflection |
 | `DSN` | — | подключение к БД; диалект (postgres/sqlite) определяется по DSN |
 | `MIGRATIONS_DIR` | `./migrations` | каталог goose-миграций (`postgres/`, `sqlite/`); в образе — `/app/migrations` |
@@ -31,6 +31,7 @@ DSN=sqlite:/tmp/database.db go run ./cmd/api   # миграции применя
 
 ```sh
 curl -s localhost:8080/health
+curl -s localhost:8080/ready
 grpcurl -plaintext localhost:50051 list
 ```
 
@@ -82,9 +83,9 @@ BASE_URL=http://localhost:8080 tests/smoke/auth.sh
 On-premise: `deploy/compose.yaml`, Helm-чарт `deploy/helm/bb-core`, скрипты
 backup/restore и [docs/RUNBOOK.md](docs/RUNBOOK.md). Тестовый стенд в
 Kubernetes — `make kind-test` (kind-кластер, PostgreSQL в кластере,
-образ `bb-core:dev`, smoke-проверка `/health`); удалить стенд — `make kind-down`.
+образ `bb-core:dev`, smoke-проверка `/ready`); удалить стенд — `make kind-down`.
 
-Пароли хранятся только в виде хеша **Argon2id** (`internal/model/password.go`).
+Пароли хранятся только в виде хеша **Argon2id** (`pkg/password`; `internal/model` видит только строку хеша).
 Хеши прежнего формата (PBKDF2-HMAC-SHA256) продолжают проверяться и
 «прозрачно» пересчитываются в Argon2id при успешном входе — сбрасывать пароли
 при обновлении не нужно.

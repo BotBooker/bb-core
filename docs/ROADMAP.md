@@ -250,10 +250,12 @@ Telegram, MAX, Discord, VK, Viber, WhatsApp, Facebook Messenger и Slack
 
 ### 3.1. Надёжность и health — P0
 
-- [ ] `/health` проверяет БД (`SELECT 1` с таймаутом) и отвечает `503` при
-  недоступности.
-- [ ] Описать семантику `/health` или разделить liveness и readiness.
-- [ ] gRPC health отражает готовность зависимостей, а не только запуск процесса.
+- [x] `/ready` проверяет БД (ping с таймаутом 2 с) и отвечает `503` при
+  недоступности; `/health` остаётся liveness-пробой.
+- [x] Семантика разделена: `/health` — liveness, `/ready` — readiness; Helm-пробы
+  используют разные пути.
+- [x] gRPC health отражает готовность зависимостей: статус переключается на
+  `NOT_SERVING`, когда БД не отвечает.
 - [ ] Таймауты и retry-политика для БД, HTTP и gRPC.
 - [ ] Проверка миграций up/down для PostgreSQL и SQLite в CI.
 
@@ -387,7 +389,7 @@ graph LR
 ```
 
 - **P0 — до первого рабочего контура:** вход по ссылке и onboarding, `tenant_id`
-  и изоляция, switch и `logout-all`, visibility matrix, проверка БД в `/health`,
+  и изоляция, switch и `logout-all`, visibility matrix, проверка БД в `/ready`,
   rate limiting аутентификации, синхронизация API-документации.
 - **P1 — основной сценарий:** объекты → брони → уведомления, реальный Redis,
   Docker/compose, on-premise packaging, интеграционные и нагрузочные тесты.

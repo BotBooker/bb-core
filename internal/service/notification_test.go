@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"testing"
+
+	"github.com/botbooker/bb-core/internal/domain"
 )
 
 // mockNotificationRepository is a mock implementation of NotificationRepository for testing.
@@ -20,7 +22,7 @@ func (m *mockNotificationEventSubscriber) Subscribe(_ context.Context, event str
 func TestNewNotificationService(t *testing.T) {
 	tests := []struct {
 		name        string
-		notifRepo   NotificationRepository
+		notifRepo   domain.NotificationRepository
 		userService NotificationUserService
 		events      NotificationEventSubscriber
 	}{

@@ -198,6 +198,12 @@ func testPrincipal(t *testing.T, user *model.User, role model.Role) *service.Pri
 	}
 }
 
+// mockReadiness — проверка БД для GET /ready: по умолчанию база доступна.
+type mockReadiness struct{ err error }
+
+// PingContext возвращает заданную ошибку доступности базы.
+func (m mockReadiness) PingContext(context.Context) error { return m.err }
+
 // authenticatedHandler собирает хендлер, в котором любой непустой токен
 // считается действующим, а его владелец — пользователем user.
 func authenticatedHandler(t *testing.T, user *model.User) Handler {
@@ -213,7 +219,7 @@ func authenticatedHandler(t *testing.T, user *model.User) Handler {
 		return principal, nil
 	}}
 
-	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
+	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{}, mockReadiness{})
 	if err != nil {
 		t.Fatalf("NewHandler() unexpected error = %v", err)
 	}
@@ -232,7 +238,7 @@ func TestHandler_NewHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, err := NewHandler(tt.auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
+			handler, err := NewHandler(tt.auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{}, mockReadiness{})
 			if err != nil {
 				t.Fatalf("NewHandler() unexpected error = %v", err)
 			}
@@ -444,7 +450,7 @@ func TestHandler_AuthenticateError(t *testing.T) {
 				return nil, tt.authErr
 			}}
 
-			handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
+			handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{}, mockReadiness{})
 			if err != nil {
 				t.Fatalf("NewHandler() unexpected error = %v", err)
 			}
@@ -476,7 +482,7 @@ func TestHandler_loginPasswordExpired(t *testing.T) {
 		return nil, service.ErrPasswordExpired
 	}}
 
-	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
+	handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{}, mockReadiness{})
 	if err != nil {
 		t.Fatalf("NewHandler() unexpected error = %v", err)
 	}
@@ -530,7 +536,7 @@ func TestHandler_changePassword(t *testing.T) {
 			}, nil
 		}}
 
-		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
+		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{}, mockReadiness{})
 		if err != nil {
 			t.Fatalf("NewHandler() unexpected error = %v", err)
 		}
@@ -559,7 +565,7 @@ func TestHandler_changePassword(t *testing.T) {
 			return nil, service.ErrInvalidCredentials
 		}}
 
-		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
+		handler, err := NewHandler(auth, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{}, mockReadiness{})
 		if err != nil {
 			t.Fatalf("NewHandler() unexpected error = %v", err)
 		}
@@ -574,7 +580,7 @@ func TestHandler_changePassword(t *testing.T) {
 	})
 
 	t.Run("битый JSON — 400", func(t *testing.T) {
-		handler, err := NewHandler(&mockAuthService{}, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{})
+		handler, err := NewHandler(&mockAuthService{}, NewUserServiceServer(&mockUserServiceAPI{}), NewTenantServiceServer(&mockTenantManagementService{}), &mockPublicCatalogService{}, mockReadiness{})
 		if err != nil {
 			t.Fatalf("NewHandler() unexpected error = %v", err)
 		}

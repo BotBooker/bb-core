@@ -2,7 +2,7 @@
 
 | Поле | Значение |
 | --- | --- |
-| Версия | 1.0 |
+| Версия | 1.1 |
 | Статус | Approved |
 | Область | Backend-сервисы на Go |
 | Стек | Go, PostgreSQL (pgx), SQLite (modernc.org/sqlite), HTTP (net/http), gRPC (google.golang.org/grpc), Valkey (Redis) - опционально |
@@ -44,44 +44,51 @@ Go с применением Domain-Driven Design для стека **PostgreSQL
 **Правило зависимостей:** MUST направляться внутрь. `domain` MUST NOT импортировать
 `application`, `infrastructure`, `presentation`, `database/sql`, `pgx`, `google.golang.org/grpc`, `net/http` и любые сторонние библиотеки.
 
+Соответствие слоёв пакетам репозитория:
+
+| Слой | Пакеты | Что внутри |
+| --- | --- | --- |
+| `domain` | `internal/domain` | порты (репозитории, `UnitOfWork`, `PasswordHasher`), доменные ошибки |
+| `domain` | `internal/model` | сущности, value objects, инварианты и валидаторы; только stdlib |
+| `application` | `internal/service` | use cases, транзакционные сценарии, права актора |
+| `infrastructure` | `internal/repository` | адаптеры портов: SQL, диалектный `codec`, маппинг ошибок |
+| `infrastructure` | `internal/database` | подключение, диалекты, миграции, адаптер `UnitOfWork` |
+| `presentation` | `internal/servers` | HTTP/gRPC-обработчики, DTO, маппинг, middleware, DI |
+
+Проверка направления зависимостей — часть ревью: новый импорт инфраструктуры
+(`database/sql`, драйвер, `google.golang.org/grpc`, `net/http`) в `domain` или
+`model` — дефект, а не вкусовщина. Хеширование паролей живёт в
+`pkg/password` (Argon2id и проверка legacy-PBKDF2), домен знает только порт
+`PasswordHasher` и строку хеша.
+
 ### 1.2. Структура пакетов
 
 ```text
-/cmd/          // Application entry points
-  api/         // Main HTTP/gRPC server
-  migrate/     // Database migrations
-  bootstrap/   // Superuser bootstrap
-  healthcheck/ // Health check tool
+/cmd/            // точки входа
+  api/           // HTTP/gRPC-сервер; --readycheck — проба для HEALTHCHECK
+  migrate/       // применение миграций
+  bootstrap/     // суперпользователь и первый тенант
 /internal/
-  database/database.go // единый контракт подключения к базе данных
-  application/
-    tenant/
-      create_tenant.go     // use case
-      add_item.go
-      ports.go            // UoW, Clock, EventPublisher
-  cache/cache.go  // единый контракт подключения к cache
-  domain/
-    tenant/
-      tenant.go            // агрегат
-      tenant_id.go         // value object
-      money.go            // value object
-      repository.go       // интерфейс репозитория
-      errors.go           // доменные ошибки
-      events.go           // доменные события
-  infrastructure/         // Core business logic
-  servers/
-/proto/
-  auth/
-  user/
-  tenant/
-  public/
-migrations/ // Database migrations (PostgreSQL & SQLite)
-/pkg/       // публичные переиспользуемые пакеты
-  logger/   // для инициализации и настройки логирования
-  tools/    // Shared utility tools
+  domain/        // порты: репозитории, UnitOfWork, PasswordHasher, ошибки
+  model/         // сущности, value objects, инварианты (только stdlib)
+  service/       // application: use cases и транзакционные сценарии
+  repository/    // infrastructure: SQL-адаптеры портов, диалектный codec
+  database/      // подключение, диалекты, миграции, адаптер UnitOfWork
+  servers/       // presentation: HTTP/gRPC, DTO, middleware, DI
+  cache/ config/ events/ jwt/ closer/  // поддерживающие адаптеры
+migrations/      // SQL-миграции: postgres/ и sqlite/
+/pkg/
+  password/      // Argon2id + проверка legacy-PBKDF2
+  logger/        // инициализация slog, TraceHandler, otelslog
+  observability/ // OpenTelemetry (traces, metrics)
+  tools/         // санитизация ввода, общие утилиты
+  api/ proto/    // сгенерированные контракты
 ```
 
-Пакеты MUST группироваться по бизнес-возможности (order, customer), а не по техническим типам (controllers, models). Пример, domain/tenant/controllers.go, domain/tenant/models.go
+Файлы внутри слоя группируются по бизнес-сущности из ubiquitous language
+(`user.go`, `tenant.go`, `catalog.go`, `notification.go`), а не по техническим
+артефактам (`controllers.go`, `models.go`, `helpers.go`). Новый пакет
+появляется под бизнес-возможность, а не под технический тип.
 
 ## 2. Домен
 
@@ -184,56 +191,58 @@ var (
 Интерфейс MUST определяться в `domain`, реализация — в `infrastructure`.
 
 ```go
-package order
+package domain
 
-type Repository interface {
-    Save(ctx context.Context, o *Order) error
-    FindByID(ctx context.Context, id ID) (*Order, error)
+type CatalogRepository interface {
+    ListPublicObjects(ctx context.Context, tenantID string, limit, offset int) ([]*model.PublicObject, error)
+    GetTenantBySlug(ctx context.Context, slug string) (*model.Tenant, error)
+}
+```
+
+```go
+// internal/repository/catalog.go — адаптер порта.
+// Алиас связывает реализацию с интерфейсом домена и документирует контракт.
+type CatalogRepo = domain.CatalogRepository
+
+type catalogRepo struct {
+    db CatalogDB
+    codec // плейсхолдеры и типы конкретного диалекта
 }
 ```
 
 - Репозиторий MUST работать с агрегатами, а не с DAO/таблицами.
 - Репозиторий MUST NOT содержать бизнес-логику.
-- Для отсутствующей сущности MUST возвращаться доменная ошибка (`ErrOrderNotFound`), а не `nil`, `nil`.
-- Ошибки хранилища MUST транслироваться в доменные/application-ошибки.
+- Для отсутствующей сущности MUST возвращаться доменная ошибка (`domain.ErrNotFound`), а не `nil`, `nil`.
+- Ошибки хранилища MUST транслироваться в доменные/application-ошибки (`database.MapError`), чтобы `service` и `servers` не импортировали `internal/database`.
+- Потребитель (use case) MUST зависеть от интерфейса из `domain`; конкретный тип остаётся приватным для пакета `repository`.
+- Если `internal/service` или `internal/servers` импортирует `internal/repository`/`internal/database` ради типа или ошибки — контракт порта нарушен.
 
 ### 3.2 PostgreSQL (pgx)
 
 - Драйвер MUST быть `github.com/jackc/pgx/v5` (или `pgxpool`).
-- Запросы MUST использовать параметризацию (`$1`, `$2`), конкатенация строк с данными запрещена.
+- Запросы MUST быть параметризованными; конкатенация строк с данными запрещена.
 - Обязательно MUST передаваться `ctx`.
-- Транзакции MUST начинаться через `pgx.Tx` (см. §7).
+- Транзакциями MUST управлять `UnitOfWork` (см. §7): репозиторий берёт соединение (`conn(ctx, r.db)`) и MUST NOT открывать транзакцию сам.
 - Схема БД MUST управляться миграциями (см. §3.5).
-- Для оптимистической блокировки MUST использоваться поле `version` с условием `WHERE id = $ AND version = $` и проверкой `RowsAffected`.
+- Для оптимистической блокировки MUST использоваться поле `version` с условием `WHERE id = ... AND version = ...` и проверкой `RowsAffected`.
 
 ```go
-type OrderDB struct {
-  QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-  ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-  BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+type orderRepo struct {
+    db    OrderDB
+    codec // rebind: «?» → «$n» для PostgreSQL
 }
 
-type OrderRepository struct {
-  db OrderDB
-  codec
-}
+func (r *orderRepo) Save(ctx context.Context, o *model.Order) error {
+    const query = "UPDATE orders SET total_amount = ?, total_currency = ?, status = ?," +
+        " version = version + 1 WHERE id = ? AND version = ?"
 
-func (r *OrderRepository) Save(ctx context.Context, o *order.Order) error {
-    tx, err := r.db.BeginTx(ctx, nil) // UoW, см. §7
+    result, err := conn(ctx, r.db).ExecContext(ctx, r.rebind(query),
+        o.TotalAmount, o.TotalCurrency, o.Status, o.ID, o.Version-1)
     if err != nil {
-        return err
+        return fmt.Errorf("update order: %w", database.MapError(err))
     }
-    result, err := tx.ExecContext(ctx, `
-        UPDATE orders SET total_amount=$1, total_currency=$2, status=$3, version=version+1
-        WHERE id=$4 AND version=$5`,
-        o.Total().Amount(), o.Total().Currency(), o.Status(), o.ID(), o.Version()-1)
-    if err != nil {
-        return fmt.Errorf("update order: %w", err)
-    }
-    if result.RowsAffected() == 0 {
-        return order.ErrOrderNotFound // или ErrConcurrentModification
-    }
-    return nil
+
+    return requireAffected(result, "update order")
 }
 ```
 
@@ -251,6 +260,18 @@ func (r *OrderRepository) Save(ctx context.Context, o *order.Order) error {
 - Выбор драйвера MUST происходить в `internal/database/database.go` на основе конфигурации.
 - SQLite SHOULD использоваться для локальной разработки, тестов и встраиваемых сценариев.
 - SQL-диалекты MUST быть изолированы в своих пакетах; общий SQL MUST NOT смешиваться.
+- Каждый репозиторий MUST встраивать диалектный `codec` и писать запросы с `?`: `codec.rebind` заменяет их на `$1…$n` для PostgreSQL. Сырой SQL в обход `codec` (включая тестовые хелперы) — дефект: на PostgreSQL `?` не плейсхолдер, и запрос падает с `SQLSTATE 42601`.
+- Каждый запрос MUST иметь сценарий на обоих диалектах: общая функция `runXxxScenario` вызывается из `TestXxxSQLite` и `TestXxxPostgres` (PostgreSQL включается переменной `DSN_TEST`, без неё тест пропускается).
+
+```go
+type catalogRepo struct {
+	db CatalogDB
+	codec
+}
+
+rows, err := conn(ctx, r.db).QueryContext(ctx, r.rebind(query),
+	tenantID, deletedObjectStatusID, limit, offset)
+```
 
 ```go
 // internal/database/database.go
@@ -268,7 +289,8 @@ switch strings.ToLower(scheme) {
 ### 3.5 Миграции
 
 - Миграции MUST храниться в `migrations/<driver>/`.
-- Инструмент: `goose` (единый для проекта).
+- Инструмент: `goose` (единый для проекта, `internal/database/migrate.go`).
+- Файлы миграций MUST читаться с диска (`MIGRATIONS_DIR`), а не встраиваться в бинарник: каталог копируется в образ.
 - Миграции MUST быть идемпотентными и обратимыми (если применимо).
 - Схемы PostgreSQL и SQLite MAY различаться типами, но MUST обеспечивать одинаковые инварианты на уровне ограничений:
   * `NOT NULL` для обязательных полей;
@@ -353,6 +375,9 @@ func (h *OrderHandler) AddItem(w http.ResponseWriter, r *http.Request) {
 ```
 
 - Middleware MUST включать: structured logging, recovery, timeout (по умолчанию 5–30s в зависимости от операции).
+- Служебные ручки MUST быть разделены по смыслу: liveness (`GET /health`) не
+  ходит во внешние зависимости, readiness (`GET /ready`) проверяет БД и
+  отвечает `503`, когда её нет. Один путь для обеих проб запрещён (§14.3).
 - Метаданные запроса MUST быть доступны через `ctx`.
 
 ## 6 Presentation: gRPC
@@ -391,18 +416,37 @@ func (s *OrderServer) AddItem(ctx context.Context, req *orderv1.AddItemRequest) 
 
 ## 7 Транзакции, UoW и конкурентность
 
-- `github.com/avito-tech/go-transaction-manager/trm/v2`
-- Транзакционная граница MUST находиться в application-слое, реализация — `UnitOfWork` в `infrastructure`.
+- Транзакционная граница MUST находиться в application-слое (`internal/service`), реализация — адаптер `UnitOfWork` в `infrastructure` (`internal/database`).
+- Порт `UnitOfWork` MUST быть объявлен в `domain`: use case не импортирует инфраструктуру.
 - Домен MUST NOT управлять транзакциями.
 - Один use case SHOULD одна транзакция (если не оговорено иное).
 
 ```go
-// application/order/ports.go
+// internal/domain/unit_of_work.go
 type UnitOfWork interface {
     Do(ctx context.Context, fn func(ctx context.Context) error) error
 }
 ```
 
+```go
+// internal/service/auth.go — регистрация целиком в одной транзакции.
+if err := s.uow.Do(ctx, func(ctx context.Context) error {
+    if err := s.userRepo.Create(ctx, user); err != nil {
+        return err
+    }
+    if err := s.credentialRepo.Create(ctx, credentials); err != nil {
+        return err
+    }
+    return s.tokenRepo.Create(ctx, token)
+}); err != nil {
+    return nil, fmt.Errorf("register: %w", err)
+}
+```
+
+- Реализация MUST использовать `github.com/avito-tech/go-transaction-manager/trm/v2` (`internal/database/uow.go`): `Do` открывает транзакцию, кладёт её в контекст и вызывает `fn`; ошибка откатывает изменения, `nil` фиксирует.
+- Репозитории MUST брать соединение из контекста (`database.GetTx`, хелпер `conn(ctx, db)`) и MUST NOT открывать собственную транзакцию: иначе часть изменений зафиксируется мимо транзакции use case.
+- Вложенный `Do` выполняется в уже открытой транзакции (без `SAVEPOINT`): use case MUST NOT рассчитывать на частичный откат вложенного вызова.
+- Компенсирующие действия (ручное удаление уже созданных записей после ошибки) MUST NOT заменять откат.
 - Для конкурентного изменения агрегатов MUST использоваться оптимистическая блокировка по `version`.
 - При конфликте MUST возвращаться `ErrConcurrentModification` → 409 / `codes.Aborted`.
 - Для критичных событий MUST использоваться **outbox**: событие пишется в таблицу `outbox` в той же транзакции, что и агрегат; отдельный публикатор (worker) доставляет события с at-least-once семантикой.
@@ -482,17 +526,14 @@ type UnitOfWork interface {
 
 ## 10. Тестирование
 
-- Покрытие бизнес-логики — не ниже 80 % (`make coverage`).
-- Unit-тесты табличные, почти для каждого пакета; внешние зависимости
-  изолируются подменяемыми переменными/интерфейсами (фейковый пул, фейковый
-  OTLP-коллектор, подмена глобального логгера).
-- Интеграционные тесты БД/кэша включаются переменными `DSN_TEST`/`REDIS_HOST`; без них
-  они пропускаются (в CI переменные заданы).
+- Покрытие бизнес-логики — не ниже 80 % (`make coverage`: `go test -coverprofile` + `go tool cover -func`, порог проверяет Makefile).
+- Unit-тесты табличные, почти для каждого пакета; внешние зависимости изолируются подменяемыми переменными/интерфейсами (фейковый пул, фейковый OTLP-коллектор, подмена глобального логгера).
+- Интеграционные тесты БД/кэша включаются переменными `DSN_TEST`/`REDIS_HOST`; без них они пропускаются (в CI переменные заданы).
 
 MUST быть покрыты:
 
 - инварианты агрегатов — unit-тестами домена (без БД);
-- use cases — тестами с fake-репозиториями и fake-UoW;
+- use cases — тестами с fake-репозиториями и fake-UoW: «Do» сразу вызывает переданную функцию, а отдельный фейк проверяет откат при ошибке;
 - реализации репозиториев — интеграционными тестами для обеих БД (PostgreSQL — через testcontainers или docker-compose, SQLite — in-memory или временный файл);
 - HTTP/gRPC — contract-тестами (например, httptest, bufconn).
 
@@ -503,6 +544,9 @@ MUST быть покрыты:
 - Для SQLite-тестов MUST использоваться временный файл или file::memory:?cache=shared с busy_timeout.
 - Для PostgreSQL-тестов MUST использоваться контейнер с фиксированной версией образа.
 - Набор интеграционных тестов MUST быть общим для обеих реализаций репозитория (table-driven по драйверу), чтобы гарантировать одинаковые инварианты.
+- Внешние зависимости MUST изолироваться: HTTP-клиенты — `httptest` или интерфейс, драйвер БД — интеграционная база или узкий интерфейс (`QueryContext`/`ExecContext`), часы — функция `now` в сервисе, хеширование паролей — порт `PasswordHasher` (`pkg/password` в тестах подменяется быстрым фейком).
+- Тесты MUST NOT зависеть от реального времени и сети: сроки токенов и паролей проверяются с подменёнными часами.
+- Golden-файлы MAY использоваться для JSON/proto-ответов; обновление — вместе с изменением контракта, а не «чтобы тест прошёл».
 
 ## 11. Сборка и проверки
 
@@ -556,8 +600,10 @@ MUST быть покрыты:
 - Репозитории определены интерфейсами в domain.
 - Use cases управляют транзакционной границей через UnitOfWork.
 - Работают обе реализации репозитория (PostgreSQL и SQLite) с одинаковыми инвариантами.
+- Все запросы проходят через диалектный `codec`: один и тот же SQL работает на PostgreSQL (`$1…$n`) и SQLite (`?`).
 - HTTP-обработчики и gRPC-сервер не вызывают репозитории напрямую.
 - Ошибки типизированы и маппятся в HTTP-коды / gRPC-статусы согласно §5–§6.
+- Readiness проверяет БД (`GET /ready`), liveness не зависит от внешних зависимостей (`GET /health`).
 - Есть unit-тесты домена, тесты use case и интеграционные тесты для обеих БД.
 - Код проходит gofmt, go vet, golangci-lint, make lint.
 - Прото-контракты версионированы и не редактируются вручную.
@@ -614,7 +660,11 @@ Read-only корень не должен ломать процесс: всё, ч
 - `automountServiceAccountToken: false` — доступ к API Kubernetes приложению не
   нужен.
 - `resources.requests` и `resources.limits` для CPU и памяти.
-- `readinessProbe` и `livenessProbe` (HTTP-путь или команда `/app/healthcheck`).
+- `readinessProbe` и `livenessProbe` с разной семантикой: readiness —
+  `GET /ready` (ping БД, 503 при отказе), liveness — `GET /health` (жив ли
+  процесс). Один общий путь для обеих проб запрещён: при упавшей БД под не
+  выводится из балансировки, а перезапуск контейнера базу не лечит.
+  `timeoutSeconds` пробы не меньше бюджета проверки (2 с на ping).
 - Образ с фиксированным тегом (не `latest`), `imagePullPolicy` задан.
 - Секреты — только через `secretKeyRef` (или `existingSecret` в Helm); значения
   не хранятся в манифестах и `values.yaml`.
@@ -630,8 +680,9 @@ Read-only корень не должен ломать процесс: всё, ч
 
 Ложные срабатывания эвристик сканера фиксируются в `.trivyignore.yaml`:
 исключение содержит `id` (`AVD-KSV-…`), `paths` (конкретный файл) и `statement`
-с обоснованием. Пример — ключи `AUTH_TOKEN_TTL`/`PASSWORD_TTL` в ConfigMap:
-это сроки жизни, а не секреты, и эвристика реагирует на подстроки в именах.
+с обоснованием. Пример: если сканер отметит ключи `AUTH_TOKEN_TTL`/`PASSWORD_TTL`
+в ConfigMap как секреты — это сроки жизни, эвристика реагирует на подстроку в
+имени; настоящие секреты (DSN, `JWT_SECRET`) в ConfigMap не попадают.
 CI передаёт файл сканеру (`trivyignores` в `trivy-scan.yml`); исключения без
 обоснования не добавляются.
 
@@ -641,11 +692,11 @@ CI передаёт файл сканеру (`trivyignores` в `trivy-scan.yml`)
 # misconfig-сканеры (то же, что в CI): securityContext, capabilities, seccomp
 trivy config --severity HIGH,CRITICAL deploy/
 
-# Синтаксис и схема без кластера
-kubectl apply --dry-run=client -f deploy/kind/
+# Синтаксис и схема без кластера (kind-config.yaml — конфиг kind, не ресурс)
+kubectl apply --dry-run=client -f deploy/kind/postgres.yaml
 helm template bb-core deploy/helm/bb-core | kubectl apply --dry-run=client -f -
 
-# Стенд целиком: образ, кластер, деплой, smoke-проверка /health
+# Стенд целиком: образ, кластер, деплой, smoke-проверка /ready
 make kind-test
 ```
 

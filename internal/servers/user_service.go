@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/botbooker/bb-core/internal/database"
+	"github.com/botbooker/bb-core/internal/domain"
 	"github.com/botbooker/bb-core/internal/model"
 	"github.com/botbooker/bb-core/internal/service"
 	user_v1 "github.com/botbooker/bb-core/pkg/proto/user/v1"
@@ -248,11 +248,11 @@ func toStatusError(ctx context.Context, err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, database.ErrNotFound):
+	case errors.Is(err, domain.ErrNotFound):
 		// Текст фиксированный: в err.Error() обёрнута ошибка драйвера
 		// (sql.ErrNoRows и т.п.), а детали SQL наружу отдавать нельзя.
 		return status.Error(codes.NotFound, notFoundMessage)
-	case errors.Is(err, database.ErrDuplicate):
+	case errors.Is(err, domain.ErrDuplicate):
 		// Здесь драйвер сообщает имя индекса и SQLSTATE, поэтому текст тоже
 		// фиксированный — как у ErrNotFound.
 		return status.Error(codes.AlreadyExists, conflictMessage)
