@@ -1,0 +1,35 @@
+name: Close Idle Issues
+
+on:
+  schedule:
+    # Runs every day at midnight UTC
+    - cron: "0 4 * * *"
+  # Allows manual triggering from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close inactive issues
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11
+        with:
+          # Warn after 14 days of inactivity (21 days total minus 3 days warning period)
+          days-before-stale: 14
+
+          # Close exactly 7 days after the warning is posted
+          days-before-close: 7
+
+          # Warning message posted on day 14
+          stale-issue-message: "This issue has been idle for 14 days. If no one assigns themselves or comments within the next 7 days, it will be automatically closed."
+
+          # Final closure message posted on day 21
+          close-issue-message: "This issue has been automatically closed because it was not taken into work within 21 days."
+
+          # Label applied to the issue during the 7-day warning period
+          stale-issue-label: "stale"
+
+          # Process only issues WITHOUT an assignee
+          exempt-issue-assignees: "none"
