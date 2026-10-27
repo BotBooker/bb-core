@@ -127,18 +127,14 @@ jobs:
         with:
           postgres-version: 16
 
-      - name: Setup Redis
-        uses: shogo82148/actions-setup-redis@ffaf3c39499b2917543d84f6acc818277580b531 # v1.58.1
-        with:
-          distribution: redis
-          redis-version: "8.10"
-          redis-conf: |
-            requirepass "redis#password"
+      - name: Setup Valkey
+        uses: BotBooker/action-setup-valkey@aff46621afba341ed54bc805f526dfb7408d7ab9 # v1
+        id: valkey
 
       - name: Run Tests
         env:
           DSN_TEST: ${{ steps.postgresql.outputs.connection-uri }}
-          REDIS_HOST: redis://default:redis#password@localhost:6379/0
+          REDIS_HOST: ${{ steps.valkey.outputs.connection-uri }}
         run: GO_TEST_ARGS='-failfast -shuffle=off' make coverage
 
       - name: Upload coverage to Codecov
