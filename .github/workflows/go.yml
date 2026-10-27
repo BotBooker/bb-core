@@ -28,19 +28,16 @@ jobs:
       security-events: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # Версия — из go.mod: .go-version в репозиторий не версионируется
-          # (в .gitignore), поэтому в CI его нет. Матрица тестов ниже
-          # дополнительно проверяет версию на шаг вперёд.
           go-version-file: go.mod
           cache: true
 
       - name: Cache Go tools
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/bin
           key: ${{ runner.os }}-gobin-${{ hashFiles('tools.mk', 'go.sum') }}
@@ -53,8 +50,8 @@ jobs:
           # Версия зафиксирована и совпадает с tools.mk: без неё экшен ставит latest.
           version: v2.15.0
 
-      - name: govulncheck
-        run: make go-check
+      - name: golang-govulncheck-action
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
 
       - name: Bearer
         uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
@@ -71,7 +68,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: results.sarif
 
@@ -100,10 +97,10 @@ jobs:
           cache: true
 
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Cache Go modules and build
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ matrix.go-build }}
@@ -112,7 +109,7 @@ jobs:
             ${{ runner.os }}-go-${{ matrix.go }}-
 
       - name: Cache Go tools
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/bin
           key: ${{ runner.os }}-gobin-${{ hashFiles('tools.mk', 'go.sum') }}
@@ -125,7 +122,8 @@ jobs:
           go mod download
 
       - name: Setup PostgreSQL
-        uses: ikalnytskyi/action-setup-postgres@0f1fdf59c857aabfa61ab1a2619e9af34de678d3 # master
+        id: postgresql
+        uses: ikalnytskyi/action-setup-postgres@325155bfd7807b2a21ac9c2c7bb9b9a6eacc44df # v9
         with:
           postgres-version: 16
 
@@ -139,7 +137,7 @@ jobs:
 
       - name: Run Tests
         env:
-          DSN_TEST: postgres://postgres:postgres@localhost/postgres?sslmode=disable
+          DSN_TEST: ${{ steps.postgresql.outputs.connection-uri }}
           REDIS_HOST: redis://default:redis#password@localhost:6379/0
         run: GO_TEST_ARGS='-failfast -shuffle=off' make coverage
 
