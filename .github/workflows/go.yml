@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: results.sarif
 
@@ -122,6 +122,7 @@ jobs:
           go mod download
 
       - name: Setup PostgreSQL
+        id: postgresql
         uses: ikalnytskyi/action-setup-postgres@325155bfd7807b2a21ac9c2c7bb9b9a6eacc44df # v9
         with:
           postgres-version: 16
@@ -136,11 +137,9 @@ jobs:
 
       - name: Run Tests
         env:
-          DSN_TEST: postgres://postgres:postgres@localhost/postgres?sslmode=disable
+          DSN_TEST: ${{ steps.postgresql.outputs.connection-uri }}
           REDIS_HOST: redis://default:redis#password@localhost:6379/0
-        run: |
-          echo "CONNECTION_URI: ${CONNECTION_URI}"
-          GO_TEST_ARGS='-failfast -shuffle=off' make coverage
+        run: GO_TEST_ARGS='-failfast -shuffle=off' make coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

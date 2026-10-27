@@ -34,10 +34,9 @@ help: ## Show this help message
 
 .PHONY: test
 test: ## Run tests to verify code functionality
-test: tools
 	@echo "Running tests with coverage report...";
-	@set -eu;\
-	$(GO) mod tidy;\
+	set -eu
+	$(GO) mod tidy
 	$(GO) test -json -shuffle=on -timeout=5m -count=1 $(GO_TEST_ARGS) $(GO_TEST_FOLDERS) \
 		-coverprofile=coverage.txt -covermode=atomic 2>&1 | tee ./gotest-e2e.log | gotestfmt
 
