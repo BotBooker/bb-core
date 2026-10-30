@@ -47,11 +47,11 @@ ingress:
 
 resources:
   requests:
-    cpu: 100m
+    cpu: 250m
     memory: 128Mi
   limits:
-    cpu: "1"
-    memory: 512Mi
+    cpu: "2"
+    memory: 4Gi
 
 podSecurityContext:
   runAsNonRoot: true

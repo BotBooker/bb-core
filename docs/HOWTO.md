@@ -443,3 +443,7 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
 `go test ./pkg/observability/ -run 'TestSetupMetrics|TestMetricsEndpoint' -v` —
 проверяют включение экспорта по переменным окружения и выгрузку метрик в
 поддельный OTLP-коллектор.
+
+Как эти метрики превращаются в SLI/SLO и какие обязательства из них следуют —
+см. [specification/SLI.md](specification/SLI.md),
+[SLO.md](specification/SLO.md) и [SLA.md](specification/SLA.md).

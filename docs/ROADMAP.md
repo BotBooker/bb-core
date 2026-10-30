@@ -325,7 +325,7 @@ Telegram, MAX, Discord, VK, Viber, WhatsApp, Facebook Messenger и Slack
 - [ ] Тесты идемпотентности брони и платежа: повтор и конфликт `Idempotency-Key`.
 - [ ] Контрактные тесты proto и OpenAPI.
 - [ ] `go test -race` в CI.
-- [ ] Нагрузочный тест: 100 rps и p95 не выше 300 мс.
+- [ ] Нагрузочный тест: 100 rps и p95 не выше 300 мс на конфигурации 2xCPU / 4GB RAM (не считая PGDB & Cache).
 - [ ] Fuzz-тесты санитайзера и парсеров — P2.
 
 ### 3.7. Доставка и инфраструктура — P1/P2
