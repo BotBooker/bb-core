@@ -173,6 +173,10 @@ ldflags; релиз собирается целью `make build-release`. Цел
 - [docs/specification/architecture.md](docs/specification/architecture.md) —
   архитектура приложения.
 - [docs/HOWTO.md](docs/HOWTO.md) — наблюдаемость (трассировка, метрики, логи).
+- [docs/specification/SLI.md](docs/specification/SLI.md),
+  [SLO.md](docs/specification/SLO.md),
+  [SLA.md](docs/specification/SLA.md) — надёжность: индикаторы, цели,
+  обязательства. [план внедрения](docs/plans/reliability-gaps-2026-10-30.md).
 - [docs/ROADMAP.md](docs/ROADMAP.md) — текущее состояние, продуктовые вехи и
   инженерный backlog.
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) — on-premise: деплой, backup/restore,
