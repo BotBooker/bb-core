@@ -116,6 +116,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gobin-
 
+      - name: Set up gotestfmt
+        uses: GoTestTools/gotestfmt-action@eba2ac97f623e866e7b1b117c99f18b43cd36d18 # v2.3.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download dependencies
         run: |
           go mod edit -go=${{ matrix.go }}
