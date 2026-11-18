@@ -1,0 +1,5 @@
+[[allowlists]]
+description = "graphify-out"
+paths = [
+  '''graphify-out/*'''
+]
