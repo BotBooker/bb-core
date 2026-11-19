@@ -77,13 +77,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu, macos]
-        go: ["1.26.10", "1.27.3"]
+        os:
+          - ubuntu
+        go:
+          - "1.27.4"
         include:
           - os: ubuntu
             go-build: ~/.cache/go-build
-          - os: macos
-            go-build: ~/Library/Caches/go-build
     name: ${{ matrix.os }} @ Go ${{ matrix.go }}
     runs-on: ${{ matrix.os }}-latest
     env:

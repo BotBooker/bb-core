@@ -3,7 +3,7 @@
 # Миграции не встроены в бинарники (embed отключён): SQL-файлы копируются в
 # образ отдельным слоем и читаются с диска из /app/migrations (MIGRATIONS_DIR).
 
-FROM golang:1.27.3-alpine AS build
+FROM golang:1.27.4-alpine AS build
 
 # ca-certificates и tzdata нужны в scratch-образе: без них не работают TLS до
 # PostgreSQL/OTLP-коллектора и часовые пояса. В runtime попадают только файлы

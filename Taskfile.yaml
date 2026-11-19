@@ -1,0 +1,173 @@
+version: "3"
+
+vars:
+  COVERAGE_DIR: "{{.ROOT_DIR}}/coverage"
+  COVERAGE_FILE: "{{.COVERAGE_DIR}}/coverage.out"
+  COVERAGE_THRESHOLD: "80"
+  # VERSIONS
+  BUF_VERSION: "1.75.0"
+  GITLEAKS_VERSION: "v8.30.1"
+  GO_VERSION: "1.27.4"
+  GOLANGCI_LINT_VERSION: "v2.15.0"
+  GOOSE_VERSION: "v3.30.1"
+  GOVULNCHECK_VERSION: "v1.9.0"
+  MOCKERY_VERSION: "v3.9.1"
+  OGEN_VERSION: "v1.25.0"
+  PROTOC_GEN_GO_GRPC_VERSION: "v1.6.2"
+  PROTOC_GEN_GO_VERSION: "v1.36.12"
+
+  BIN_DIR: "{{.ROOT_DIR}}/bin"
+
+  # Реестр версионируемых инструментов: источник для tools:install. Ставятся в
+  # bin/<имя>/<версия>/, при установке сносятся прочие версии (прун), поэтому бамп
+  # *_VERSION автоматически триггерит переустановку (status проверяет путь с версией).
+  # protoc-плагины сюда НЕ входят: buf.gen.yaml ссылается на них относительным путём
+  # ../../bin/protoc-gen-go и не умеет интерполировать версию, поэтому их ставит отдельная
+  # задача proto:install-plugins в плоский bin/.
+  TOOLS:
+    - {
+        name: goose,
+        version: "{{.GOOSE_VERSION}}",
+        pkg: "github.com/pressly/goose/v3/cmd/goose",
+      }
+    - {
+        name: golangci-lint,
+        version: "{{.GOLANGCI_LINT_VERSION}}",
+        pkg: "github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
+      }
+    - {
+        name: buf,
+        version: "v{{.BUF_VERSION}}",
+        pkg: "github.com/bufbuild/buf/cmd/buf",
+      }
+    - {
+        name: ogen,
+        version: "{{.OGEN_VERSION}}",
+        pkg: "github.com/ogen-go/ogen/cmd/ogen",
+      }
+    - {
+        name: govulncheck,
+        version: "{{.GOVULNCHECK_VERSION}}",
+        pkg: "golang.org/x/vuln/cmd/govulncheck",
+      }
+    - {
+        name: gitleaks,
+        version: "{{.GITLEAKS_VERSION}}",
+        pkg: "github.com/zricethezav/gitleaks/v8",
+      }
+    - {
+        name: mockery,
+        version: "{{.MOCKERY_VERSION}}",
+        pkg: "github.com/vektra/mockery/v3",
+      }
+
+  GITLEAKS: "{{.BIN_DIR}}/gitleaks/{{.GITLEAKS_VERSION}}/gitleaks"
+  GOLANGCI_LINT: "{{.BIN_DIR}}/golangci-lint/{{.GOLANGCI_LINT_VERSION}}/golangci-lint"
+  GOOSE: "{{.BIN_DIR}}/goose/{{.GOOSE_VERSION}}/goose"
+  GOVULNCHECK: "{{.BIN_DIR}}/govulncheck/{{.GOVULNCHECK_VERSION}}/govulncheck"
+  MOCKERY: "{{.BIN_DIR}}/mockery/{{.MOCKERY_VERSION}}/mockery"
+  OGEN: "{{.BIN_DIR}}/ogen/{{.OGEN_VERSION}}/ogen"
+
+  BUF: "{{.BIN_DIR}}/buf/v{{.BUF_VERSION}}/buf"
+  PROTOC_GEN_GO: "{{.BIN_DIR}}/protoc-gen-go"
+  PROTOC_GEN_GO_GRPC: "{{.BIN_DIR}}/protoc-gen-go-grpc"
+
+tasks:
+  setup:
+    desc: "Устанавливает все инструменты"
+    deps: [tools:install, proto:install-plugins]
+
+  tools:install:
+    desc: "Устанавливает версионируемые инструменты в bin/<имя>/<версия>/"
+    cmds:
+      # На каждый инструмент из TOOLS: поставить в bin/<имя>/<версия>/ и снести
+      # прочие его версии (по-утилитный прун, без коллизий между утилитами).
+      - for: { var: TOOLS }
+        cmd: |
+          echo "📦 Устанавливаем {{.ITEM.name}} {{.ITEM.version}}..."
+          # Миграция со старого плоского layout: снести bin/<name>, если это файл,
+          # иначе mkdir bin/<name>/<version> упрётся в одноимённый файл.
+          [ -f "{{.BIN_DIR}}/{{.ITEM.name}}" ] && rm -f "{{.BIN_DIR}}/{{.ITEM.name}}" || true
+          GOBIN="{{.BIN_DIR}}/{{.ITEM.name}}/{{.ITEM.version}}" go install "{{.ITEM.pkg}}@{{.ITEM.version}}"
+          for d in "{{.BIN_DIR}}/{{.ITEM.name}}"/*/; do
+            [ -d "$d" ] || continue
+            [ "$(basename "$d")" = "{{.ITEM.version}}" ] || rm -rf "$d"
+          done
+      # Отметка версии Go, которой собраны инструменты. После смены версии Go задача
+      # переустановит их: golangci-lint, собранный старым Go, код под новый Go не проверяет.
+      - go env GOVERSION > "{{.BIN_DIR}}/.go-version"
+    status:
+      - test "$(cat "{{.BIN_DIR}}/.go-version" 2>/dev/null)" = "$(go env GOVERSION)"
+      - test -x {{.BUF}}
+      - test -x {{.GITLEAKS}}
+      - test -x {{.GOLANGCI_LINT}}
+      - test -x {{.GOOSE}}
+      - test -x {{.GOVULNCHECK}}
+      - test -x {{.MOCKERY}}
+      - test -x {{.OGEN}}
+
+  deps:update:
+    desc: "Обновляет зависимости"
+    cmds:
+      - echo '🔄 Обновляем зависимости'
+      - go mod tidy -compat={{.GO_VERSION}}
+
+  proto:install-plugins:
+    desc: "Устанавливает protoc-плагины"
+    cmds:
+      - echo '📦 Устанавливаем protoc-gen-go...'
+      - GOBIN={{.BIN_DIR}} go install google.golang.org/protobuf/cmd/protoc-gen-go@{{.PROTOC_GEN_GO_VERSION}}
+      - echo '📦 Устанавливаем protoc-gen-go-grpc...'
+      - GOBIN={{.BIN_DIR}} go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@{{.PROTOC_GEN_GO_GRPC_VERSION}}
+    status:
+      - test -x {{.PROTOC_GEN_GO}}
+      - test -x {{.PROTOC_GEN_GO_GRPC}}
+
+  lint:
+    desc: "Запускает golangci-lint"
+    deps: [tools:install]
+    cmds:
+      - "{{.GOLANGCI_LINT}} run --allow-parallel-runners ./... --config=.golangci.yml"
+
+  vuln:
+    desc: "Скан зависимостей на известные уязвимости (govulncheck)"
+    deps: [tools:install]
+    cmds:
+      - "{{.GOVULNCHECK}} -scan package ./..."
+
+  secrets:
+    desc: "Скан файлов проекта на секреты (gitleaks)"
+    deps: [tools:install]
+    cmds:
+      - "{{.GITLEAKS}} dir . --redact --no-banner -v"
+
+  test:coverage:
+    desc: "Тесты с покрытием бизнес-логики (api/service слои сервисов; без Docker)"
+    vars:
+      GO_TEST_FOLDERS:
+        sh: go list -f '{{ "{{" }} .Dir {{ "}}" }}' ./...|grep -vE 'pkg/proto|pkg/api'|xargs
+    cmds:
+      - go test -v -race -covermode=atomic -coverprofile={{.COVERAGE_FILE}} {{.GO_TEST_FOLDERS}} >/dev/null
+      - echo "📊 Покрытие по функциям:"
+      - go tool cover -func={{.COVERAGE_FILE}}
+      - task: coverage:threshold
+
+  test:coverage:clean:
+    desc: "Очищает директорию с отчётами покрытия"
+    cmds:
+      - rm -rf {{.COVERAGE_DIR}}
+      - mkdir -p {{.COVERAGE_DIR}}
+
+  coverage:threshold:
+    desc: "Проверяет соответствие покрытия порогу"
+    internal: true
+    vars:
+      COVERAGE:
+        sh: go tool cover -func={{.COVERAGE_FILE}} | tail -n1 | awk '{print $NF}' | tr -d '%'
+    preconditions:
+      - sh: test -f {{.COVERAGE_FILE}}
+        msg: "Файл покрытия не найден. Запустите task test:coverage"
+    cmds:
+      - echo "🧾 Общее покрытие:{{.COVERAGE}}% | Порог:{{.COVERAGE_THRESHOLD}}%"
+      - cmd: test $(echo "{{.COVERAGE}} >= {{.COVERAGE_THRESHOLD}}" | bc) -eq 1
+      - echo "✅ Покрытие соответствует порогу"
