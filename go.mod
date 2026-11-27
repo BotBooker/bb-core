@@ -7,7 +7,7 @@ require (
 	github.com/avito-tech/go-transaction-manager/trm/v2 v2.0.5
 	github.com/envoyproxy/protoc-gen-validate v1.3.3
 	github.com/exaring/otelpgx v0.13.0
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.34.0
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/pressly/goose/v3 v3.30.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.21.0
